@@ -1,0 +1,20 @@
+---
+description: Always bump the extension version when shipping changes
+alwaysApply: true
+---
+
+# Always Bump Version
+
+Whenever you change extension code (engine, panel, manifest, selectors), bump the
+version in BOTH files — keep them in sync:
+
+- `manifest.config.js` → `version`
+- `package.json` → `version`
+
+Use semver: patch for fixes/selectors, minor for new features/platforms, major for
+breaking reworks. Then rebuild (`npm run build`) so `dist/manifest.json` reflects it.
+
+```
+// e.g. new platform support
+"version": "0.4.0"  →  "0.5.0"
+```

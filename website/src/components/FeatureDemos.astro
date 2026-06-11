@@ -1,0 +1,491 @@
+---
+import { Dices, Filter, ImageDown, Eye, Heart, Bookmark } from "@lucide/astro";
+
+/* ─── Three compact html-gifs (pure CSS, zero JS) ───────────────────────────
+ *
+ *   A. "Browse like a person" — a feed of 4 posts is watched one by one; the
+ *                               persona dice let only one earn a like + save.
+ *   B. "Engage where it counts" — posts with small like-counts get skipped;
+ *                                 the 1.7K post earns the green check.
+ *   C. "Grab every thumbnail"  — a reels grid fills in a wave while the
+ *                                downloads counter ticks to 9.
+ *
+ * All loops are 10s, staggered so they never beat in unison; each pauses in
+ * its resolved state ~40% of the loop. Reduced-motion freezes each at the
+ * resolved state. All classes prefixed `.fd-*` so they can't leak.
+ */
+---
+
+<section id="features" class="relative overflow-x-clip px-6 py-16 md:py-24">
+  <div
+    class="blob"
+    aria-hidden="true"
+    style="top: 8%; right: -12%; width: 420px; height: 420px; background: #ffd9a8; opacity: 0.4;"
+  >
+  </div>
+
+  <div class="reveal-group mx-auto max-w-3xl text-center">
+    <span
+      class="reveal text-xs font-medium tracking-widest text-stone-500 uppercase"
+    >
+      Three things it does
+    </span>
+    <h2 class="reveal mt-3 text-3xl font-medium tracking-tight md:text-5xl">
+      Quiet browsing that keeps accounts
+      <span class="accent-word text-[1.1em] leading-none">alive</span>.
+    </h2>
+    <p class="reveal text-muted mx-auto mt-5 max-w-xl text-base md:text-lg">
+      Each demo below loops live — nothing is a video. They're the real states
+      the extension moves through, staged on a mock.
+    </p>
+  </div>
+
+  <div class="reveal mx-auto mt-16 grid max-w-5xl gap-5 md:grid-cols-3 md:gap-6">
+    <!-- ───── Demo A: Persona dice ───── -->
+    <article
+      class="group relative flex flex-col overflow-hidden rounded-[2rem] border border-stone-100 bg-white p-5 shadow-soft transition-transform duration-500 hover:-translate-y-1 hover:shadow-soft-lg"
+    >
+      <div class="fd-stage">
+        <span class="fd-pill fd-pill-blue">Casual Scroller · 40%</span>
+        <div class="fd-rows">
+          <div class="fd-row fd-r1">
+            <span class="fd-fav" style="background:#8b5cf6"></span>
+            <span class="fd-bar" style="width:62%"></span>
+            <span class="fd-mark fd-watch fd-w1"><Eye size={10} /></span>
+          </div>
+          <div class="fd-row fd-r2">
+            <span class="fd-fav" style="background:#0ea5e9"></span>
+            <span class="fd-bar" style="width:74%"></span>
+            <span class="fd-mark fd-engage fd-e2">
+              <Heart size={10} fill="currentColor" />
+              <Bookmark size={10} />
+            </span>
+          </div>
+          <div class="fd-row fd-r3">
+            <span class="fd-fav" style="background:#f59e3c"></span>
+            <span class="fd-bar" style="width:55%"></span>
+            <span class="fd-mark fd-watch fd-w3"><Eye size={10} /></span>
+          </div>
+          <div class="fd-row fd-r4">
+            <span class="fd-fav" style="background:#137333"></span>
+            <span class="fd-bar" style="width:68%"></span>
+            <span class="fd-mark fd-watch fd-w4"><Eye size={10} /></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex items-start gap-3">
+        <span
+          class="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+          style="background-color: rgba(60,124,252,0.12);"
+          aria-hidden="true"
+        >
+          <Dices size={14} color="#3c7cfc" strokeWidth={2} />
+        </span>
+        <div>
+          <p class="text-xs font-medium tracking-widest text-stone-500 uppercase">
+            Personas &amp; pacing
+          </p>
+          <h3 class="mt-1 text-xl font-medium tracking-tight md:text-2xl">
+            Browse like a
+            <span class="accent-word text-[1.15em]" style="line-height: 1;">person</span>.
+          </h3>
+          <p class="mt-2 text-sm leading-relaxed text-stone-600 md:text-[15px]">
+            Every post gets watched; only some get touched. A persona — Binge
+            Watcher, Casual Scroller, Engaged User — rolls the dice per post,
+            with cooldowns and random gaps so runs never look mechanical.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ───── Demo B: Engagement thresholds ───── -->
+    <article
+      class="group relative flex flex-col overflow-hidden rounded-[2rem] border border-stone-100 bg-white p-5 shadow-soft transition-transform duration-500 hover:-translate-y-1 hover:shadow-soft-lg"
+    >
+      <div class="fd-stage">
+        <span class="fd-pill fd-pill-ember">min 500 likes</span>
+        <div class="fd-rows">
+          <div class="fd-trow fd-t1">
+            <span class="fd-fav" style="background:#64748b"></span>
+            <span class="fd-count">42</span>
+            <span class="fd-bar" style="width:46%"></span>
+            <span class="fd-skip fd-sk1">skip</span>
+          </div>
+          <div class="fd-trow fd-t2">
+            <span class="fd-fav" style="background:#8b5cf6"></span>
+            <span class="fd-count fd-count-hot">1.7K</span>
+            <span class="fd-bar" style="width:58%"></span>
+            <span class="fd-check fd-ck2">✓</span>
+          </div>
+          <div class="fd-trow fd-t3">
+            <span class="fd-fav" style="background:#0ea5e9"></span>
+            <span class="fd-count">118</span>
+            <span class="fd-bar" style="width:50%"></span>
+            <span class="fd-skip fd-sk3">skip</span>
+          </div>
+          <div class="fd-trow fd-t4">
+            <span class="fd-fav" style="background:#f59e3c"></span>
+            <span class="fd-count fd-count-hot">2K</span>
+            <span class="fd-bar" style="width:64%"></span>
+            <span class="fd-check fd-ck4">✓</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex items-start gap-3">
+        <span
+          class="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+          style="background-color: rgba(245,125,13,0.12);"
+          aria-hidden="true"
+        >
+          <Filter size={14} color="#f57d0d" strokeWidth={2} />
+        </span>
+        <div>
+          <p class="text-xs font-medium tracking-widest text-stone-500 uppercase">
+            Engagement thresholds
+          </p>
+          <h3 class="mt-1 text-xl font-medium tracking-tight md:text-2xl">
+            Engage where it
+            <span class="accent-word text-[1.15em]" style="line-height: 1;">counts</span>.
+          </h3>
+          <p class="mt-2 text-sm leading-relaxed text-stone-600 md:text-[15px]">
+            Set a minimum like or comment count and the extension reads each
+            post's real numbers before acting — low-signal posts still get
+            watched, but only proven content earns your likes and saves.
+          </p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ───── Demo C: Bulk thumbnails ───── -->
+    <article
+      class="group relative flex flex-col overflow-hidden rounded-[2rem] border border-stone-100 bg-white p-5 shadow-soft transition-transform duration-500 hover:-translate-y-1 hover:shadow-soft-lg"
+    >
+      <div class="fd-stage">
+        <span class="fd-counterpill">
+          <span class="fd-dn fd-dn-0">0</span>
+          <span class="fd-dn fd-dn-3">3</span>
+          <span class="fd-dn fd-dn-6">6</span>
+          <span class="fd-dn fd-dn-9">9</span>
+          <span class="fd-dn-label">saved</span>
+        </span>
+        <div class="fd-grid">
+          <span class="fd-thumb fd-th1" style="background:linear-gradient(135deg,#2e1065,#7c3aed)"></span>
+          <span class="fd-thumb fd-th2" style="background:linear-gradient(135deg,#082f49,#0ea5e9)"></span>
+          <span class="fd-thumb fd-th3" style="background:linear-gradient(135deg,#431407,#f59e3c)"></span>
+          <span class="fd-thumb fd-th4" style="background:linear-gradient(135deg,#052e16,#22c55e)"></span>
+          <span class="fd-thumb fd-th5" style="background:linear-gradient(135deg,#4a044e,#d946ef)"></span>
+          <span class="fd-thumb fd-th6" style="background:linear-gradient(135deg,#450a0a,#ef4444)"></span>
+          <span class="fd-thumb fd-th7" style="background:linear-gradient(135deg,#1e1b4b,#6366f1)"></span>
+          <span class="fd-thumb fd-th8" style="background:linear-gradient(135deg,#042f2e,#14b8a6)"></span>
+          <span class="fd-thumb fd-th9" style="background:linear-gradient(135deg,#3b0764,#a855f7)"></span>
+        </div>
+        <span class="fd-path">Downloads/socialWarmer-thumbs/sean-whill/</span>
+      </div>
+
+      <div class="mt-6 flex items-start gap-3">
+        <span
+          class="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+          style="background-color: rgba(60,124,252,0.12);"
+          aria-hidden="true"
+        >
+          <ImageDown size={14} color="#3c7cfc" strokeWidth={2} />
+        </span>
+        <div>
+          <p class="text-xs font-medium tracking-widest text-stone-500 uppercase">
+            Research downloads
+          </p>
+          <h3 class="mt-1 text-xl font-medium tracking-tight md:text-2xl">
+            Grab every
+            <span class="accent-word text-[1.15em]" style="line-height: 1;">thumbnail</span>.
+          </h3>
+          <p class="mt-2 text-sm leading-relaxed text-stone-600 md:text-[15px]">
+            Open any profile's reels tab and pull every video thumbnail in one
+            click — auto-scrolled, named by reel id, and filed into a folder
+            named after the page. Transcripts and saved videos live in the
+            panel too.
+          </p>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<style is:global>
+  .fd-stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    border-radius: 1.25rem;
+    background: #f4f6fa;
+    border: 1px solid var(--color-stone-100, #f1f3f4);
+    padding: 38px 14px 14px;
+    min-height: 196px;
+    overflow: hidden;
+  }
+  .fd-pill,
+  .fd-counterpill {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 9999px;
+    padding: 3px 8px;
+  }
+  .fd-pill-blue {
+    color: var(--color-blue, #3c7cfc);
+    background: var(--color-blue-bg, #e9f0ff);
+  }
+  .fd-pill-ember {
+    color: #d96c08;
+    background: rgba(245, 125, 13, 0.12);
+  }
+
+  .fd-rows {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    justify-content: space-evenly;
+    gap: 9px;
+  }
+  .fd-row,
+  .fd-trow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid var(--color-stone-100, #f1f3f4);
+    border-radius: 10px;
+    padding: 9px 10px;
+  }
+  .fd-fav {
+    width: 14px;
+    height: 14px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .fd-bar {
+    height: 5px;
+    border-radius: 9999px;
+    background: var(--color-stone-200, #e0e3e7);
+  }
+  .fd-count {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--color-faint, #80868b);
+    min-width: 26px;
+  }
+  .fd-count-hot {
+    color: #d96c08;
+  }
+
+  /* Demo A: highlight wave + marks */
+  .fd-r1 { animation: fd-hl-1 10s ease infinite; }
+  .fd-r2 { animation: fd-hl-2 10s ease infinite; }
+  .fd-r3 { animation: fd-hl-3 10s ease infinite; }
+  .fd-r4 { animation: fd-hl-4 10s ease infinite; }
+  @keyframes fd-hl-1 {
+    0%, 4% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+    6%, 16% { box-shadow: 0 0 0 2px rgba(60, 124, 252, 0.35); }
+    20%, 100% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+  }
+  @keyframes fd-hl-2 {
+    0%, 20% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+    22%, 32% { box-shadow: 0 0 0 2px rgba(60, 124, 252, 0.35); }
+    36%, 100% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+  }
+  @keyframes fd-hl-3 {
+    0%, 36% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+    38%, 48% { box-shadow: 0 0 0 2px rgba(60, 124, 252, 0.35); }
+    52%, 100% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+  }
+  @keyframes fd-hl-4 {
+    0%, 52% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+    54%, 64% { box-shadow: 0 0 0 2px rgba(60, 124, 252, 0.35); }
+    68%, 100% { box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+  }
+  .fd-mark {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    border-radius: 9999px;
+    padding: 3px 7px;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  .fd-watch {
+    color: var(--color-faint, #80868b);
+    background: var(--color-surface-alt, #f1f3f4);
+  }
+  .fd-engage {
+    color: #f0454e;
+    background: rgba(240, 69, 78, 0.1);
+  }
+  .fd-w1 { animation: fd-mk-1 10s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+  .fd-e2 { animation: fd-mk-2 10s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+  .fd-w3 { animation: fd-mk-3 10s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+  .fd-w4 { animation: fd-mk-4 10s cubic-bezier(0.34, 1.56, 0.64, 1) infinite; }
+  @keyframes fd-mk-1 {
+    0%, 14% { opacity: 0; transform: scale(0.6); }
+    17%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+  @keyframes fd-mk-2 {
+    0%, 30% { opacity: 0; transform: scale(0.6); }
+    33%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+  @keyframes fd-mk-3 {
+    0%, 46% { opacity: 0; transform: scale(0.6); }
+    49%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+  @keyframes fd-mk-4 {
+    0%, 62% { opacity: 0; transform: scale(0.6); }
+    65%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+
+  /* Demo B: skips fade the row, checks ring it (staggered 0.6s offset) */
+  .fd-skip {
+    margin-left: auto;
+    font-size: 8.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-faint, #80868b);
+    background: var(--color-surface-alt, #f1f3f4);
+    border-radius: 9999px;
+    padding: 3px 7px;
+    opacity: 0;
+  }
+  .fd-check {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--color-green, #137333);
+    border-radius: 9999px;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  .fd-t1 { animation: fd-dim-1 10s ease 0.6s infinite; }
+  .fd-t3 { animation: fd-dim-3 10s ease 0.6s infinite; }
+  .fd-sk1 { animation: fd-skp-1 10s ease 0.6s infinite; }
+  .fd-sk3 { animation: fd-skp-3 10s ease 0.6s infinite; }
+  .fd-ck2 { animation: fd-chk-2 10s cubic-bezier(0.34, 1.56, 0.64, 1) 0.6s infinite; }
+  .fd-ck4 { animation: fd-chk-4 10s cubic-bezier(0.34, 1.56, 0.64, 1) 0.6s infinite; }
+  @keyframes fd-dim-1 {
+    0%, 12% { opacity: 1; }
+    16%, 88% { opacity: 0.45; }
+    94%, 100% { opacity: 1; }
+  }
+  @keyframes fd-dim-3 {
+    0%, 44% { opacity: 1; }
+    48%, 88% { opacity: 0.45; }
+    94%, 100% { opacity: 1; }
+  }
+  @keyframes fd-skp-1 {
+    0%, 12% { opacity: 0; }
+    16%, 88% { opacity: 1; }
+    94%, 100% { opacity: 0; }
+  }
+  @keyframes fd-skp-3 {
+    0%, 44% { opacity: 0; }
+    48%, 88% { opacity: 1; }
+    94%, 100% { opacity: 0; }
+  }
+  @keyframes fd-chk-2 {
+    0%, 28% { opacity: 0; transform: scale(0.6); }
+    32%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+  @keyframes fd-chk-4 {
+    0%, 60% { opacity: 0; transform: scale(0.6); }
+    64%, 88% { opacity: 1; transform: scale(1); }
+    94%, 100% { opacity: 0; transform: scale(0.6); }
+  }
+
+  /* Demo C: thumbnail wave + counter (staggered 1.2s offset) */
+  .fd-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .fd-thumb {
+    aspect-ratio: 9 / 13;
+    border-radius: 7px;
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  .fd-th1 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 1.2s infinite; }
+  .fd-th2 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 1.7s infinite; }
+  .fd-th3 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 2.2s infinite; }
+  .fd-th4 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 2.7s infinite; }
+  .fd-th5 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 3.2s infinite; }
+  .fd-th6 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 3.7s infinite; }
+  .fd-th7 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 4.2s infinite; }
+  .fd-th8 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 4.7s infinite; }
+  .fd-th9 { animation: fd-th 10s cubic-bezier(0.34, 1.56, 0.64, 1) 5.2s infinite; }
+  @keyframes fd-th {
+    0% { opacity: 0; transform: scale(0.85); }
+    3% { opacity: 1; transform: scale(1); }
+    78% { opacity: 1; transform: scale(1); }
+    86%, 100% { opacity: 0; transform: scale(0.85); }
+  }
+  .fd-counterpill {
+    color: var(--color-blue, #3c7cfc);
+    background: var(--color-blue-bg, #e9f0ff);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .fd-dn {
+    position: relative;
+    width: 8px;
+    display: inline-block;
+    text-align: center;
+  }
+  .fd-dn { position: absolute; left: 8px; opacity: 0; }
+  .fd-dn-label { margin-left: 12px; }
+  .fd-dn-0 { animation: fd-dn0 10s steps(1) 1.2s infinite; opacity: 1; }
+  .fd-dn-3 { animation: fd-dn3 10s steps(1) 1.2s infinite; }
+  .fd-dn-6 { animation: fd-dn6 10s steps(1) 1.2s infinite; }
+  .fd-dn-9 { animation: fd-dn9 10s steps(1) 1.2s infinite; }
+  @keyframes fd-dn0 { 0%, 10% { opacity: 1; } 11%, 84% { opacity: 0; } 85%, 100% { opacity: 1; } }
+  @keyframes fd-dn3 { 0%, 10% { opacity: 0; } 11%, 25% { opacity: 1; } 26%, 100% { opacity: 0; } }
+  @keyframes fd-dn6 { 0%, 25% { opacity: 0; } 26%, 40% { opacity: 1; } 41%, 100% { opacity: 0; } }
+  @keyframes fd-dn9 { 0%, 40% { opacity: 0; } 41%, 84% { opacity: 1; } 85%, 100% { opacity: 0; } }
+  .fd-path {
+    display: block;
+    margin-top: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 8.5px;
+    color: var(--color-faint, #80868b);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Reduced motion: freeze all three at the resolved state */
+  @media (prefers-reduced-motion: reduce) {
+    .fd-row, .fd-trow { animation: none; }
+    .fd-t1, .fd-t3 { animation: none; opacity: 0.45; }
+    .fd-mark, .fd-check { animation: none; opacity: 1; transform: scale(1); }
+    .fd-skip { animation: none; opacity: 1; }
+    .fd-thumb { animation: none; opacity: 1; transform: scale(1); }
+    .fd-dn { animation: none !important; opacity: 0 !important; }
+    .fd-dn-9 { opacity: 1 !important; }
+  }
+</style>

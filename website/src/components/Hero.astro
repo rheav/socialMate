@@ -1,0 +1,69 @@
+---
+import { Play } from "@lucide/astro";
+import ChromeButton from "./ChromeButton.astro";
+---
+
+<section
+  class="relative isolate flex min-h-[72vh] w-full items-center justify-center overflow-x-clip px-6 pt-20 pb-10 md:pt-24 md:pb-12"
+>
+  <!-- Soft background blobs — blue + ember, masked at the edges. -->
+  <div
+    class="blob"
+    aria-hidden="true"
+    style="top: 6%; left: 4%; width: 420px; height: 420px; background: #e9f0ff;"
+  >
+  </div>
+  <div
+    class="blob blob-alt"
+    aria-hidden="true"
+    style="bottom: -4%; right: 4%; width: 460px; height: 460px; background: #ffd9a8;"
+  >
+  </div>
+
+  <div
+    class="reveal-group relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center"
+  >
+    <span
+      class="reveal mb-6 inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1 text-xs font-medium text-stone-500 shadow-soft backdrop-blur-sm"
+    >
+      <span
+        class="block h-1.5 w-1.5 rounded-full"
+        style="background-color: #3c7cfc;"></span>
+      Keep every account alive
+    </span>
+
+    <h1
+      class="reveal text-ink text-5xl leading-[1.04] font-medium tracking-tight md:text-6xl lg:text-[72px]"
+    >
+      An account that stays
+      <span
+        class="accent-word sway mt-1 block text-[1.2em] leading-none"
+      >warm</span>
+      — never invisible.
+    </h1>
+
+    <p
+      class="reveal text-muted mx-auto mt-7 max-w-[540px] text-base md:text-lg"
+    >
+      socialWarmer browses Facebook, Instagram, and TikTok the way a person
+      does — scrolling feeds, watching videos, liking and saving at a
+      believable pace — so fresh accounts build real engagement history and
+      read as trusted, active profiles instead of bots.
+    </p>
+
+    <div class="reveal mt-9 flex flex-col items-center gap-3 sm:flex-row">
+      <ChromeButton>Add to your browser</ChromeButton>
+      <a
+        href="#preview"
+        class="secondary-cta inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/70 px-6 py-3 text-sm font-medium text-ink backdrop-blur-sm transition-all hover:border-stone-300 hover:bg-white"
+      >
+        <Play size={14} class="secondary-cta-icon" />
+        See it work
+      </a>
+    </div>
+
+    <p class="reveal mt-8 text-xs text-stone-500">
+      Free · no account · runs locally · you watch every move
+    </p>
+  </div>
+</section>

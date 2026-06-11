@@ -1,0 +1,77 @@
+---
+/**
+ * Navbar — floating pill, always visible.
+ *
+ * Nav links get a left→right blue underline wipe + a gentle color warming on
+ * hover. The single CTA is the ChromeButton (small). Logo = the flame mark.
+ */
+import ChromeButton from "./ChromeButton.astro";
+import LogoMark from "./LogoMark.astro";
+---
+
+<nav
+  class="fixed top-4 right-4 left-4 z-40 mx-auto flex max-w-5xl items-center justify-between rounded-full border border-stone-200/70 px-4 py-2 shadow-soft backdrop-blur-xl md:px-6 md:py-2.5"
+  style="background-color: rgba(255, 255, 255, 0.72);"
+  aria-label="Main"
+>
+  <a href="/" class="group flex items-center gap-2" aria-label="socialWarmer home">
+    <span class="nav-logo-chip relative flex items-center justify-center">
+      <LogoMark size={26} />
+    </span>
+    <span class="text-ink text-base font-medium tracking-tight">
+      socialWarmer
+    </span>
+  </a>
+
+  <div
+    class="hidden items-center gap-6 text-sm font-medium text-stone-500 md:flex"
+  >
+    <a href="/#scenarios" class="nav-link">The problem</a>
+    <a href="/#preview" class="nav-link">How it works</a>
+    <a href="/#features" class="nav-link">Features</a>
+    <a href="/docs" class="nav-link">Docs</a>
+    <a href="/#faq" class="nav-link">Questions</a>
+  </div>
+
+  <ChromeButton size="small">Add to browser</ChromeButton>
+</nav>
+
+<style>
+  .nav-link {
+    position: relative;
+    padding: 2px 0;
+    color: var(--color-muted);
+    background-image: linear-gradient(
+      to right,
+      var(--color-blue),
+      var(--color-cyan, #59c0e8)
+    );
+    background-repeat: no-repeat;
+    background-size: 0% 1.5px;
+    background-position: 0 100%;
+    transition:
+      color 450ms ease,
+      background-size 500ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .nav-link:hover,
+  .nav-link:focus-visible {
+    color: var(--color-ink);
+    background-size: 100% 1.5px;
+    outline: none;
+  }
+
+  .nav-logo-chip {
+    transition: filter 400ms ease;
+  }
+  .group:hover .nav-logo-chip {
+    filter: brightness(1.04);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .nav-link,
+    .nav-link:hover,
+    .nav-logo-chip {
+      transition: color 200ms ease !important;
+    }
+  }
+</style>

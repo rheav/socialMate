@@ -1,0 +1,156 @@
+---
+/**
+ * Terms of Use — socialWarmer. Same legal-card layout as the privacy page.
+ */
+import Layout from "../layouts/Layout.astro";
+import Navbar from "../components/Navbar.astro";
+import Footer from "../components/Footer.astro";
+
+const lastUpdated = "Last updated: June 10, 2026";
+---
+
+<Layout
+  title="Terms of Use — socialWarmer"
+  description="Terms of Use for the socialWarmer browser extension."
+>
+  <Navbar />
+  <main class="relative z-10 min-h-screen px-4 pt-32 pb-20 md:px-6">
+    <div class="mx-auto max-w-3xl">
+      <h1 class="text-4xl font-medium tracking-tight md:text-5xl">
+        Terms of <span class="legal-accent">Use</span>
+      </h1>
+      <p class="mt-4 text-stone-500">{lastUpdated}</p>
+
+      <div class="mt-10 space-y-6">
+        <section class="legal-card">
+          <h2 class="legal-h2">1. What socialWarmer is</h2>
+          <p class="legal-p">
+            socialWarmer is a free browser extension that semi-automates
+            browsing on Facebook, Instagram, and TikTok — scrolling feeds,
+            watching videos, and performing the likes, saves, and follows you
+            enable, at a human pace, in runs you start yourself from a side
+            panel. It also bundles research tools: local transcription, a
+            saved-video list, and bulk thumbnail downloads.
+          </p>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">2. Your accounts, your responsibility</h2>
+          <p class="legal-p">
+            You use socialWarmer with accounts you own or are authorized to
+            manage. Automated or semi-automated interaction may conflict with
+            a platform's terms of service, and platforms may limit or suspend
+            accounts at their sole discretion. You accept that risk when you
+            press Start. We recommend modest targets, generous pacing, and
+            treating the tool as account warming — not engagement farming.
+          </p>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">3. Acceptable use</h2>
+          <p class="legal-p">Don't use socialWarmer to:</p>
+          <ul class="legal-ul">
+            <li>Run spam, harassment, or coordinated inauthentic-behavior campaigns</li>
+            <li>Manipulate metrics for deception or fraud</li>
+            <li>Interact with accounts or content you have no right to access</li>
+            <li>Violate any applicable law</li>
+          </ul>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">4. Downloads & content rights</h2>
+          <p class="legal-p">
+            The thumbnail downloader and transcription tools save publicly
+            visible content to your own machine for research. The underlying
+            content belongs to its creators and platforms; what you do with it
+            must respect their rights and the applicable copyright law.
+          </p>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">5. No warranty</h2>
+          <p class="legal-p">
+            socialWarmer is provided "as is", free of charge, without warranty
+            of any kind. Platforms change their pages constantly; features can
+            break without notice. We are not liable for any damages arising
+            from use of the extension, including platform action against your
+            accounts.
+          </p>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">6. Not affiliated</h2>
+          <p class="legal-p">
+            socialWarmer is not affiliated with, endorsed by, or sponsored by
+            Meta, Facebook, Instagram, TikTok, or any other platform. All
+            trademarks belong to their owners.
+          </p>
+        </section>
+
+        <section class="legal-card">
+          <h2 class="legal-h2">7. Changes</h2>
+          <p class="legal-p">
+            These terms may change as the product evolves; the date above
+            reflects the latest revision. Continuing to use the extension
+            after a change means you accept the updated terms.
+          </p>
+        </section>
+      </div>
+
+      <div class="mt-12 text-center">
+        <a href="/" class="legal-link text-stone-500">← Back to home</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>
+
+<style is:global>
+  .legal-accent {
+    color: var(--color-blue);
+  }
+  .legal-card {
+    border: 1px solid rgba(224, 227, 231, 0.8);
+    background-color: rgba(255, 255, 255, 0.7);
+    border-radius: 1rem;
+    padding: 1.5rem 1.6rem;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  }
+  .legal-h2 {
+    color: var(--color-ink);
+    font-size: 1.25rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.75rem;
+  }
+  .legal-p {
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+  .legal-ul {
+    margin-top: 0.75rem;
+    padding-left: 1.2rem;
+    list-style: disc;
+    color: var(--color-muted);
+    line-height: 1.7;
+  }
+  .legal-ul > li + li {
+    margin-top: 0.4rem;
+  }
+  .legal-link {
+    color: var(--color-blue);
+    background-image: linear-gradient(to right, var(--color-blue), #59c0e8);
+    background-repeat: no-repeat;
+    background-size: 0% 1.5px;
+    background-position: 0 100%;
+    transition:
+      color 300ms ease,
+      background-size 350ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .legal-link:hover,
+  .legal-link:focus-visible {
+    background-size: 100% 1.5px;
+    outline: none;
+  }
+</style>

@@ -1,0 +1,82 @@
+---
+import "../styles/global.css";
+import FloatingEmbers from "../components/FloatingEmbers.astro";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "socialWarmer — keep every account warm",
+  description = "A browser extension that warms up Facebook, Instagram, and TikTok accounts the human way: it scrolls feeds, watches videos, and likes or saves at a believable pace from a side panel you control — so fresh accounts build real engagement history instead of looking like bots.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f6f8fc" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <title>{title}</title>
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={Astro.url.href} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
+    <!-- No-JS fallback: scroll-reveal elements start hidden, so force them
+         visible when JavaScript is unavailable. -->
+    <noscript>
+      <style>
+        .reveal {
+          opacity: 1 !important;
+          transform: none !important;
+        }
+      </style>
+    </noscript>
+  </head>
+  <body class="bg-canvas text-ink relative overflow-x-hidden">
+    <!-- Grain overlay: fixed, z-50, mix-blend-mode overlay -->
+    <div class="grain-overlay" aria-hidden="true"></div>
+
+    <!-- Ambient rising embers, z-5, behind content -->
+    <FloatingEmbers />
+
+    <slot />
+
+    <script>
+      // Intersection-observer-backed reveal. Runs once per element.
+      function initReveal() {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          document
+            .querySelectorAll(".reveal")
+            .forEach((el) => el.classList.add("is-visible"));
+          return;
+        }
+        const io = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting) {
+                entry.target.classList.add("is-visible");
+                io.unobserve(entry.target);
+              }
+            });
+          },
+          { threshold: 0.15, rootMargin: "0px 0px -40px 0px" },
+        );
+        document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+      }
+      initReveal();
+    </script>
+  </body>
+</html>

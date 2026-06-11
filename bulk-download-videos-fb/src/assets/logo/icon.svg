@@ -1,0 +1,24 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fbBlue" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#42A5F5"/>
+      <stop offset="0.45" stop-color="#1877F2"/>
+      <stop offset="1" stop-color="#0866FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded app tile -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#fbBlue)"/>
+
+  <!-- Stacked sheets behind (implies bulk/mass) -->
+  <rect x="40" y="22" width="48" height="10" rx="5" fill="#FFFFFF" opacity="0.45"/>
+  <rect x="34" y="34" width="60" height="10" rx="5" fill="#FFFFFF" opacity="0.7"/>
+
+  <!-- Download arrow -->
+  <rect x="56" y="46" width="16" height="30" rx="8" fill="#FFFFFF"/>
+  <path d="M40 68 L64 94 L88 68 Z" fill="#FFFFFF"/>
+
+  <!-- Download tray -->
+  <path d="M36 92 V100 a8 8 0 0 0 8 8 H84 a8 8 0 0 0 8-8 V92"
+        stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" fill="none"/>
+</svg>

@@ -1,0 +1,47 @@
+---
+/**
+ * FloatingEmbers — ambient rising warmth particles.
+ *
+ * 7 fixed-position sparks that drift slowly bottom→top, each with a different
+ * duration/delay/start so the set never cycles in unison. socialWarmer's
+ * analog to Mail Warmer's steam wisps — echoes the flame logo and the
+ * in-product ember pulse.
+ *
+ *   - z-index 5: behind all content (z-10+), in front of the page background.
+ *   - pointer-events: none.
+ *   - opacity capped ~0.18 so it reads as atmosphere, not noise.
+ *   - reduced-motion: hidden via the global.css guard.
+ */
+const sparks = [
+  { left: "10%", size: 14, delay: 0, duration: 26, color: "#f59e3c", opacity: 0.16 },
+  { left: "24%", size: 10, delay: 6, duration: 32, color: "#ffd9a8", opacity: 0.14 },
+  { left: "40%", size: 18, delay: 13, duration: 38, color: "#fbbf6b", opacity: 0.12 },
+  { left: "56%", size: 12, delay: 3, duration: 30, color: "#f59e3c", opacity: 0.18 },
+  { left: "70%", size: 16, delay: 17, duration: 36, color: "#ffd9a8", opacity: 0.13 },
+  { left: "84%", size: 13, delay: 9, duration: 28, color: "#fbbf6b", opacity: 0.15 },
+  { left: "93%", size: 11, delay: 21, duration: 34, color: "#f59e3c", opacity: 0.12 },
+];
+---
+
+<div
+  class="pointer-events-none fixed inset-0 z-[5] overflow-hidden"
+  aria-hidden="true"
+>
+  {
+    sparks.map((s) => (
+      <svg
+        class="ember-spark absolute"
+        style={`left: ${s.left}; bottom: -30px; width: ${s.size}px; height: ${s.size * 2}px; color: ${s.color}; --ember-opacity: ${s.opacity}; animation: ember-rise ${s.duration}s linear ${s.delay}s infinite;`}
+        viewBox="0 0 12 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="3"
+        stroke-linecap="round"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* A curling lick of flame, like the logo's heat. */}
+        <path d="M6 22 C2 18 10 14 6 10 C2 6 10 4 6 1" />
+      </svg>
+    ))
+  }
+</div>

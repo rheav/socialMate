@@ -1,0 +1,313 @@
+@import "@fontsource-variable/outfit";
+@import "tailwindcss";
+
+/* ─── socialWarmer palette — blue→cyan identity, ember-orange warmth ──────
+   Blue/cyan carries action + trust (matches the in-product side panel's
+   --sw-grad). Ember orange is reserved for warmth moments: the accent word,
+   the "account warming up" demo, ambient sparks, the running pulse. */
+@theme {
+  --color-canvas: #f6f8fc;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f1f3f4;
+
+  /* Blue→cyan identity family (from the extension's --sw-from/--sw-to) */
+  --color-blue: #3c7cfc; /* primary accent */
+  --color-blue-hover: #2f68e0;
+  --color-blue-bg: #e9f0ff;
+  --color-blue-soft: #d4e2fe;
+  --color-cyan: #59c0e8;
+
+  /* Ember warmth family (from the extension's --sw-ember) */
+  --color-warm-1: #ffd9a8; /* soft amber */
+  --color-warm-2: #f59e3c; /* ember accent */
+  --color-warm-ink: #5a4a3e;
+  --color-warm-mist: #fff3e2;
+
+  /* Status */
+  --color-green: #137333;
+  --color-green-bg: #e6f4ea;
+  --color-red: #c5221f;
+  --color-red-bg: #fce8e6;
+  --color-yellow: #b06000;
+  --color-yellow-bg: #feefc3;
+
+  --color-ink: #202124;
+  --color-muted: #5f6368;
+  --color-faint: #80868b;
+
+  --color-stone-50: #fafaf9;
+  --color-stone-100: #f1f3f4;
+  --color-stone-200: #e0e3e7;
+  --color-stone-400: #80868b;
+  --color-stone-500: #5f6368;
+  --color-stone-600: #5f6368;
+  --color-stone-800: #202124;
+
+  --font-outfit:
+    "Outfit Variable", "Outfit", system-ui, -apple-system, sans-serif;
+}
+
+/* Raw-CSS vars referenced only inside scoped component <style> blocks. */
+:root {
+  --color-accent-from: #3c7cfc;
+  --color-accent-to: #59c0e8;
+  --color-ember: #f57d0d;
+}
+
+/* ─── Base ─── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-outfit);
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100vh;
+  font-feature-settings: "ss01", "cv01";
+}
+
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+p {
+  color: var(--color-ink);
+  line-height: 1.6;
+}
+
+/* ─── Grain overlay (global, always on) ─── */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.3;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.16  0 0 0 0 0.14  0 0 0 0 0.14  0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+
+/* ─── Scroll-triggered reveal ─── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition:
+    opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-group > .reveal:nth-child(1) {
+  transition-delay: 0ms;
+}
+.reveal-group > .reveal:nth-child(2) {
+  transition-delay: 100ms;
+}
+.reveal-group > .reveal:nth-child(3) {
+  transition-delay: 200ms;
+}
+.reveal-group > .reveal:nth-child(4) {
+  transition-delay: 300ms;
+}
+.reveal-group > .reveal:nth-child(5) {
+  transition-delay: 400ms;
+}
+.reveal-group > .reveal:nth-child(6) {
+  transition-delay: 500ms;
+}
+
+/* ─── Floating blobs — breathing, drifting ─── */
+@keyframes blob-breathe {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0) scale(1);
+  }
+  50% {
+    transform: translateY(-14px) translateX(8px) scale(1.04);
+  }
+}
+@keyframes blob-breathe-alt {
+  0%,
+  100% {
+    transform: translateY(0) translateX(0) scale(1);
+  }
+  50% {
+    transform: translateY(12px) translateX(-10px) scale(1.03);
+  }
+}
+
+.blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.55;
+  animation: blob-breathe 14s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform;
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    #000 45%,
+    transparent 82%
+  );
+  mask-image: radial-gradient(circle at center, #000 45%, transparent 82%);
+}
+.blob-alt {
+  animation: blob-breathe-alt 17s ease-in-out infinite;
+}
+
+/* ─── Rising warmth — ambient ember sparks drifting up the viewport ──────
+ * socialWarmer's analog to Mail Warmer's steam: tiny warm sparks that rise
+ * slowly with gentle sway, echoing the flame logo + the in-product
+ * ember-pulse. */
+@keyframes ember-rise {
+  0% {
+    transform: translate3d(0, 110vh, 0) scale(0.8);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--ember-opacity, 0.16);
+  }
+  50% {
+    transform: translate3d(16px, 50vh, 0) scale(1.05);
+  }
+  90% {
+    opacity: var(--ember-opacity, 0.16);
+  }
+  100% {
+    transform: translate3d(-12px, -12vh, 0) scale(1.2);
+    opacity: 0;
+  }
+}
+
+/* ─── Cursive-word sway — subtle, for warm accent words ─── */
+@keyframes cursive-sway {
+  0%,
+  100% {
+    transform: rotate(-0.8deg);
+  }
+  50% {
+    transform: rotate(0.8deg);
+  }
+}
+.sway {
+  display: inline-block;
+  transform-origin: 50% 100%;
+  animation: cursive-sway 7s ease-in-out infinite;
+}
+
+/* ─── Accent word — ember animated-gradient highlight ────────────────────
+ * The single highlighted word inside a heading (e.g. "warm"), painted with
+ * an ember orange→amber gradient that slowly shifts left↔right, clipped to
+ * the text. Size is controlled by the wrapping element. */
+.accent-word {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  background: linear-gradient(
+    90deg,
+    #f0590e 0%,
+    #f59e3c 30%,
+    #ffc46b 55%,
+    #f0590e 100%
+  );
+  background-size: 280% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: accent-gradient 6s ease-in-out infinite;
+}
+@keyframes accent-gradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* ─── Shadows (soft, blue-gray tinted) ─── */
+.shadow-soft {
+  box-shadow: 0 4px 20px -2px rgba(60, 64, 67, 0.1);
+}
+.shadow-soft-lg {
+  box-shadow: 0 8px 32px -4px rgba(60, 64, 67, 0.12);
+}
+
+/* ─── Marquee helper ─── */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* ─── FAQ accordion transitions ─── */
+.faq-item .faq-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 500ms ease-in-out;
+}
+.faq-item[open] .faq-panel {
+  grid-template-rows: 1fr;
+}
+.faq-item .faq-panel-inner {
+  overflow: hidden;
+}
+.faq-item .faq-icon {
+  transition: transform 300ms ease-in-out;
+}
+.faq-item[open] .faq-icon {
+  transform: rotate(45deg);
+}
+.faq-item > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.faq-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal-group > .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .blob,
+  .blob-alt,
+  .sway,
+  .accent-word,
+  .ember-spark {
+    animation: none !important;
+  }
+  .ember-spark {
+    opacity: 0 !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

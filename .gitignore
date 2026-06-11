@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.env
+.env.*
+.playwright-mcp/
+*.login-bak
+*.paywall-bak

@@ -1,0 +1,42 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  width: 300px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #1c1e21;
+  background: #fff;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(160deg, #42a5f5, #1877f2 45%, #0866ff);
+  color: #fff;
+}
+.head h1 { font-size: 16px; font-weight: 700; }
+.ver { font-size: 11px; opacity: 0.85; }
+.card { padding: 14px 16px; }
+.lead { font-size: 13px; color: #444; margin-bottom: 10px; }
+.steps { font-size: 12.5px; color: #333; padding-left: 18px; line-height: 1.7; }
+.steps b { color: #0866ff; }
+.primary {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 4px 16px 14px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: #1877f2;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.primary:hover { background: #166fe0; }
+.foot {
+  padding: 10px 16px;
+  font-size: 11px;
+  color: #8a8d91;
+  border-top: 1px solid #eef0f3;
+  line-height: 1.5;
+}

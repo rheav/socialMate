@@ -1,0 +1,392 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Navbar from "../components/Navbar.astro";
+import Footer from "../components/Footer.astro";
+import {
+  Rocket,
+  Flame,
+  Settings,
+  FileText,
+  Bookmark,
+  Download,
+  Lock,
+} from "@lucide/astro";
+
+/**
+ * /docs — plain-language reference for every socialWarmer tab and setting.
+ *
+ * Layout mirrors the Mail Warmer docs page:
+ *   - Sticky left sidebar (desktop) with section links + scroll-spy.
+ *   - Single-column main content; each section owns a stable id used by
+ *     both the anchor links and the IntersectionObserver below.
+ *
+ * The four dock tabs (Warm / Transcripts / Saved / Download) are the single
+ * source of truth in the extension. Keep this page in step with them whenever
+ * a tab or setting is added, removed, or renamed.
+ */
+
+const sidebar = [
+  { id: "quick-start", label: "Quick start", icon: Rocket },
+  { id: "warm", label: "Warm", icon: Flame },
+  { id: "settings", label: "Settings", icon: Settings },
+  { id: "transcripts", label: "Transcripts", icon: FileText },
+  { id: "saved", label: "Saved", icon: Bookmark },
+  { id: "download", label: "Download", icon: Download },
+  { id: "privacy", label: "Privacy", icon: Lock },
+];
+
+const sections = [
+  {
+    id: "warm",
+    tab: "Warm",
+    icon: Flame,
+    intro:
+      "The main event. Pick a platform, a mode, and a target, press Start, and socialWarmer browses like a person — watching, scrolling, and engaging at a pace you control, narrated line by line in the live log.",
+    groups: [
+      {
+        title: "Platforms & modes",
+        features: [
+          {
+            label: "Platforms",
+            kind: "Choice",
+            def: "Facebook",
+            body: "Facebook, Instagram, or TikTok — switch with the platform pills at the top of the panel. The extension binds to a matching open tab and navigates it to the right surface for the mode you pick.",
+          },
+          {
+            label: "Reels mode",
+            kind: "Mode C",
+            def: "Default",
+            body: "Plays through Reels (or TikTok's For You), dwelling on each video for a randomized watch time before advancing — the most natural-looking warming surface.",
+          },
+          {
+            label: "Feed mode",
+            kind: "Mode B",
+            def: "—",
+            body: "Scrolls the home feed / explore grid, processing regular posts: watch, maybe engage, scroll on.",
+          },
+          {
+            label: "Keyword mode",
+            kind: "Mode A",
+            def: "—",
+            body: "Give it a keyword or #hashtag and it warms inside that niche — Facebook hashtag pages, Instagram tag grids, TikTok search. This is how you teach the algorithm what your account is about.",
+          },
+        ],
+      },
+      {
+        title: "Actions & personas",
+        features: [
+          {
+            label: "Save / Like / Follow",
+            kind: "Toggles",
+            def: "Save + Like on",
+            body: "Choose which actions a run is allowed to take. Every action is verified after the click (the like button's state actually flipped) before it's counted.",
+          },
+          {
+            label: "Personas",
+            kind: "Dice",
+            def: "Random",
+            body: "Binge Watcher (mostly watches, 15% like chance), Casual Scroller (35%), Engaged User (60%). The persona also gates how many posts get ANY action — the rest are honest browsing. Consecutive-like caps and cooldowns ride on top.",
+          },
+          {
+            label: "English-only",
+            kind: "Filter",
+            def: "On",
+            body: "Skips posts whose text doesn't read as English, so a niche run stays in your target language.",
+          },
+          {
+            label: "Target & live log",
+            kind: "Info",
+            def: "N = 10",
+            body: "Target counts posts viewed, not actions taken. The log narrates everything: ▶ watching video ~9s · ❤️ liked post · · browsed only (persona dice 40%) · 🔖 saved post · ✓ post 3/10.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "settings",
+    tab: "Settings",
+    icon: Settings,
+    intro:
+      "The gear icon in the panel header opens the options dropdown. Everything here persists between sessions.",
+    groups: [
+      {
+        title: "Pacing",
+        features: [
+          {
+            label: "Action min / max (s)",
+            kind: "Range",
+            def: "4–9s",
+            body: "The randomized pause after each post before scrolling on. A random point inside the range is picked every time, so the rhythm never looks mechanical.",
+          },
+          {
+            label: "Dwell min / max (s)",
+            kind: "Range",
+            def: "6–15s",
+            body: "How long each video gets watched. The video is centered on screen (which is what makes the platform play it), watched for a random dwell capped at its remaining length, then the run moves on.",
+          },
+        ],
+      },
+      {
+        title: "Engagement filters & session",
+        features: [
+          {
+            label: "Min likes / comments",
+            kind: "Threshold",
+            def: "0 (off)",
+            body: "Reads each post's real counters before acting. Posts below the bar still get watched and scrolled past — they just earn no like or save. Your account associates with proven content only.",
+          },
+          {
+            label: "Session cap (min)",
+            kind: "Limit",
+            def: "0 (none)",
+            body: "A hard time limit for the whole run. When it's reached the run stops, even if the post target isn't.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "transcripts",
+    tab: "Transcripts",
+    icon: FileText,
+    intro:
+      "Local speech-to-text for the videos you research. A Whisper model runs entirely in your browser — audio never leaves your machine.",
+    groups: [
+      {
+        title: "How it works",
+        features: [
+          {
+            label: "Capture & transcribe",
+            kind: "Local AI",
+            def: "On demand",
+            body: "On Facebook and Instagram, the extension can grab a video's audio and run it through a local Whisper model (via Transformers.js in an offscreen document). The result lands in the Transcripts tab, searchable and copyable.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "saved",
+    tab: "Saved",
+    icon: Bookmark,
+    intro:
+      "Every video a warming run bookmarks is collected here, so the research your runs gather doesn't vanish into the platform's saved pile.",
+    groups: [
+      {
+        title: "What lands here",
+        features: [
+          {
+            label: "Saved videos",
+            kind: "Auto",
+            def: "From runs",
+            body: "When a run saves a post (the 🔖 action), it's tracked in this tab with a link back to the original — your niche-research reading list, built while the account warms.",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "download",
+    tab: "Download",
+    icon: Download,
+    intro:
+      "Bulk research downloads, with an identity card so you always know what you're grabbing.",
+    groups: [
+      {
+        title: "Reel thumbnails",
+        features: [
+          {
+            label: "Page identity card",
+            kind: "Info",
+            def: "Auto",
+            body: "Shows the profile's avatar, name, and follower counts read live from the open tab — confirm it's the right page before downloading anything.",
+          },
+          {
+            label: "Download reel thumbnails",
+            kind: "Bulk",
+            def: "One click",
+            body: "Open a profile's Reels tab and click. The grid is auto-scrolled to the bottom, every thumbnail is collected, and files land in Downloads/socialWarmer-thumbs/<page-name>/reel_<id>.jpg — the id links each image back to its reel.",
+          },
+        ],
+      },
+    ],
+  },
+];
+---
+
+<Layout
+  title="Docs — socialWarmer"
+  description="Plain-language reference for every socialWarmer tab and setting: modes, personas, pacing, thresholds, transcripts, and bulk downloads."
+>
+  <Navbar />
+  <main class="relative z-10 min-h-screen px-4 pt-32 pb-20 md:px-6">
+    <div class="mx-auto grid max-w-5xl gap-10 md:grid-cols-[200px_1fr]">
+      <!-- Sidebar -->
+      <aside class="hidden md:block">
+        <nav class="sticky top-28 space-y-1" aria-label="Docs sections">
+          {
+            sidebar.map((s) => (
+              <a
+                href={`#${s.id}`}
+                class="docs-side-link flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-stone-500 transition-colors hover:bg-white hover:text-ink"
+                data-section={s.id}
+              >
+                <s.icon size={14} stroke-width={2} />
+                {s.label}
+              </a>
+            ))
+          }
+        </nav>
+      </aside>
+
+      <!-- Content -->
+      <div class="min-w-0">
+        <h1 class="text-4xl font-medium tracking-tight md:text-5xl">
+          How to use <span class="accent-word text-[1.05em]">socialWarmer</span>
+        </h1>
+        <p class="text-muted mt-4 max-w-xl text-base md:text-lg">
+          Everything the side panel can do, tab by tab. Five minutes of reading
+          covers all of it.
+        </p>
+
+        <!-- Quick start -->
+        <section id="quick-start" class="mt-12 scroll-mt-28">
+          <h2 class="text-2xl font-medium tracking-tight md:text-3xl">
+            Quick start
+          </h2>
+          <ol class="mt-5 space-y-3">
+            {
+              [
+                "Install the extension and pin it to the toolbar.",
+                "Open Facebook, Instagram, or TikTok in a tab, then click the socialWarmer icon to open the side panel.",
+                "Pick a mode — Reels for general warming, Keyword with a #hashtag to warm inside your niche.",
+                "Choose a persona (or leave it Random), set a target, and press Start.",
+                "Watch the live log narrate the run. Pause or stop anytime — you're always in the driver's seat.",
+              ].map((step, i) => (
+                <li class="flex items-start gap-3 rounded-2xl border border-stone-100 bg-white p-4 shadow-soft">
+                  <span
+                    class="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+                    style="background: linear-gradient(135deg, #3c7cfc, #59c0e8);"
+                  >
+                    {i + 1}
+                  </span>
+                  <p class="text-sm leading-relaxed text-stone-600 md:text-base">
+                    {step}
+                  </p>
+                </li>
+              ))
+            }
+          </ol>
+        </section>
+
+        <!-- Tab sections -->
+        {
+          sections.map((sec) => (
+            <section id={sec.id} class="mt-14 scroll-mt-28">
+              <div class="flex items-center gap-3">
+                <span
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-xl"
+                  style="background-color: rgba(60,124,252,0.1);"
+                >
+                  <sec.icon size={16} color="#3c7cfc" stroke-width={2} />
+                </span>
+                <h2 class="text-2xl font-medium tracking-tight md:text-3xl">
+                  {sec.tab}
+                </h2>
+              </div>
+              <p class="text-muted mt-4 max-w-xl text-base">{sec.intro}</p>
+
+              {sec.groups.map((g) => (
+                <div class="mt-7">
+                  <h3 class="text-sm font-medium tracking-widest text-stone-500 uppercase">
+                    {g.title}
+                  </h3>
+                  <div class="mt-3 space-y-3">
+                    {g.features.map((f) => (
+                      <div class="rounded-2xl border border-stone-100 bg-white p-5 shadow-soft">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="text-base font-medium text-ink">
+                            {f.label}
+                          </span>
+                          <span class="rounded-full bg-blue-bg px-2 py-0.5 text-[10px] font-semibold tracking-wide text-blue uppercase">
+                            {f.kind}
+                          </span>
+                          <span class="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium tracking-wide text-stone-500">
+                            {f.def}
+                          </span>
+                        </div>
+                        <p class="mt-2 text-sm leading-relaxed text-stone-600 md:text-[15px]">
+                          {f.body}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))
+        }
+
+        <!-- Privacy -->
+        <section id="privacy" class="mt-14 scroll-mt-28">
+          <div class="flex items-center gap-3">
+            <span
+              class="inline-flex h-9 w-9 items-center justify-center rounded-xl"
+              style="background-color: rgba(60,124,252,0.1);"
+            >
+              <Lock size={16} color="#3c7cfc" stroke-width={2} />
+            </span>
+            <h2 class="text-2xl font-medium tracking-tight md:text-3xl">
+              Privacy
+            </h2>
+          </div>
+          <p class="text-muted mt-4 max-w-xl text-base">
+            Everything runs locally: settings, run state, logs, transcripts —
+            all in your browser's storage. No account, no server, no
+            analytics. Even speech-to-text is a local Whisper model. Read the
+            full <a href="/privacy" class="text-blue underline-offset-2 hover:underline">privacy policy</a>.
+          </p>
+        </section>
+
+        <div class="mt-16 text-center">
+          <a
+            href="/"
+            class="text-sm text-stone-500 underline-offset-2 hover:text-ink hover:underline"
+          >
+            ← Back to home
+          </a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <Footer />
+
+  <script>
+    // Scroll-spy: highlight the sidebar link of the section in view.
+    const links = document.querySelectorAll<HTMLAnchorElement>(".docs-side-link");
+    const map = new Map<string, HTMLAnchorElement>();
+    links.forEach((l) => map.set(l.dataset.section ?? "", l));
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (!e.isIntersecting) return;
+          links.forEach((l) => l.classList.remove("docs-side-active"));
+          map.get(e.target.id)?.classList.add("docs-side-active");
+        });
+      },
+      { rootMargin: "-30% 0px -60% 0px" },
+    );
+    document
+      .querySelectorAll("section[id]")
+      .forEach((s) => io.observe(s));
+  </script>
+
+  <style is:global>
+    .docs-side-active {
+      background: #fff;
+      color: var(--color-ink);
+      box-shadow: 0 1px 4px rgba(60, 64, 67, 0.08);
+    }
+  </style>
+</Layout>

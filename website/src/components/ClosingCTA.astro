@@ -1,0 +1,62 @@
+---
+/**
+ * ClosingCTA — the final "add to browser" band before the FAQ. One last warm
+ * nudge to install, same ChromeButton used everywhere.
+ */
+import ChromeButton from "./ChromeButton.astro";
+import { Flame } from "@lucide/astro";
+---
+
+<section id="install" class="relative overflow-x-clip px-6 py-16 md:py-24">
+  <div
+    class="blob"
+    aria-hidden="true"
+    style="top: -10%; left: 15%; width: 520px; height: 520px; background: #e9f0ff; opacity: 0.6;"
+  >
+  </div>
+  <div
+    class="blob blob-alt"
+    aria-hidden="true"
+    style="bottom: -25%; right: 10%; width: 460px; height: 460px; background: #ffd9a8; opacity: 0.55;"
+  >
+  </div>
+
+  <div
+    class="reveal-group relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center"
+  >
+    <span
+      class="reveal mb-6 inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white/60 px-3 py-1 text-xs font-medium text-stone-500 shadow-soft backdrop-blur-sm"
+    >
+      <Flame size={12} color="#f59e3c" stroke-width={2.2} />
+      Ready when you are
+    </span>
+
+    <h2
+      class="reveal text-ink text-4xl leading-[1.05] font-medium tracking-tight md:text-5xl lg:text-6xl"
+    >
+      Keep them
+      <span
+        class="accent-word sway inline-block text-[1.2em] leading-none"
+      >warm</span>.
+      <br class="hidden md:block" />
+      Start a run, watch it browse.
+    </h2>
+
+    <p
+      class="reveal text-muted mx-auto mt-6 max-w-[480px] text-base md:text-lg"
+    >
+      Install socialWarmer, open the side panel on Facebook, Instagram, or
+      TikTok, pick a mode and a persona — and your account quietly builds the
+      browsing history platforms trust. You start every run; nothing happens
+      behind your back.
+    </p>
+
+    <div class="reveal mt-9">
+      <ChromeButton>Add to your browser</ChromeButton>
+    </div>
+
+    <p class="reveal mt-6 text-xs text-stone-500">
+      Free · no account · runs locally · you watch every move
+    </p>
+  </div>
+</section>

@@ -1,0 +1,186 @@
+---
+/**
+ * ChromeButton — primary "Add to browser" CTA.
+ *
+ * Blue→cyan gradient (the extension's --sw-grad), soft outer glow that grows
+ * on hover, a diagonal shine sweep, a scale-up on hover, and browser icons
+ * (Chrome/Edge/Brave) that each spin a full turn with a staggered delay.
+ * The product has exactly one CTA and it lives everywhere.
+ */
+
+interface Props {
+  href?: string;
+  class?: string;
+  size?: "default" | "small";
+}
+
+const {
+  href = "https://chromewebstore.google.com/",
+  class: className = "",
+  size = "default",
+} = Astro.props;
+
+const sizeClasses =
+  size === "small"
+    ? "px-5 py-2 text-sm gap-2.5"
+    : "px-7 py-3.5 text-base gap-3";
+
+const iconSize = size === "small" ? "h-5 w-5" : "h-7 w-7";
+---
+
+<a
+  target="_blank"
+  rel="noopener noreferrer"
+  href={href}
+  class:list={[
+    "chrome-button group relative inline-flex items-center justify-center overflow-hidden rounded-full border border-white/25 font-semibold whitespace-nowrap text-white",
+    sizeClasses,
+    className,
+  ]}
+>
+  <!-- Frosted-glass overlay: revealed on hover -->
+  <span class="chrome-glass" aria-hidden="true"></span>
+
+  <!-- Diagonal shimmer sweep: animated on hover -->
+  <span class="chrome-shine" aria-hidden="true"></span>
+
+  <!-- Browser icons: staggered full spin on hover -->
+  <span
+    class="chrome-icons relative z-10 flex items-center -space-x-1.5"
+    aria-hidden="true"
+  >
+    <img
+      src="/images/chrome.svg"
+      alt=""
+      class:list={["chrome-icon", iconSize]}
+      width="32"
+      height="32"
+      loading="eager"
+      decoding="async"
+    />
+    <img
+      src="/images/edge.svg"
+      alt=""
+      class:list={["chrome-icon", iconSize]}
+      style="transition-delay: 75ms;"
+      width="32"
+      height="32"
+      loading="eager"
+      decoding="async"
+    />
+    <img
+      src="/images/brave.svg"
+      alt=""
+      class:list={["chrome-icon", iconSize]}
+      style="transition-delay: 150ms;"
+      width="32"
+      height="32"
+      loading="eager"
+      decoding="async"
+    />
+  </span>
+
+  <span class="relative z-10 tracking-tight">
+    <slot />
+  </span>
+</a>
+
+<style>
+  .chrome-button {
+    background: linear-gradient(
+      135deg,
+      var(--color-accent-from, #3c7cfc),
+      var(--color-accent-to, #59c0e8)
+    );
+    box-shadow:
+      0 6px 16px -4px
+        color-mix(in srgb, var(--color-accent-from, #3c7cfc) 32%, transparent),
+      0 2px 6px -2px
+        color-mix(in srgb, var(--color-accent-from, #3c7cfc) 22%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+    transition:
+      transform 450ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 450ms cubic-bezier(0.22, 1, 0.36, 1);
+    isolation: isolate;
+  }
+  .chrome-button:hover {
+    transform: scale(1.05);
+    box-shadow:
+      0 10px 22px -8px
+        color-mix(in srgb, var(--color-accent-from, #3c7cfc) 40%, transparent),
+      0 4px 8px -4px
+        color-mix(in srgb, var(--color-accent-from, #3c7cfc) 30%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  }
+  .chrome-button:active {
+    transform: scale(1.02);
+  }
+
+  .chrome-glass {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      circle at 30% 18%,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0) 60%
+    );
+    opacity: 0;
+    transition: opacity 600ms ease;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .chrome-button:hover .chrome-glass {
+    opacity: 1;
+  }
+
+  .chrome-shine {
+    position: absolute;
+    top: 0;
+    left: -120%;
+    height: 100%;
+    width: 55%;
+    background: linear-gradient(
+      110deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0) 35%,
+      rgba(255, 255, 255, 0.22) 50%,
+      rgba(255, 255, 255, 0) 65%,
+      transparent 100%
+    );
+    transform: skewX(-18deg);
+    pointer-events: none;
+    z-index: 2;
+    transition: left 1400ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .chrome-button:hover .chrome-shine {
+    left: 140%;
+  }
+
+  .chrome-icon {
+    display: block;
+    transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+  }
+  .chrome-button:hover .chrome-icon {
+    transform: rotate(360deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chrome-button,
+    .chrome-button:hover {
+      transform: none !important;
+      transition: none !important;
+    }
+    .chrome-icon,
+    .chrome-shine,
+    .chrome-glass {
+      transition: none !important;
+      transform: none !important;
+    }
+    .chrome-button:hover .chrome-icon {
+      transform: none !important;
+    }
+  }
+</style>

@@ -1,0 +1,48 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3C7CFC"/>
+      <stop offset="1" stop-color="#59C0E8"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="64" y1="0" x2="64" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="64" y1="26" x2="64" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#E8F4FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- squircle -->
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="url(#bg)"/>
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="url(#gloss)"/>
+
+  <!-- flame (warming) -->
+  <path d="M64 27
+           C 73 48, 87 55, 87 75
+           C 87 87.7 76.7 98 64 98
+           C 51.3 98 41 87.7 41 75
+           C 41 64.5 48 58 52.5 51.5
+           C 54.5 60 60 62 60 56
+           C 60 44 60 37 64 27 Z"
+        fill="url(#flame)"/>
+
+  <!-- inner cool core -->
+  <path d="M64 60
+           C 69 70, 75 73, 75 81.5
+           C 75 87 70 91 64 91
+           C 58 91 53 87 53 81.5
+           C 53 75.5 57.5 73 60 68.5
+           C 61 73 64 73 64 68
+           C 64 65 63.5 63 64 60 Z"
+        fill="#59C0E8" fill-opacity="0.55"/>
+
+  <!-- discovery sparkle -->
+  <path d="M97 30
+           C 97 36, 99 38, 105 38
+           C 99 38, 97 40, 97 46
+           C 97 40, 95 38, 89 38
+           C 95 38, 97 36, 97 30 Z"
+        fill="#ffffff" fill-opacity="0.95"/>
+</svg>

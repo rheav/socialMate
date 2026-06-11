@@ -1,0 +1,183 @@
+@import "@fontsource/outfit/300.css";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Map shadcn tokens → Tailwind utilities. `inline` keeps the var() reference live so
+   the per-platform values we set on <html> at runtime (e.g. --primary, --radius) flow
+   through to bg-primary / rounded-lg / etc. */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 35% 18%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 35% 18%;
+  /* neutral near-black primary (standardized; brand color lives only on logo/wordmark) */
+  --primary: 240 6% 10%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 213 100% 96%;
+  --secondary-foreground: 220 50% 30%;
+  --muted: 213 60% 97%;
+  --muted-foreground: 218 14% 52%;
+  --accent: 199 89% 94%;
+  --accent-foreground: 220 50% 30%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --input: 214 32% 89%;
+  --ring: 240 6% 10%;
+  --radius: 0.625rem;
+
+  /* Defaults = Facebook brand identity + neutral black/white UI. App.jsx swaps only
+     the identity vars (--sw-from/--sw-to/--sw-grad/--sw-glow) per platform. */
+  --sw-from: #3c7cfc;
+  --sw-to: #59c0e8;
+  --sw-grad: linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%);
+  --sw-glow: rgba(60, 124, 252, 0.5);
+  --sw-wash: radial-gradient(130% 90% at 50% -20%, #f7f7f8 0%, #fcfcfd 55%, #ffffff 82%);
+  /* neutral black accents — identical for every platform */
+  --sw-switch: linear-gradient(0deg, #18181b, #18181b);
+  --sw-action: linear-gradient(0deg, #18181b, #18181b);
+  --sw-action-hover: linear-gradient(0deg, #000000, #000000);
+
+  /* ember = the "warming" heat. Reserved for the LIVE/running state only. */
+  --sw-ember: 28 92% 52%;
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  /* slightly smaller base so text + density fit the narrow side panel better */
+  html { scroll-behavior: smooth; font-size: 15px; }
+  body {
+    color: hsl(var(--foreground));
+    /* Side panel is user-resizable — fill its width instead of locking to a fixed
+       360px (which left a white gap on the right when the panel was wider). */
+    width: 100%;
+    min-width: 320px;
+    min-height: 100vh;
+    font-family: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-weight: 300;
+    /* light, airy backdrop; retints per active platform */
+    background: var(--sw-wash) fixed;
+    transition: background 0.3s ease;
+  }
+  /* Unfunnelizer feel: keep everything light, lean on color/size for hierarchy */
+  button, h1, h2, h3, h4, h5, h6 { font-weight: inherit; }
+
+  /* every interactive control gets the hand cursor */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary,
+  [data-slot="select-trigger"],
+  [data-slot="switch"] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* ===== gradient helpers (themed via --sw-* vars) ===== */
+.grad-blue { background-image: var(--sw-action); }
+.grad-blue:hover { background-image: var(--sw-action-hover); }
+.grad-blue-text {
+  background: var(--sw-action);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* brand-identity gradient (logo squircle) */
+.grad-identity { background-image: var(--sw-grad); }
+/* brand-gradient text — the "socialWarmer" wordmark (per-platform color) */
+.grad-identity-text {
+  background: var(--sw-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* active platform logo: gradient fill (via #sw-grad) + themed glow */
+.platform-glow { filter: drop-shadow(0 0 6px var(--sw-glow)); }
+.platform-glow svg { fill: url(#sw-grad); }
+
+/* themed toggle fill (radix sets data-state on the switch root) */
+.sw-switch[data-state="checked"] { background-image: var(--sw-switch); }
+
+/* ===== live/running ember signature ===== */
+/* heat pulse on the status chip while a run is live */
+@keyframes sw-ember-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--sw-ember) / 0.45); }
+  50% { box-shadow: 0 0 0 5px hsl(var(--sw-ember) / 0); }
+}
+.ember-pulse { animation: sw-ember-pulse 1.9s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+/* thin animated heat line under the header while running */
+@keyframes sw-heat-slide { from { background-position: 0 0; } to { background-position: 200% 0; } }
+.heat-bar {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, hsl(var(--sw-ember)), transparent);
+  background-size: 200% 100%;
+  animation: sw-heat-slide 2.2s linear infinite;
+}
+
+/* ===== bottom dock (magic-ui style, frosted glass) ===== */
+.bottom-dock {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  box-shadow:
+    0 12px 34px -10px rgba(15, 23, 42, 0.26),
+    0 6px 20px -10px var(--sw-glow),
+    0 0 0 1px rgba(255, 255, 255, 0.55) inset,
+    0 1px 0 0 rgba(255, 255, 255, 0.85) inset;
+}
+/* the magnifying icon tile — transform driven live by the cursor in JS */
+.dock-icon {
+  transform-origin: bottom center;
+  transition: transform 0.13s cubic-bezier(0.2, 0.8, 0.3, 1), background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.dock-icon:not(.dock-active) {
+  background: hsl(var(--muted));
+}
+/* hovered inactive tile tints toward the platform hue */
+.bottom-dock button:hover .dock-icon:not(.dock-active) {
+  color: var(--sw-from);
+  box-shadow: 0 4px 14px -6px var(--sw-glow);
+}
+
+/* themed scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--sw-from) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--sw-action); border-radius: 4px; }
+.log-scroll::-webkit-scrollbar-thumb { background: #475569; }

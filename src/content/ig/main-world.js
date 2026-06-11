@@ -1,0 +1,72 @@
+// Instagram capture — runs in the PAGE's MAIN world at document_start.
+//
+// IG parses its feed/post JSON on the main thread, so hooking JSON.parse here
+// catches every media object with clean fields (author, caption, like/comment/play
+// counts, video_versions URL, thumb). We relay compact records to our isolated
+// content script via window.postMessage (the two worlds share the DOM, not JS).
+
+(function () {
+  if (window.__fbwIgMainInit) return;
+  window.__fbwIgMainInit = true;
+
+  function* findMedia(o, seen) {
+    if (!o || typeof o !== "object" || seen.has(o)) return;
+    seen.add(o);
+    if (o.video_versions || (o.code && o.image_versions2) || (o.media_type != null && (o.image_versions2 || o.carousel_media))) yield o;
+    if (Array.isArray(o)) { for (const v of o) yield* findMedia(v, seen); }
+    else { for (const k in o) yield* findMedia(o[k], seen); }
+  }
+
+  function lite(m) {
+    const u = m.user || m.owner || {};
+    const img = m.image_versions2 && m.image_versions2.candidates && m.image_versions2.candidates[0];
+    const vid = m.video_versions && m.video_versions[0];
+    return {
+      code: m.code || null,
+      pk: String(m.pk || m.id || ""),
+      username: u.username || null,
+      full_name: u.full_name || null,
+      verified: !!u.is_verified,
+      caption: (m.caption && m.caption.text) || null,
+      like_count: m.like_count != null ? m.like_count : null,
+      comment_count: m.comment_count != null ? m.comment_count : null,
+      play_count: m.play_count != null ? m.play_count : (m.ig_play_count != null ? m.ig_play_count : (m.view_count != null ? m.view_count : null)),
+      thumb: img ? img.url : null,
+      video: vid ? vid.url : null,
+      duration: m.video_duration != null ? Math.round(m.video_duration) : null,
+    };
+  }
+
+  const sent = new Map(); // key -> signature (avoid resending unchanged)
+  const all = new Map();  // key (code & pk) -> latest record, for replay
+  function send(records) { if (records.length) window.postMessage({ __fbwIg: true, records }, location.origin); }
+  function scan(root) {
+    const out = [];
+    try {
+      const seen = new Set();
+      for (const m of findMedia(root, seen)) {
+        if (!m.code && !(m.pk || m.id)) continue;
+        const r = lite(m);
+        const key = r.code || r.pk;
+        if (r.code) all.set(r.code, r);
+        if (r.pk) all.set(r.pk, r);
+        const sig = `${r.like_count}|${r.comment_count}|${!!r.video}`;
+        if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
+      }
+    } catch (_) {}
+    send(out);
+  }
+
+  const orig = JSON.parse;
+  JSON.parse = function (text, reviver) {
+    const out = orig.apply(this, arguments);
+    if (out && typeof out === "object") scan(out);
+    return out;
+  };
+
+  // The isolated bridge attaches its listener at document_idle — long after we start
+  // capturing. It asks us to replay everything we've buffered.
+  window.addEventListener("message", (e) => {
+    if (e.source === window && e.data && e.data.__fbwIgReq) send([...new Set(all.values())]);
+  });
+})();

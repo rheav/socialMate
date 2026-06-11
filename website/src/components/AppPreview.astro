@@ -1,0 +1,892 @@
+---
+import { Lock, ThumbsUp, MessageCircle, Share2, Play, Flame, Bookmark } from "@lucide/astro";
+
+/* ─── What this html-gif shows ──────────────────────────────────────────────
+ *
+ * A macOS-Chrome window with a Facebook hashtag feed docked next to the real
+ * socialWarmer side panel. A 12-second synchronized loop mirrors a warming
+ * run: the panel starts, the feed scrolls post by post, each video is centered
+ * and watched (progress bar), and the persona dice decide what gets liked or
+ * saved while the live log narrates.
+ *
+ *   t=0.0s  Idle. Post 1 in view, panel idle, counters 0.
+ *   t=1.0s  "Start" presses → ripple, chip idle→running.
+ *   t=1.4s  Post 1 watched (progress fills) → Like button flips FB-blue.
+ *   t=4.2s  Feed scrolls to post 2 → watched → dice say browse only.
+ *   t=6.8s  Feed scrolls to post 3 → watched → "Saved to your items" toast.
+ *   t=9.0s  Hold: done 3/3, liked 1, saved 1.
+ *   t=10.8s Reset: log fades, feed scrolls home, counters → 0.
+ *   t=12.0s Loop.
+ *
+ * The feed mock follows real Facebook comet anatomy: avatar+name+time header
+ * with a ⋯ menu, caption with blue hashtags, full-bleed media, the
+ * reactions-summary row (👍❤ chips + "comments · shares"), and the
+ * three-button Like/Comment/Share row that flips FB-blue when liked.
+ *
+ * Pure CSS keyframes, zero JS. Respects prefers-reduced-motion (frozen at the
+ * resolved state). All classes prefixed `.ap-` so they can't leak.
+ */
+---
+
+<section
+  id="preview"
+  class="relative overflow-x-clip px-4 py-16 md:px-6 md:py-24"
+>
+  <div
+    class="blob"
+    aria-hidden="true"
+    style="top: 20%; left: -20%; width: 380px; height: 380px; background: #e9f0ff;"
+  >
+  </div>
+
+  <div class="reveal-group mx-auto max-w-3xl text-center">
+    <span
+      class="reveal text-xs font-medium tracking-widest text-stone-500 uppercase"
+    >
+      How it works
+    </span>
+    <h2 class="reveal mt-3 text-3xl font-medium tracking-tight md:text-5xl">
+      Watch it
+      <span class="accent-word text-[1.1em] leading-none">browse</span>.
+    </h2>
+    <p class="reveal text-muted mx-auto mt-5 max-w-xl text-base md:text-lg">
+      Pick a hashtag, hit Start, and socialWarmer scrolls the feed like a
+      person — centering each video, watching for a few seconds, and letting
+      the persona dice decide what deserves a like or a save. Every move lands
+      in the live log.
+    </p>
+  </div>
+
+  <!-- Live badge -->
+  <div class="reveal mx-auto mt-10 flex items-center justify-center gap-2">
+    <span class="relative flex h-2 w-2">
+      <span
+        class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+        style="background-color: #3c7cfc;"></span>
+      <span
+        class="relative inline-flex h-2 w-2 rounded-full"
+        style="background-color: #3c7cfc;"></span>
+    </span>
+    <span class="text-xs tracking-widest text-stone-500 uppercase">
+      Live demo · looping
+    </span>
+  </div>
+
+  <!-- ─── The mockup ─────────────────────────────────────────────────────── -->
+  <div class="reveal mx-auto mt-10 w-full max-w-5xl" style="perspective: 1400px;">
+    <div class="ap-shell">
+      <div class="ap-window">
+        <!-- Chrome titlebar -->
+        <div class="ap-titlebar">
+          <div class="ap-traffic" aria-hidden="true">
+            <span class="ap-tl ap-tl-red"></span>
+            <span class="ap-tl ap-tl-yellow"></span>
+            <span class="ap-tl ap-tl-green"></span>
+          </div>
+          <div class="ap-tabstrip">
+            <div class="ap-tab ap-tab-active">
+              <span class="ap-tab-fav" aria-hidden="true">f</span>
+              <span class="ap-tab-title">#zodiac | Facebook</span>
+            </div>
+            <span class="ap-tab-plus" aria-hidden="true">+</span>
+          </div>
+        </div>
+
+        <!-- Chrome URL bar -->
+        <div class="ap-urlbar">
+          <div class="ap-urlbtn" aria-hidden="true">‹</div>
+          <div class="ap-urlbtn" aria-hidden="true">›</div>
+          <div class="ap-urlbtn" aria-hidden="true">↻</div>
+          <div class="ap-urlpill">
+            <Lock size={11} strokeWidth={2.25} class="text-stone-500" />
+            <span>facebook.com/hashtag/zodiac</span>
+          </div>
+          <div class="ap-urlright">
+            <span class="ap-ext" aria-hidden="true">
+              <Flame size={12} color="#3c7cfc" strokeWidth={2.25} />
+            </span>
+          </div>
+        </div>
+
+        <!-- Body: feed + side panel split -->
+        <div class="ap-body">
+          <!-- ── Facebook feed ── -->
+          <div class="ap-feed-pane">
+            <div class="ap-feed">
+              <!-- Post 1: gets liked -->
+              <article class="ap-post">
+                <div class="ap-post-head">
+                  <span class="ap-avatar" style="background:linear-gradient(135deg,#7c3aed,#a78bfa)">L</span>
+                  <div class="ap-post-meta">
+                    <span class="ap-post-name">Luna Tarot</span>
+                    <span class="ap-post-sub">2h · 🌐</span>
+                  </div>
+                  <span class="ap-post-more" aria-hidden="true">···</span>
+                </div>
+                <p class="ap-caption">
+                  4 lucky signs this weekend <span class="ap-tag">#zodiac</span>
+                  <span class="ap-tag">#tarot</span> <span class="ap-tag">#horoscope</span>
+                </p>
+                <div class="ap-video ap-video-1">
+                  <span class="ap-play" aria-hidden="true">
+                    <Play size={16} fill="white" color="white" />
+                  </span>
+                  <span class="ap-sound" aria-hidden="true">🔇</span>
+                  <span class="ap-progress ap-progress-1"></span>
+                </div>
+                <div class="ap-stats">
+                  <span class="ap-ri ap-ri-like" aria-hidden="true">
+                    <ThumbsUp size={8} fill="white" color="white" />
+                  </span>
+                  <span class="ap-ri ap-ri-love" aria-hidden="true">❤</span>
+                  <span class="ap-stat-n">1.7K</span>
+                  <span class="ap-stat-right">2.4K comments · 161 shares</span>
+                </div>
+                <div class="ap-actrow">
+                  <span class="ap-act ap-act-like ap-likeflip-1">
+                    <ThumbsUp size={13} class="ap-thumb-1" /> Like
+                  </span>
+                  <span class="ap-act"><MessageCircle size={13} /> Comment</span>
+                  <span class="ap-act"><Share2 size={13} /> Share</span>
+                </div>
+              </article>
+
+              <!-- Post 2: browsed only -->
+              <article class="ap-post">
+                <div class="ap-post-head">
+                  <span class="ap-avatar" style="background:linear-gradient(135deg,#0369a1,#38bdf8)">A</span>
+                  <div class="ap-post-meta">
+                    <span class="ap-post-name">Astro Daily</span>
+                    <span class="ap-post-sub">5h · 🌐</span>
+                  </div>
+                  <span class="ap-post-more" aria-hidden="true">···</span>
+                </div>
+                <p class="ap-caption">
+                  Mercury says slow down today <span class="ap-tag">#zodiac</span>
+                  <span class="ap-tag">#astrology</span>
+                </p>
+                <div class="ap-video ap-video-2">
+                  <span class="ap-play" aria-hidden="true">
+                    <Play size={16} fill="white" color="white" />
+                  </span>
+                  <span class="ap-sound" aria-hidden="true">🔇</span>
+                  <span class="ap-progress ap-progress-2"></span>
+                </div>
+                <div class="ap-stats">
+                  <span class="ap-ri ap-ri-like" aria-hidden="true">
+                    <ThumbsUp size={8} fill="white" color="white" />
+                  </span>
+                  <span class="ap-ri ap-ri-love" aria-hidden="true">❤</span>
+                  <span class="ap-stat-n">433</span>
+                  <span class="ap-stat-right">457 comments · 26 shares</span>
+                </div>
+                <div class="ap-actrow">
+                  <span class="ap-act"><ThumbsUp size={13} /> Like</span>
+                  <span class="ap-act"><MessageCircle size={13} /> Comment</span>
+                  <span class="ap-act"><Share2 size={13} /> Share</span>
+                </div>
+              </article>
+
+              <!-- Post 3: gets saved -->
+              <article class="ap-post">
+                <div class="ap-post-head">
+                  <span class="ap-avatar" style="background:linear-gradient(135deg,#b45309,#fbbf24)">S</span>
+                  <div class="ap-post-meta">
+                    <span class="ap-post-name">Sean Whill</span>
+                    <span class="ap-post-sub">8h · 🌐</span>
+                  </div>
+                  <span class="ap-post-more" aria-hidden="true">···</span>
+                </div>
+                <p class="ap-caption">
+                  The face your heart keeps feeling <span class="ap-tag">#zodiac</span>
+                  <span class="ap-tag">#soulmate</span>
+                </p>
+                <div class="ap-video ap-video-3">
+                  <span class="ap-play" aria-hidden="true">
+                    <Play size={16} fill="white" color="white" />
+                  </span>
+                  <span class="ap-sound" aria-hidden="true">🔇</span>
+                  <span class="ap-progress ap-progress-3"></span>
+                </div>
+                <div class="ap-stats">
+                  <span class="ap-ri ap-ri-like" aria-hidden="true">
+                    <ThumbsUp size={8} fill="white" color="white" />
+                  </span>
+                  <span class="ap-ri ap-ri-love" aria-hidden="true">❤</span>
+                  <span class="ap-stat-n">2K</span>
+                  <span class="ap-stat-right">2K comments · 224 shares</span>
+                </div>
+                <div class="ap-actrow">
+                  <span class="ap-act"><ThumbsUp size={13} /> Like</span>
+                  <span class="ap-act"><MessageCircle size={13} /> Comment</span>
+                  <span class="ap-act"><Share2 size={13} /> Share</span>
+                </div>
+              </article>
+            </div>
+
+            <!-- FB-style confirmation toast (bottom-left, like the real one) -->
+            <div class="ap-toast" aria-hidden="true">
+              <Bookmark size={12} color="white" />
+              Saved to your items
+            </div>
+          </div>
+
+          <!-- ── socialWarmer side panel ── -->
+          <aside class="ap-panel">
+            <div class="ap-panel-head">
+              <span class="ap-panel-logo" aria-hidden="true">
+                <Flame size={12} color="white" strokeWidth={2.5} />
+              </span>
+              <span class="ap-panel-title">socialWarmer</span>
+              <span class="ap-chip">
+                <span class="ap-chip-state ap-chip-idle">idle</span>
+                <span class="ap-chip-state ap-chip-running">
+                  <span class="ap-chip-dot"></span>running
+                </span>
+              </span>
+            </div>
+
+            <div class="ap-kw">
+              <span class="ap-kw-label">Keyword</span>
+              <span class="ap-kw-pill">#zodiac</span>
+              <span class="ap-kw-label" style="margin-left:auto">Persona</span>
+              <span class="ap-kw-pill ap-kw-pers">Casual</span>
+            </div>
+
+            <button class="ap-start" type="button" tabindex="-1" aria-hidden="true">
+              <span class="ap-start-label">Start</span>
+            </button>
+
+            <div class="ap-counters">
+              <div class="ap-counter">
+                <span class="ap-cnum">
+                  <span class="ap-cn ap-done-0">0</span>
+                  <span class="ap-cn ap-done-1">1</span>
+                  <span class="ap-cn ap-done-2">2</span>
+                  <span class="ap-cn ap-done-3">3</span>
+                </span>
+                <span class="ap-clabel">done</span>
+              </div>
+              <div class="ap-counter">
+                <span class="ap-cnum">
+                  <span class="ap-cn ap-liked-0">0</span>
+                  <span class="ap-cn ap-liked-1">1</span>
+                </span>
+                <span class="ap-clabel">liked</span>
+              </div>
+              <div class="ap-counter">
+                <span class="ap-cnum">
+                  <span class="ap-cn ap-saved-0">0</span>
+                  <span class="ap-cn ap-saved-1">1</span>
+                </span>
+                <span class="ap-clabel">saved</span>
+              </div>
+            </div>
+
+            <div class="ap-log">
+              <span class="ap-log-line ap-ll-1">▶ watching video ~2s</span>
+              <span class="ap-log-line ap-ll-2">❤️ liked post</span>
+              <span class="ap-log-line ap-ll-3">▶ watching video ~2s</span>
+              <span class="ap-log-line ap-ll-4">· browsed only (dice 40%)</span>
+              <span class="ap-log-line ap-ll-5">🔖 saved post · ✓ 3/10</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style is:global>
+  /* ════ window chrome ════ */
+  .ap-shell {
+    transform: rotateX(1.5deg);
+    transform-origin: 50% 0%;
+  }
+  .ap-window {
+    border-radius: 14px;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid var(--color-stone-200, #e0e3e7);
+    box-shadow: 0 24px 60px -18px rgba(60, 64, 67, 0.25);
+  }
+  .ap-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 0;
+    background: #eceff4;
+  }
+  .ap-traffic {
+    display: flex;
+    gap: 6px;
+    padding-bottom: 8px;
+  }
+  .ap-tl {
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+  }
+  .ap-tl-red { background: #ff5f57; }
+  .ap-tl-yellow { background: #febc2e; }
+  .ap-tl-green { background: #28c840; }
+  .ap-tabstrip {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex: 1;
+  }
+  .ap-tab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 10px 10px 0 0;
+    font-size: 11px;
+    color: var(--color-muted, #5f6368);
+    max-width: 260px;
+  }
+  .ap-tab-active { background: #fff; }
+  .ap-tab-fav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    background: #0866ff;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .ap-tab-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ap-tab-plus {
+    font-size: 13px;
+    color: var(--color-faint, #80868b);
+    padding-bottom: 4px;
+  }
+  .ap-urlbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    background: #fff;
+    border-bottom: 1px solid var(--color-stone-100, #f1f3f4);
+  }
+  .ap-urlbtn {
+    color: var(--color-faint, #80868b);
+    font-size: 13px;
+    width: 18px;
+    text-align: center;
+  }
+  .ap-urlpill {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--color-surface-alt, #f1f3f4);
+    border-radius: 9999px;
+    padding: 5px 12px;
+    font-size: 11px;
+    color: var(--color-muted, #5f6368);
+  }
+  .ap-urlright { display: flex; align-items: center; }
+  .ap-ext {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: var(--color-blue-bg, #e9f0ff);
+  }
+
+  /* ════ body split ════ */
+  .ap-body {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    height: 440px; /* fixed: the feed crops and scrolls inside */
+    background: #f0f2f5; /* real FB canvas */
+  }
+  @media (max-width: 640px) {
+    .ap-body { grid-template-columns: 1fr; }
+    .ap-panel { display: none; }
+  }
+
+  /* ════ feed — Facebook comet anatomy ════ */
+  .ap-feed-pane {
+    overflow: hidden;
+    position: relative;
+    padding: 14px 0 0;
+  }
+  .ap-feed {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(400px, 92%);
+    margin: 0 auto;
+    animation: ap-feed-scroll 12s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  }
+  @keyframes ap-feed-scroll {
+    0%, 33% { transform: translateY(0); }
+    38%, 55% { transform: translateY(-33.5%); }
+    60%, 88% { transform: translateY(-67%); }
+    96%, 100% { transform: translateY(0); }
+  }
+  .ap-post {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    padding: 10px 12px 4px;
+    flex-shrink: 0;
+  }
+  .ap-post-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ap-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .ap-post-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ap-post-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #050505;
+    line-height: 1.2;
+  }
+  .ap-post-sub {
+    font-size: 10.5px;
+    color: #65676b;
+  }
+  .ap-post-more {
+    margin-left: auto;
+    color: #65676b;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 0 4px;
+  }
+  .ap-caption {
+    margin: 7px 0 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: #050505;
+  }
+  .ap-tag { color: #0866ff; }
+
+  .ap-video {
+    position: relative;
+    margin: 8px -12px 0; /* full-bleed like real FB media */
+    height: 150px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ap-video-1 { background: linear-gradient(135deg, #2e1065, #7c3aed); }
+  .ap-video-2 { background: linear-gradient(135deg, #082f49, #0ea5e9); }
+  .ap-video-3 { background: linear-gradient(135deg, #431407, #f59e3c); }
+  .ap-play {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.22);
+    backdrop-filter: blur(2px);
+  }
+  .ap-sound {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    font-size: 10px;
+    opacity: 0.85;
+  }
+  .ap-progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.92);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+  }
+  .ap-progress-1 { animation: ap-watch-1 12s linear infinite; }
+  .ap-progress-2 { animation: ap-watch-2 12s linear infinite; }
+  .ap-progress-3 { animation: ap-watch-3 12s linear infinite; }
+  @keyframes ap-watch-1 {
+    0%, 11% { transform: scaleX(0); opacity: 1; }
+    27% { transform: scaleX(1); opacity: 1; }
+    33% { opacity: 0; }
+    100% { transform: scaleX(1); opacity: 0; }
+  }
+  @keyframes ap-watch-2 {
+    0%, 39% { transform: scaleX(0); opacity: 1; }
+    53% { transform: scaleX(1); opacity: 1; }
+    59% { opacity: 0; }
+    100% { transform: scaleX(1); opacity: 0; }
+  }
+  @keyframes ap-watch-3 {
+    0%, 61% { transform: scaleX(0); opacity: 1; }
+    73% { transform: scaleX(1); opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: scaleX(1); opacity: 0; }
+  }
+
+  /* Reactions summary row — 👍❤ chips + counts, like real FB */
+  .ap-stats {
+    display: flex;
+    align-items: center;
+    padding: 7px 0 6px;
+    border-bottom: 1px solid #e4e6eb;
+  }
+  .ap-ri {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 9999px;
+    border: 1.5px solid #fff;
+    font-size: 8px;
+    line-height: 1;
+  }
+  .ap-ri-like { background: #0866ff; z-index: 1; }
+  .ap-ri-love {
+    background: #f0454e;
+    color: #fff;
+    margin-left: -4px;
+  }
+  .ap-stat-n {
+    margin-left: 5px;
+    font-size: 11px;
+    color: #65676b;
+  }
+  .ap-stat-right {
+    margin-left: auto;
+    font-size: 11px;
+    color: #65676b;
+  }
+
+  /* Like / Comment / Share row */
+  .ap-actrow {
+    display: flex;
+    padding: 2px 0;
+  }
+  .ap-act {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 0;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #65676b;
+  }
+  /* Post 1's Like flips to FB blue when the run likes it */
+  .ap-likeflip-1 {
+    animation: ap-likeflip 12s steps(1) infinite;
+  }
+  @keyframes ap-likeflip {
+    0%, 28% { color: #65676b; }
+    29%, 91% { color: #0866ff; }
+    92%, 100% { color: #65676b; }
+  }
+  .ap-thumb-1 {
+    animation: ap-thumbpop 12s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+  }
+  @keyframes ap-thumbpop {
+    0%, 28% { transform: scale(1) rotate(0deg); }
+    29.5% { transform: scale(1.45) rotate(-14deg); }
+    31% { transform: scale(1) rotate(0deg); }
+    100% { transform: scale(1) rotate(0deg); }
+  }
+
+  /* FB's dark bottom-left confirmation toast */
+  .ap-toast {
+    position: absolute;
+    left: 14px;
+    bottom: 12px;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: #1c1e21;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 8px;
+    padding: 8px 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transform: translateY(8px);
+    animation: ap-toast 12s ease infinite;
+  }
+  @keyframes ap-toast {
+    0%, 74% { opacity: 0; transform: translateY(8px); }
+    76%, 89% { opacity: 1; transform: translateY(0); }
+    92%, 100% { opacity: 0; transform: translateY(8px); }
+  }
+
+  /* ════ side panel ════ */
+  .ap-panel {
+    border-left: 1px solid var(--color-stone-200, #e0e3e7);
+    background: #fbfcfe;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ap-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .ap-panel-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #3c7cfc, #59c0e8);
+  }
+  .ap-panel-title {
+    font-size: 12px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #3c7cfc, #59c0e8);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .ap-chip {
+    position: relative;
+    margin-left: auto;
+    width: 64px;
+    height: 20px;
+  }
+  .ap-chip-state {
+    position: absolute;
+    inset: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 9999px;
+    font-size: 9.5px;
+    font-weight: 600;
+  }
+  .ap-chip-idle {
+    border: 1px solid var(--color-stone-200, #e0e3e7);
+    color: var(--color-faint, #80868b);
+    animation: ap-chip-idle 12s steps(1) infinite;
+  }
+  .ap-chip-running {
+    background: rgba(245, 125, 13, 0.12);
+    color: #d96c08;
+    opacity: 0;
+    animation: ap-chip-running 12s steps(1) infinite;
+  }
+  .ap-chip-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+    background: #f57d0d;
+    animation: ap-dot-pulse 1.9s ease-in-out infinite;
+  }
+  @keyframes ap-chip-idle {
+    0%, 7% { opacity: 1; }
+    8%, 93% { opacity: 0; }
+    94%, 100% { opacity: 1; }
+  }
+  @keyframes ap-chip-running {
+    0%, 7% { opacity: 0; }
+    8%, 93% { opacity: 1; }
+    94%, 100% { opacity: 0; }
+  }
+  @keyframes ap-dot-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 125, 13, 0.45); }
+    50% { box-shadow: 0 0 0 4px rgba(245, 125, 13, 0); }
+  }
+
+  .ap-kw {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ap-kw-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-faint, #80868b);
+  }
+  .ap-kw-pill {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-blue, #3c7cfc);
+    background: var(--color-blue-bg, #e9f0ff);
+    border-radius: 9999px;
+    padding: 2px 8px;
+  }
+  .ap-kw-pers {
+    color: #d96c08;
+    background: rgba(245, 125, 13, 0.1);
+  }
+
+  .ap-start {
+    position: relative;
+    border: 0;
+    border-radius: 9px;
+    padding: 8px 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+    background: #18181b;
+    animation: ap-start-press 12s ease infinite;
+  }
+  @keyframes ap-start-press {
+    0%, 7% { transform: scale(1); box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+    8.5% { transform: scale(0.97); box-shadow: 0 0 0 6px rgba(60, 124, 252, 0.18); }
+    10%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(60, 124, 252, 0); }
+  }
+
+  .ap-counters {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .ap-counter {
+    background: #fff;
+    border: 1px solid var(--color-stone-100, #f1f3f4);
+    border-radius: 9px;
+    padding: 6px 0 5px;
+    text-align: center;
+  }
+  .ap-cnum {
+    position: relative;
+    display: block;
+    height: 18px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-blue, #3c7cfc);
+  }
+  .ap-cn {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+  .ap-clabel {
+    font-size: 8.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-faint, #80868b);
+  }
+  .ap-done-0 { animation: ap-n-d0 12s steps(1) infinite; }
+  .ap-done-1 { animation: ap-n-d1 12s steps(1) infinite; }
+  .ap-done-2 { animation: ap-n-d2 12s steps(1) infinite; }
+  .ap-done-3 { animation: ap-n-d3 12s steps(1) infinite; }
+  @keyframes ap-n-d0 { 0%, 28% { opacity: 1; } 29%, 93% { opacity: 0; } 94%, 100% { opacity: 1; } }
+  @keyframes ap-n-d1 { 0%, 28% { opacity: 0; } 29%, 54% { opacity: 1; } 55%, 100% { opacity: 0; } }
+  @keyframes ap-n-d2 { 0%, 54% { opacity: 0; } 55%, 74% { opacity: 1; } 75%, 100% { opacity: 0; } }
+  @keyframes ap-n-d3 { 0%, 74% { opacity: 0; } 75%, 93% { opacity: 1; } 94%, 100% { opacity: 0; } }
+  .ap-liked-0 { animation: ap-n-l0 12s steps(1) infinite; }
+  .ap-liked-1 { animation: ap-n-l1 12s steps(1) infinite; }
+  @keyframes ap-n-l0 { 0%, 29% { opacity: 1; } 30%, 93% { opacity: 0; } 94%, 100% { opacity: 1; } }
+  @keyframes ap-n-l1 { 0%, 29% { opacity: 0; } 30%, 93% { opacity: 1; } 94%, 100% { opacity: 0; } }
+  .ap-saved-0 { animation: ap-n-s0 12s steps(1) infinite; }
+  .ap-saved-1 { animation: ap-n-s1 12s steps(1) infinite; }
+  @keyframes ap-n-s0 { 0%, 75% { opacity: 1; } 76%, 93% { opacity: 0; } 94%, 100% { opacity: 1; } }
+  @keyframes ap-n-s1 { 0%, 75% { opacity: 0; } 76%, 93% { opacity: 1; } 94%, 100% { opacity: 0; } }
+
+  .ap-log {
+    flex: 1;
+    background: #18181b;
+    border-radius: 9px;
+    padding: 9px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    overflow: hidden;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 9.5px;
+    line-height: 1.5;
+    color: #d4d4d8;
+  }
+  .ap-log-line {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  .ap-ll-1 { animation: ap-ll1 12s ease infinite; }
+  .ap-ll-2 { animation: ap-ll2 12s ease infinite; }
+  .ap-ll-3 { animation: ap-ll3 12s ease infinite; }
+  .ap-ll-4 { animation: ap-ll4 12s ease infinite; }
+  .ap-ll-5 { animation: ap-ll5 12s ease infinite; }
+  @keyframes ap-ll1 {
+    0%, 11% { opacity: 0; transform: translateX(-6px); }
+    13%, 90% { opacity: 1; transform: translateX(0); }
+    94%, 100% { opacity: 0; transform: translateX(-6px); }
+  }
+  @keyframes ap-ll2 {
+    0%, 28% { opacity: 0; transform: translateX(-6px); }
+    30%, 90% { opacity: 1; transform: translateX(0); }
+    94%, 100% { opacity: 0; transform: translateX(-6px); }
+  }
+  @keyframes ap-ll3 {
+    0%, 39% { opacity: 0; transform: translateX(-6px); }
+    41%, 90% { opacity: 1; transform: translateX(0); }
+    94%, 100% { opacity: 0; transform: translateX(-6px); }
+  }
+  @keyframes ap-ll4 {
+    0%, 53% { opacity: 0; transform: translateX(-6px); }
+    55%, 90% { opacity: 1; transform: translateX(0); }
+    94%, 100% { opacity: 0; transform: translateX(-6px); }
+  }
+  @keyframes ap-ll5 {
+    0%, 74% { opacity: 0; transform: translateX(-6px); }
+    76%, 90% { opacity: 1; transform: translateX(0); }
+    94%, 100% { opacity: 0; transform: translateX(-6px); }
+  }
+
+  /* ════ reduced motion: freeze at the resolved state ════ */
+  @media (prefers-reduced-motion: reduce) {
+    .ap-feed { animation: none; transform: translateY(-67%); }
+    .ap-progress-1,
+    .ap-progress-2,
+    .ap-progress-3 { animation: none; transform: scaleX(1); opacity: 0; }
+    .ap-progress-3 { opacity: 1; }
+    .ap-likeflip-1 { animation: none; color: #0866ff; }
+    .ap-thumb-1 { animation: none; }
+    .ap-toast { animation: none; opacity: 1; transform: none; }
+    .ap-chip-idle { animation: none; opacity: 0; }
+    .ap-chip-running { animation: none; opacity: 1; }
+    .ap-chip-dot { animation: none; }
+    .ap-start { animation: none; }
+    .ap-cn { animation: none !important; opacity: 0 !important; }
+    .ap-done-3, .ap-liked-1, .ap-saved-1 { opacity: 1 !important; }
+    .ap-log-line { animation: none; opacity: 1; transform: none; }
+  }
+</style>
