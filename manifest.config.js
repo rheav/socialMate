@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialWarmer",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
-  version: "0.27.2",
-  version_name: "0.27.2 — Download tab: show the PAGE's avatar, not the logged-in user's",
+  version: "0.31.0",
+  version_name: "0.31.0 — Whisper→relevance (deep), spam/scam guard, soft-block backoff, cross-session dedup, run history",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

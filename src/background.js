@@ -286,6 +286,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       getTranscripts().then((all) => sendResponse({ transcripts: all }));
       return true; // async
     }
+    // content → bg → offscreen: niche-relevance (+ spam) cosine for a post.
+    // Fails open (score 1, spam 0) so a model hiccup never blocks the warmer.
+    case "FBW_RELEVANCE": {
+      (async () => {
+        try {
+          await ensureOffscreen();
+          const res = await callOffscreen({ action: "relevanceScore", keyword: msg.keyword, text: msg.text, spam: msg.spam });
+          sendResponse(res?.success ? { score: res.score, spam: res.spam } : { score: 1, spam: 0, error: res?.error });
+        } catch (e) {
+          sendResponse({ score: 1, spam: 0, error: e.message });
+        }
+      })();
+      return true; // async
+    }
+    // content → bg → offscreen: quick partial transcript of the in-view video.
+    // Resolves the captured fbcdn audio track, Whisper-transcribes a ~12s cap.
+    case "FBW_QUICK_TRANSCRIBE": {
+      (async () => {
+        try {
+          const tracks = resolveTracks(msg.videoId);
+          if (!tracks || !tracks.audioUrl) { sendResponse({ text: "" }); return; }
+          await ensureOffscreen();
+          const res = await callOffscreen({ action: "quickTranscribe", audioUrl: tracks.audioUrl, maxSeconds: 12, videoId: tracks.videoId });
+          sendResponse({ text: res?.success ? res.text : "" });
+        } catch (e) {
+          sendResponse({ text: "", error: e.message });
+        }
+      })();
+      return true; // async
+    }
     default:
       return false;
   }

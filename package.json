@@ -1,7 +1,7 @@
 {
   "name": "social-warmer",
   "private": true,
-  "version": "0.27.2",
+  "version": "0.31.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
@@ -23,6 +23,8 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "franc-min": "^6.2.0",
+    "idb-keyval": "^6.2.5",
     "lucide-react": "^1.17.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

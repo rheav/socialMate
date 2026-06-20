@@ -1,8 +1,11 @@
-// Offscreen engine — local Whisper transcription + ffmpeg muxing for FB videos.
+// Offscreen engine — local Whisper transcription + ffmpeg muxing for FB videos,
+// plus local niche-relevance embeddings (MiniLM) for the warmer's like-gate.
 //
 // Runs in an offscreen document (has DOM/AudioContext/WASM/Workers that a service
 // worker lacks). The background SW hands us fbcdn track URLs (already resolved);
 // because *.fbcdn.net is in host_permissions, fetches here bypass CORS.
+
+import { get as idbGet, set as idbSet } from "idb-keyval";
 
 // Whisper runs in a dedicated module worker (transcribe.worker.js) so its heavy WASM
 // compute stays OFF the shared extension main thread — otherwise it freezes the side
@@ -41,8 +44,9 @@ function workerTranscribe(audio) {
   });
 }
 
-/** Fetch a media URL and decode to 16 kHz mono Float32 PCM. */
-async function fetchAudioPCM(url) {
+/** Fetch a media URL and decode to 16 kHz mono Float32 PCM. maxSeconds caps the
+ *  rendered length (used by the quick-transcript relevance signal). */
+async function fetchAudioPCM(url, maxSeconds) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Fetch audio failed: ${resp.status}`);
   const arrayBuffer = await resp.arrayBuffer();
@@ -50,7 +54,9 @@ async function fetchAudioPCM(url) {
   try {
     const decoded = await ctx.decodeAudioData(arrayBuffer);
     const sampleRate = 16000;
-    const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * sampleRate), sampleRate);
+    const fullLen = Math.ceil(decoded.duration * sampleRate);
+    const len = maxSeconds ? Math.min(fullLen, Math.ceil(maxSeconds * sampleRate)) : fullLen;
+    const off = new OfflineAudioContext(1, len, sampleRate);
     const src = off.createBufferSource();
     src.buffer = decoded;
     src.connect(off.destination);
@@ -92,6 +98,117 @@ async function transcribeFromAudioUrl(audioUrl) {
   const res = await workerTranscribe(audio);   // heavy inference on the worker thread
   if (!res.ok) throw new Error(res.error || "Transcription failed");
   return cleanChunks(res.result);
+}
+
+// ============================================================================
+// NICHE RELEVANCE — local MiniLM sentence embeddings + cosine similarity.
+// The warmer asks "how related is this post to my keyword?" before liking. We
+// embed the keyword once (in-memory cache) and each post caption (IndexedDB cache,
+// keyed by a content hash so re-scrolling the same post costs nothing).
+// ============================================================================
+let relWorker = null;
+const relPending = new Map();
+function getRelWorker() {
+  if (relWorker) return relWorker;
+  relWorker = new Worker(new URL("./relevance.worker.js", import.meta.url), { type: "module" });
+  relWorker.onmessage = (e) => {
+    const { id, ...rest } = e.data || {};
+    const resolve = relPending.get(id);
+    if (resolve) { relPending.delete(id); resolve(rest); }
+  };
+  relWorker.postMessage({
+    id: ++txMsgId,
+    type: "config",
+    paths: {
+      models: chrome.runtime.getURL("models/"),
+      assets: chrome.runtime.getURL("assets/"),
+      model: chrome.runtime.getURL("models/Xenova/all-MiniLM-L6-v2"),
+    },
+  });
+  return relWorker;
+}
+function workerEmbed(texts) {
+  const w = getRelWorker();
+  const id = ++txMsgId;
+  return new Promise((resolve) => { relPending.set(id, resolve); w.postMessage({ id, type: "embed", texts }); });
+}
+async function embedOne(text) {
+  const res = await workerEmbed([text]);
+  if (!res.ok) throw new Error(res.error || "Embedding failed");
+  return res.vectors[0];
+}
+
+const keywordVecCache = new Map(); // keyword -> Float vector (in-memory)
+async function keywordVec(keyword) {
+  const k = keyword.trim().toLowerCase();
+  if (keywordVecCache.has(k)) return keywordVecCache.get(k);
+  const v = await embedOne(k);
+  keywordVecCache.set(k, v);
+  return v;
+}
+function hashText(s) {
+  // djb2 — cheap, collision-tolerant cache key for post captions.
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return "emb:" + (h >>> 0).toString(36) + ":" + s.length;
+}
+async function postVec(text) {
+  const key = hashText(text);
+  const cached = await idbGet(key).catch(() => null);
+  if (cached) return cached;
+  const v = await embedOne(text.slice(0, 512)); // cap caption length for speed
+  idbSet(key, v).catch(() => {});
+  return v;
+}
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+
+// Returns cosine similarity in [-1,1] (vectors are L2-normalized → dot product).
+async function relevanceScore(keyword, text) {
+  const t = (text || "").trim();
+  if (!keyword || !keyword.trim() || t.length < 3) return 1; // nothing to judge → don't block
+  const [kv, pv] = await Promise.all([keywordVec(keyword), postVec(t)]);
+  return dot(kv, pv);
+}
+
+// ---- spam / scam guard (cosine to a fixed set of scam-anchor phrases) ----
+const SPAM_ANCHORS = [
+  "free giveaway dm me to claim your prize winner",
+  "invest in bitcoin crypto forex guaranteed daily profit",
+  "click the link in my bio to buy now limited offer",
+  "make money fast work from home easy passive income",
+  "whatsapp or telegram me for private paid reading",
+  "follow like and share to win comment done amen",
+];
+let spamVecs = null;
+async function getSpamVecs() {
+  if (spamVecs) return spamVecs;
+  const res = await workerEmbed(SPAM_ANCHORS);
+  if (!res.ok) throw new Error(res.error || "spam anchors embed failed");
+  spamVecs = res.vectors;
+  return spamVecs;
+}
+// Max cosine of the post against any spam anchor (higher = more spam-like).
+async function spamScore(text) {
+  const t = (text || "").trim();
+  if (t.length < 8) return 0;
+  const [pv, anchors] = await Promise.all([postVec(t), getSpamVecs()]);
+  let max = 0;
+  for (const a of anchors) { const s = dot(pv, a); if (s > max) max = s; }
+  return max;
+}
+
+// ---- quick partial transcript (relevance signal for video posts) ----
+const quickTxCache = new Map(); // videoId -> text (in-memory)
+async function quickTranscribe(audioUrl, maxSeconds, videoId) {
+  if (videoId && quickTxCache.has(videoId)) return quickTxCache.get(videoId);
+  const idbKey = "qtx:" + (videoId || hashText(audioUrl));
+  const cached = await idbGet(idbKey).catch(() => null);
+  if (cached != null) { if (videoId) quickTxCache.set(videoId, cached); return cached; }
+  let pcm = await fetchAudioPCM(audioUrl, maxSeconds); // capped decode
+  const res = await workerTranscribe(pcm);
+  const text = res.ok ? cleanChunks(res.result).text : "";
+  if (text) { idbSet(idbKey, text).catch(() => {}); if (videoId) quickTxCache.set(videoId, text); }
+  return text;
 }
 
 // ---- ffmpeg mux (lazy) ----
@@ -136,6 +253,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const { text, chunks } = await transcribeFromAudioUrl(msg.audioUrl);
         sendResponse({ success: true, text, chunks });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "relevanceScore") {
+    (async () => {
+      try {
+        const score = await relevanceScore(msg.keyword, msg.text);
+        const spam = msg.spam ? await spamScore(msg.text) : 0;
+        sendResponse({ success: true, score, spam });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.action === "quickTranscribe") {
+    (async () => {
+      try {
+        const text = await quickTranscribe(msg.audioUrl, msg.maxSeconds || 12, msg.videoId);
+        sendResponse({ success: true, text });
       } catch (e) {
         sendResponse({ success: false, error: e.message });
       }

@@ -1,3 +1,5 @@
+import { franc } from "franc-min";
+
 // socialWarmer — multi-platform content engine (Facebook / Instagram / TikTok).
 // One content script injected on all three hosts. A shared core (state, pacing,
 // safety, counters, persistence, run loops) drives per-platform ADAPTERS that
@@ -36,6 +38,14 @@
   const EMPTY_SCROLL_LIMIT = 14; // feed scrolls with no actionable video → halt
   const MAX_CONSEC_LIKES = 8;    // cap likes-in-a-row, then cool down (safety)
   const MAX_CONSEC_FOLLOWS = 5;
+  const MAX_LIKES_PER_AUTHOR = 2;   // per session — don't concentrate likes on one actor
+  const MAX_LIKES_PER_HOUR = 60;    // rolling rate ceiling (hard anti-runaway cap)
+  const LOVE_REACTION_CHANCE = 0.18; // of likes, send Love (❤️) instead of plain Like
+  const SOFT_FAIL_LIMIT = 3;        // reactions that click but don't register → soft-block backoff
+  const SPAM_MIN = 0.34;            // cosine to spam anchors above which a post is skipped
+  const SEEN_KEY = "fbw_seen";      // cross-session post-id dedup (chrome.storage.local)
+  const SEEN_CAP = 5000;
+  const HISTORY_KEY = "fbw_history"; // per-run summaries for the History tab
   const LOG_CAP = 120;
 
   function freshState() {
@@ -51,6 +61,9 @@
       targetN: 10,
       actions: { save: true, like: true, follow: false },
       englishOnly: false,
+      relevanceMin: 0, // niche-relevance cosine gate for likes (0 = off)
+      spamGuard: true, // skip scam/giveaway/spam posts (MiniLM anchor cosine)
+      deepRelevance: false, // transcribe video audio and fold into the relevance text
       thresholds: { minLikes: 0, minComments: 0 },
       pacing: { minDelay: 4000, maxDelay: 9000, reelDwellMin: 6000, reelDwellMax: 15000, scrollMin: 300, scrollMax: 750 },
       personalityMode: null,
@@ -59,6 +72,7 @@
       processed: 0,
       saved: 0,
       liked: 0,
+      loved: 0,
       followed: 0,
       skipped: 0,
       // safety
@@ -66,12 +80,17 @@
       missStreak: 0,
       consecLikes: 0,
       consecFollows: 0,
+      warmupPosts: 0,    // first N posts of a session = lurk only, no actions
+      likeTimes: [],     // rolling like timestamps for the per-hour rate cap
+      authorLikes: {},   // authorKey -> likes this session (per-author throttle)
+      softFailStreak: 0, // consecutive reactions that clicked but didn't register
       // log ring buffer
       log: [],
       // runtime-only
       tickTimer: null,
       loopActive: false,
-      seen: new WeakSet(),
+      seen: new WeakSet(),   // element-keyed (IG/TikTok video loops)
+      seenIds: new Set(),    // post-id-keyed (FB posts — survives feed virtualization)
     };
   }
 
@@ -104,9 +123,9 @@
           isRunning: S.isRunning, isPaused: S.isPaused,
           startedAt: S.startedAt, willEndAt: S.willEndAt,
           mode: S.mode, keyword: S.keyword, targetN: S.targetN,
-          actions: S.actions, englishOnly: S.englishOnly, pacing: S.pacing, thresholds: S.thresholds,
+          actions: S.actions, englishOnly: S.englishOnly, relevanceMin: S.relevanceMin, spamGuard: S.spamGuard, deepRelevance: S.deepRelevance, warmupPosts: S.warmupPosts, pacing: S.pacing, thresholds: S.thresholds,
           personalityMode: S.personalityMode, userSelectedPersonality: S.userSelectedPersonality,
-          processed: S.processed, saved: S.saved, liked: S.liked, followed: S.followed, skipped: S.skipped,
+          processed: S.processed, saved: S.saved, liked: S.liked, loved: S.loved, followed: S.followed, skipped: S.skipped,
           haltReason: S.haltReason, log: S.log.slice(-LOG_CAP), savedAt: Date.now(),
         },
       });
@@ -119,7 +138,7 @@
       isRunning: S.isRunning, isPaused: S.isPaused,
       platform: S.platform, mode: S.mode, keyword: S.keyword, targetN: S.targetN,
       etaMs: S.willEndAt ? Math.max(0, S.willEndAt - now) : 0,
-      processed: S.processed, saved: S.saved, liked: S.liked, followed: S.followed, skipped: S.skipped,
+      processed: S.processed, saved: S.saved, liked: S.liked, loved: S.loved, followed: S.followed, skipped: S.skipped,
       personality: S.personalityMode ? PERSONALITIES[S.personalityMode].name : null,
       haltReason: S.haltReason,
       surface: pageSurface(),
@@ -196,6 +215,7 @@
     S.isRunning = false;
     logLine(`🛑 HALTED: ${reason}`);
     clearInterval(S.tickTimer);
+    logHistory("halt: " + reason);
     persist();
   }
 
@@ -235,25 +255,61 @@
   // ============================================================
   // pacing
   // ============================================================
-  const actionGap = () => sleep(rand(S.pacing.minDelay, S.pacing.maxDelay));
+  // Circadian multiplier — humans browse slower late at night / early morning.
+  function circadian() {
+    const h = new Date().getHours();
+    if (h >= 0 && h < 6) return 1.8;
+    if (h >= 6 && h < 9) return 1.3;
+    if (h >= 23) return 1.5;
+    return 1.0;
+  }
+  const actionGap = () => sleep(Math.round(rand(S.pacing.minDelay, S.pacing.maxDelay) * circadian()));
   const reelDwell = () => sleep(rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax));
   async function waitWhilePaused() {
     while (S.isRunning && S.isPaused) await sleep(500);
   }
+  // Variable-velocity scroll with occasional scroll-up re-reads (human skim, not metronome).
   function humanScroll() {
-    const by = rand(S.pacing.scrollMin, S.pacing.scrollMax);
-    window.scrollBy({ top: by, left: 0, behavior: "smooth" });
+    if (Math.random() < 0.15) { window.scrollBy({ top: -rand(120, 400), left: 0, behavior: "smooth" }); return; }
+    const by = Math.round(rand(S.pacing.scrollMin, S.pacing.scrollMax) * (0.6 + Math.random() * 0.9));
+    window.scrollBy({ top: by, left: rand(-2, 2), behavior: "smooth" });
     if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 20)
       window.scrollTo({ top: Math.max(0, window.scrollY - rand(300, 900)), behavior: "smooth" });
   }
   const centerInViewport = (el) => el.scrollIntoView({ behavior: "smooth", block: "center" });
   // A few small scroll steps with pauses — reads as a human skimming the feed.
+  // ~20% of steps get a long dwell (got-distracted pause).
   async function scrollBurst(min, max) {
     const steps = rand(min, max);
     for (let i = 0; i < steps && S.isRunning && !S.isPaused; i++) {
       humanScroll();
-      await sleep(rand(800, 2000));
+      await sleep(rand(700, 1900) * (Math.random() < 0.2 ? 2 : 1));
     }
+  }
+
+  // ---- synthetic pointer realism (avoid bare el.click(), the #1 bot tell) ----
+  function pointAt(el) {
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width * (0.32 + Math.random() * 0.36);
+    const y = r.top + r.height * (0.32 + Math.random() * 0.36);
+    return { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+  }
+  async function humanHover(el) {
+    const o = pointAt(el);
+    el.dispatchEvent(new PointerEvent("pointerover", { ...o, pointerId: 1 }));
+    el.dispatchEvent(new MouseEvent("mouseover", o));
+    el.dispatchEvent(new MouseEvent("mousemove", o));
+    await sleep(rand(500, 1100));
+  }
+  async function humanClick(el) {
+    await humanHover(el);
+    const o = pointAt(el);
+    el.dispatchEvent(new PointerEvent("pointerdown", { ...o, pointerId: 1, button: 0 }));
+    el.dispatchEvent(new MouseEvent("mousedown", { ...o, button: 0 }));
+    await sleep(rand(50, 140));
+    el.dispatchEvent(new PointerEvent("pointerup", { ...o, pointerId: 1, button: 0 }));
+    el.dispatchEvent(new MouseEvent("mouseup", { ...o, button: 0 }));
+    el.click();
   }
 
   // ============================================================
@@ -317,30 +373,65 @@
     advance: fbNextReel,
   };
 
-  // -- feed / search posts (Modes B, A) -- [VERIFIED]
-  // Already-liked posts swap aria-label "Like" → "Remove Like" + "Change Like reaction",
-  // so the bar-walk must accept all three or it climbs into a container holding a
-  // DIFFERENT post's Like button (wrong bar, wrong likeBtn, like lands on wrong post).
-  const FB_LIKEISH = '[role="button"][aria-label="Like"], [role="button"][aria-label="Remove Like"], [role="button"][aria-label="Change Like reaction"]';
+  // -- hashtag / search posts (Mode A) -- [VERIFIED live: pt-br + en, 2026-06-20]
+  // FB action-bar aria-labels are LOCALIZED. Match by exact membership: the like
+  // ACTION button is exactly "Curtir"/"Like"; the reaction-count tooltip is
+  // "Curtir: 3,5 mil pessoas" (has a colon) so exact membership excludes it. A
+  // liked post swaps the control to "Remover Curtir" / "Alterar reação Curtir".
+  const FB_LIKE_WORDS = ["like", "curtir", "me gusta", "j’aime", "j'aime", "mi piace", "gefällt mir"];
+  const FB_UNLIKE_WORDS = ["remove like", "remover curtir", "ya no me gusta", "je n’aime plus", "non mi piace più"];
+  const FB_CHANGE_PREFIX = ["change like reaction", "alterar reação", "cambiar la reacción", "modifier l’avis"];
+  const FB_MENU_PREFIX = ["actions for this post", "ações para este post", "acciones para esta publicación", "plus d’actions sur cette publication"];
+  const fbAria = (el) => (el.getAttribute("aria-label") || "").trim().toLowerCase();
+  function fbIsLikeBtn(el) {
+    const a = fbAria(el);
+    return FB_LIKE_WORDS.includes(a) || FB_UNLIKE_WORDS.includes(a) || FB_CHANGE_PREFIX.some((w) => a.startsWith(w));
+  }
+  function fbIsLikedBtn(el) {
+    if (!el) return false;
+    const a = fbAria(el);
+    return FB_UNLIKE_WORDS.includes(a) || FB_CHANGE_PREFIX.some((w) => a.startsWith(w));
+  }
+  // The like control inside a post — re-query after a click, since FB relabels/
+  // replaces the node when the like state flips.
+  function fbBarLikeBtn(root) {
+    return Array.from(root.querySelectorAll('[role="button"][aria-label]')).find(fbIsLikeBtn) || null;
+  }
+  const FB_LOVE_WORDS = ["amei", "love", "me encanta", "j’adore", "j'adore", "adoro"];
+  // Stable per-author key (profile id or slug) for the per-author like throttle.
+  function fbAuthorKey(root) {
+    const a = root.querySelector('h2 a[href], h3 a[href], h4 a[href], strong a[href], a[href*="/profile.php?id="]');
+    const href = a ? (a.getAttribute("href") || "") : "";
+    const m = href.match(/profile\.php\?id=(\d+)/);
+    if (m) return "id:" + m[1];
+    const slug = href.split("?")[0].replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "");
+    return slug || (a && (a.textContent || "").trim().slice(0, 40)) || null;
+  }
+  // Stable per-post key so FB's virtualized feed recycling can't double-like/skip.
+  function fbPostKey(root) {
+    for (const a of root.querySelectorAll("a[href]")) {
+      const h = a.getAttribute("href") || "";
+      const m = h.match(/\/(?:posts|videos|reel|permalink)\/([A-Za-z0-9.]+)/) ||
+        h.match(/story_fbid=([A-Za-z0-9.]+)/) ||
+        h.match(/\/stories\/\d+\/([A-Za-z0-9=]+)/);
+      if (m) return m[1];
+    }
+    const s = (fbAuthorKey(root) || "") + "|" + fbGetPostText(root).slice(0, 80);
+    let hsh = 5381;
+    for (let i = 0; i < s.length; i++) hsh = ((hsh << 5) + hsh + s.charCodeAt(i)) | 0;
+    return "h:" + (hsh >>> 0).toString(36);
+  }
+  // Posts are the direct children of [role="feed"] that carry a like control.
   function fbEnumeratePosts() {
-    const commentBtns = Array.from(document.querySelectorAll('[role="button"][aria-label="Leave a comment"]'));
+    const feed = document.querySelector('[role="feed"]');
+    if (!feed) return [];
     const posts = [];
-    for (const cb of commentBtns) {
-      let bar = cb, d = 0;
-      while (bar && bar !== document.body && d < 8) {
-        if (bar.querySelector(FB_LIKEISH) && bar.querySelector('[aria-label^="Send this to friends"]')) break;
-        bar = bar.parentElement; d++;
-      }
-      if (!bar || bar === document.body) continue;
-      let root = bar, rd = 0, menuBtn = null;
-      while (root && root !== document.body && rd < 20) {
-        const m = root.querySelector('[role="button"][aria-label^="Actions for this post"]');
-        if (m) { menuBtn = m; break; }
-        root = root.parentElement; rd++;
-      }
-      const likeBtn = bar.querySelector(FB_LIKEISH);
+    for (const child of feed.children) {
+      const likeBtn = fbBarLikeBtn(child);
       if (!likeBtn) continue;
-      posts.push({ bar, root: root || bar, likeBtn, menuBtn });
+      const menuBtn = Array.from(child.querySelectorAll('[role="button"][aria-label]'))
+        .find((b) => FB_MENU_PREFIX.some((w) => fbAria(b).startsWith(w))) || null;
+      posts.push({ bar: child, root: child, likeBtn, menuBtn, authorKey: fbAuthorKey(child), postKey: fbPostKey(child) });
     }
     return posts;
   }
@@ -370,15 +461,17 @@
     const mult = /k/i.test(m[2] || "") ? 1e3 : /m/i.test(m[2] || "") ? 1e6 : 1;
     return Math.round(parseFloat(m[1]) * mult);
   }
+  const FB_COMMENT_WORDS = ["leave a comment", "deixe um comentário", "escribir un comentario", "écrire un commentaire", "commenta"];
   function fbPostStats(p) {
-    const cb = p.bar.querySelector('[role="button"][aria-label="Leave a comment"]');
+    const cb = Array.from(p.root.querySelectorAll('[role="button"][aria-label]'))
+      .find((b) => FB_COMMENT_WORDS.includes(fbAria(b)));
     return { likes: parseCount(p.likeBtn && p.likeBtn.innerText), comments: parseCount(cb && cb.innerText) };
   }
   function fbPickPost() {
     for (const p of fbEnumeratePosts()) {
-      if (S.seen.has(p.bar)) continue;
+      if (p.postKey && S.seenIds.has(p.postKey)) continue;
       if (!inViewport(p.likeBtn)) continue;
-      if (fbIsSponsored(p.root)) { S.seen.add(p.bar); S.skipped++; continue; }
+      if (fbIsSponsored(p.root)) { if (p.postKey) S.seenIds.add(p.postKey); S.skipped++; continue; }
       return p;
     }
     return null;
@@ -406,15 +499,65 @@
     return true;
   }
 
-  // Heuristic English detection — rejects Arabic / Burmese / CJK / Cyrillic / etc.
+  // Language detection via franc (trigram model, offline, ~all ISO 639-3 langs).
+  // englishOnly keeps eng + undetermined (too short to judge → don't drop it).
   function isEnglish(text) {
-    if (!text || text.length < 8) return false;
-    const latin = (text.match(/[A-Za-z]/g) || []).length;
-    const nonLatin = (text.match(/[Ͱ-ϿЀ-ӿ֐-׿؀-ۿ܀-ݏऀ-ॿ฀-๿က-႟぀-ヿ㐀-鿿가-힯]/g) || []).length;
-    if (latin === 0) return false;
-    if (nonLatin > latin * 0.25) return false;
-    const stop = /\b(the|and|you|your|for|are|with|this|that|have|will|from|what|when|how|our|out|about|into|reading|love|today|free|message|dm)\b/i;
-    return latin >= 12 && (stop.test(text) || latin / (latin + nonLatin) > 0.9);
+    const t = (text || "").trim();
+    if (t.length < 12) return true; // too short to judge — let it through
+    const code = franc(t, { minLength: 12 });
+    return code === "eng" || code === "und";
+  }
+
+  // Niche relevance + spam: ask background→offscreen for the MiniLM cosine of this
+  // text vs the keyword (and vs spam anchors). Fails open (score 1, spam 0) so a
+  // model hiccup never blocks the warmer.
+  function getRelevanceInfo(keyword, text, spam) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "FBW_RELEVANCE", keyword, text, spam: !!spam }, (res) => {
+          if (chrome.runtime.lastError) return resolve({ score: 1, spam: 0 });
+          resolve({ score: typeof res?.score === "number" ? res.score : 1, spam: typeof res?.spam === "number" ? res.spam : 0 });
+        });
+      } catch { resolve({ score: 1, spam: 0 }); }
+    });
+  }
+  // Quick partial transcript of the in-view video (background resolves the captured
+  // fbcdn audio track → offscreen Whisper, ~12s cap). Empty string on any failure.
+  function getQuickTranscript() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "FBW_QUICK_TRANSCRIBE" }, (res) => {
+          if (chrome.runtime.lastError) return resolve("");
+          resolve(res?.text || "");
+        });
+      } catch { resolve(""); }
+    });
+  }
+
+  // ---- cross-session dedup (chrome.storage.local — NOT the page's IndexedDB) ----
+  let seenSaveTimer = null;
+  function persistSeen() {
+    clearTimeout(seenSaveTimer);
+    seenSaveTimer = setTimeout(() => {
+      try { chrome.storage?.local?.set({ [SEEN_KEY]: Array.from(S.seenIds).slice(-SEEN_CAP) }); } catch { /* noop */ }
+    }, 1500);
+  }
+  async function loadSeen() {
+    try { const r = await chrome.storage.local.get(SEEN_KEY); (r[SEEN_KEY] || []).forEach((k) => S.seenIds.add(k)); } catch { /* noop */ }
+  }
+
+  // ---- run history ----
+  function logHistory(outcome) {
+    try {
+      chrome.storage.local.get(HISTORY_KEY).then((r) => {
+        const hist = Array.isArray(r[HISTORY_KEY]) ? r[HISTORY_KEY] : [];
+        hist.push({
+          at: Date.now(), startedAt: S.startedAt, platform: S.platform, mode: S.mode, keyword: S.keyword,
+          processed: S.processed, liked: S.liked, loved: S.loved, skipped: S.skipped, outcome,
+        });
+        chrome.storage.local.set({ [HISTORY_KEY]: hist.slice(-50) });
+      });
+    } catch { /* noop */ }
   }
 
   // Center the post so its video fits the viewport, then dwell. FB autoplays
@@ -437,6 +580,34 @@
     while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) await sleep(400);
   }
 
+  // Plain Like via a synthetic pointer sequence (not bare el.click()).
+  async function fbReactLike(p) {
+    const btn = fbBarLikeBtn(p.root);
+    if (!btn) return false;
+    await humanClick(btn);
+    await sleep(rand(300, 600));
+    return fbIsLikedBtn(fbBarLikeBtn(p.root));
+  }
+  // Love (❤️): hover the like control to open the reaction picker, click "Amei".
+  // Falls back to a plain Like if the picker doesn't surface.
+  async function fbReactLove(p) {
+    const btn = fbBarLikeBtn(p.root);
+    if (!btn) return false;
+    await humanHover(btn);
+    const love = await waitFor(() => Array.from(document.querySelectorAll('[role="button"][aria-label]'))
+      .find((b) => {
+        const r = b.getBoundingClientRect();
+        return FB_LOVE_WORDS.includes(fbAria(b)) && r.width > 0 && r.width < 80 && r.height > 0;
+      }), 2500);
+    if (!love) { await humanClick(btn); await sleep(rand(300, 600)); return fbIsLikedBtn(fbBarLikeBtn(p.root)); }
+    await humanClick(love);
+    await sleep(rand(400, 800));
+    return fbIsLikedBtn(fbBarLikeBtn(p.root));
+  }
+
+  // Mode A on Facebook is LIKE-ONLY (scroll + watch + like/love). Organic pacing:
+  // lurk first, react probabilistically by niche relevance, throttle per author,
+  // cap likes/hour, use a human pointer trail and a read-before-react pause.
   async function fbDoPostActions(p) {
     const th = S.thresholds || {};
     if (th.minLikes || th.minComments) {
@@ -446,44 +617,74 @@
         return;
       }
     }
+    if (!S.actions.like) return;
+
+    // Warm-up: lurk the first few posts of a session, no actions.
+    if (S.processed < S.warmupPosts) { logLine(`· warm-up browse (${S.processed + 1}/${S.warmupPosts})`); return; }
+
     const per = persona();
     if (Math.random() >= per.engageChance) {
       logLine(`· browsed only (engage dice ${Math.round(per.engageChance * 100)}%)`);
       return;
     }
-    if (S.actions.save) {
-      const ok = await fbSavePost(p);
-      if (ok) { S.saved++; logLine("🔖 saved post"); }
-      else logLine("· save post: did not register (FB menu)");
-      await sleep(rand(500, 1200));
+
+    // Build the relevance text: caption, optionally + a quick video transcript.
+    let relText = fbGetPostText(p.root);
+    if (S.deepRelevance && p.root.querySelector("video")) {
+      const tx = await getQuickTranscript();
+      if (tx) { relText = (relText + " " + tx).trim(); logLine(`· +transcript (${tx.length}c)`); }
     }
-    if (S.actions.like) {
-      if (S.consecLikes >= MAX_CONSEC_LIKES) {
-        S.consecLikes = 0; logLine("· like cooldown"); await sleep(rand(2000, 4000));
-      } else if (Math.random() >= per.likeChance) {
-        logLine(`· like skipped (persona dice ${Math.round(per.likeChance * 100)}%)`);
-      } else {
-        const label = (p.likeBtn.getAttribute("aria-label") || "").trim();
-        if (/^(remove like|change like reaction)$/i.test(label)) {
-          logLine("· already liked");
-        } else if (label.toLowerCase() === "like") {
-          p.likeBtn.click(); await sleep(rand(300, 600));
-          if ((p.likeBtn.getAttribute("aria-label") || "").trim().toLowerCase() !== "like") { S.liked++; S.consecLikes++; logLine("❤️ liked post"); }
-          else logLine("· like click did not register");
+
+    // One round-trip: niche cosine (+ spam cosine when guarding).
+    let likeChance = per.likeChance;
+    const needAI = (S.relevanceMin > 0 && (S.keyword || "").trim()) || S.spamGuard;
+    if (needAI) {
+      const { score, spam } = await getRelevanceInfo(S.keyword, relText, S.spamGuard);
+      if (S.spamGuard && spam >= SPAM_MIN) { logLine(`· spam/scam, skip (spam ${spam.toFixed(2)})`); return; }
+      if (S.relevanceMin > 0 && (S.keyword || "").trim()) {
+        if (score >= S.relevanceMin) {
+          likeChance = Math.min(1, per.likeChance * (1 + (score - S.relevanceMin) * 2));
+          logLine(`· on-niche (rel ${score.toFixed(2)}) → like ${Math.round(likeChance * 100)}%`);
         } else {
-          logLine(`· like button unrecognized ("${label}")`);
+          likeChance = per.likeChance * Math.max(0.05, score / S.relevanceMin) * 0.3;
+          logLine(`· off-niche (rel ${score.toFixed(2)}) → like ${Math.round(likeChance * 100)}%`);
         }
       }
     }
-    if (S.actions.follow && S.consecFollows < MAX_CONSEC_FOLLOWS && Math.random() < per.followChance) {
-      if (await fbFollowAuthor(p.root)) { S.followed++; S.consecFollows++; logLine("➕ followed author"); }
+    if (Math.random() >= likeChance) { logLine(`· no react (dice ${Math.round(likeChance * 100)}%)`); return; }
+    if (fbIsLikedBtn(p.likeBtn)) { logLine("· already reacted"); return; }
+
+    // Safety caps.
+    if (S.consecLikes >= MAX_CONSEC_LIKES) { S.consecLikes = 0; logLine("· react cooldown"); await sleep(rand(2000, 4000)); return; }
+    const nowT = Date.now();
+    S.likeTimes = S.likeTimes.filter((t) => nowT - t < 3600000);
+    if (S.likeTimes.length >= MAX_LIKES_PER_HOUR) { logLine("· hourly react cap — skipping"); return; }
+    if (p.authorKey && (S.authorLikes[p.authorKey] || 0) >= MAX_LIKES_PER_AUTHOR) { logLine("· per-author cap — skip"); return; }
+
+    // Read-before-react: a human watches, then decides.
+    await sleep(rand(900, 2500));
+
+    const useLove = Math.random() < LOVE_REACTION_CHANCE;
+    const ok = await (useLove ? fbReactLove(p) : fbReactLike(p));
+    if (ok) {
+      S.consecLikes++; S.likeTimes.push(Date.now()); S.softFailStreak = 0;
+      if (useLove) S.loved++; else S.liked++;
+      if (p.authorKey) S.authorLikes[p.authorKey] = (S.authorLikes[p.authorKey] || 0) + 1;
+      logLine(useLove ? "❤️ loved post" : "👍 liked post");
+    } else {
+      S.softFailStreak++;
+      logLine(`· reaction did not register (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`);
+      if (S.softFailStreak >= SOFT_FAIL_LIMIT) halt("possible soft-block — reactions not registering");
     }
   }
 
   async function postsLoop(label) {
     if (S.loopActive) return;
     S.loopActive = true;
-    logLine(`📜 ${label} run started (target ${S.targetN})`);
+    logLine(`📜 ${label} run started (target ${S.targetN}, warm-up ${S.warmupPosts})`);
+    await loadSeen(); // merge cross-session dedup set
+    // Preload the relevance model so the first scored post doesn't stall mid-run.
+    if (S.relevanceMin > 0 || S.spamGuard) getRelevanceInfo(S.keyword, "warming up niche model", S.spamGuard).catch(() => {});
     let emptyScrolls = 0;
     try {
       while (S.isRunning && S.processed < S.targetN) {
@@ -499,7 +700,7 @@
           continue;
         }
         emptyScrolls = 0; note(true);
-        S.seen.add(p.bar);
+        if (p.postKey) { S.seenIds.add(p.postKey); persistSeen(); }
         if (S.englishOnly && !isEnglish(fbGetPostText(p.root))) {
           S.skipped++; logLine("· skip (non-English)"); persist();
           humanScroll(); await sleep(rand(900, 1800)); continue;
@@ -818,29 +1019,29 @@
   }
 
   function finishRun() {
-    logLine(`✅ run complete — processed ${S.processed}, saved ${S.saved}, liked ${S.liked}, followed ${S.followed}`);
+    logLine(`✅ run complete — processed ${S.processed}, liked ${S.liked}, loved ${S.loved}, skipped ${S.skipped}`);
     S.isRunning = false;
     clearInterval(S.tickTimer);
+    logHistory("complete");
     persist();
   }
 
   // ============================================================
   // routing + navigation (per platform + mode)
   // ============================================================
+  // FB warmer is hashtag-only: the keyword is always treated as a tag. Strip a
+  // leading "#" and any spaces (hashtags are single-token) so plain "tarotreading"
+  // or "#tarot reading" both land on /hashtag/<tag>. (S.keyword stays as typed for
+  // the relevance embedding.)
+  const fbTag = () => (S.keyword || "").trim().replace(/^#/, "").replace(/\s+/g, "");
   function fbSearchUrl() {
-    const kw = (S.keyword || "").trim();
-    if (kw.startsWith("#")) return `https://www.facebook.com/hashtag/${encodeURIComponent(kw.slice(1))}`;
-    return `https://www.facebook.com/search/posts/?q=${encodeURIComponent(kw)}`;
+    return `https://www.facebook.com/hashtag/${encodeURIComponent(fbTag())}`;
   }
   function fbOnCorrectSearch() {
-    const kw = (S.keyword || "").trim();
-    if (!kw) return pageSurface() === "search" || pageSurface() === "hashtag";
-    if (kw.startsWith("#"))
-      return pageSurface() === "hashtag" &&
-        decodeURIComponent(location.pathname).toLowerCase().includes(kw.slice(1).toLowerCase());
-    if (pageSurface() !== "search") return false;
-    const q = (new URLSearchParams(location.search).get("q") || "").trim().toLowerCase();
-    return q === kw.toLowerCase();
+    const tag = fbTag();
+    if (!tag) return pageSurface() === "hashtag";
+    return pageSurface() === "hashtag" &&
+      decodeURIComponent(location.pathname).toLowerCase().includes(tag.toLowerCase());
   }
 
   // Returns a URL to navigate to before running, or null to run here.
@@ -882,7 +1083,7 @@
     const p = platformForHost();
     if (p === "facebook") {
       if (S.mode === "C") videoLoop(FB_VIDEO);
-      else if (S.mode === "A") postsLoop("search");
+      else if (S.mode === "A") postsLoop("hashtag");
       else postsLoop("feed");
     } else if (p === "instagram") {
       videoLoop(S.mode === "C" ? IG_REELS : IG_FEED);
@@ -956,6 +1157,10 @@
     S.targetN = Math.max(1, settings.targetN || 10);
     S.actions = { save: !!settings.save, like: !!settings.like, follow: !!settings.follow };
     S.englishOnly = !!settings.englishOnly;
+    S.relevanceMin = Math.max(0, Number(settings.relevanceMin) || 0);
+    S.spamGuard = settings.spamGuard !== false; // default on
+    S.deepRelevance = !!settings.deepRelevance;
+    S.warmupPosts = rand(2, 4); // lurk-first browse before any reactions
     if (settings.thresholds) S.thresholds = { minLikes: Number(settings.thresholds.minLikes) || 0, minComments: Number(settings.thresholds.minComments) || 0 };
     if (settings.pacing) S.pacing = { ...S.pacing, ...settings.pacing };
     S.willEndAt = settings.sessionCapMinutes ? now + 60000 * settings.sessionCapMinutes : 0;
@@ -977,6 +1182,7 @@
     logLine("⏹ stopped by user");
     S.isRunning = false; S.isPaused = false;
     clearInterval(S.tickTimer);
+    logHistory("stopped");
     persist();
   }
   function togglePause() {
@@ -1029,10 +1235,14 @@
         mode: saved.mode || "C", keyword: saved.keyword || "", targetN: saved.targetN || 10,
         actions: saved.actions || { save: true, like: true, follow: false },
         englishOnly: !!saved.englishOnly,
+        relevanceMin: saved.relevanceMin || 0,
+        spamGuard: saved.spamGuard !== false,
+        deepRelevance: !!saved.deepRelevance,
+        warmupPosts: saved.warmupPosts || 0,
         thresholds: saved.thresholds || { minLikes: 0, minComments: 0 },
         pacing: { ...freshState().pacing, ...(saved.pacing || {}) },
         personalityMode: saved.personalityMode || null, userSelectedPersonality: saved.userSelectedPersonality || null,
-        processed: saved.processed || 0, saved: saved.saved || 0, liked: saved.liked || 0,
+        processed: saved.processed || 0, saved: saved.saved || 0, liked: saved.liked || 0, loved: saved.loved || 0,
         followed: saved.followed || 0, skipped: saved.skipped || 0,
         haltReason: null, log: Array.isArray(saved.log) ? saved.log.slice(-LOG_CAP) : [],
       });

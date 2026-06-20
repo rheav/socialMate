@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Square, ExternalLink, Flame, FileText, Bookmark, Download } from "lucide-react";
+import { Play, Pause, Square, ExternalLink, Flame, FileText, Bookmark, Download, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,12 +45,15 @@ const fmtClock = (t) => new Date(t).toTimeString().slice(0, 8);
 export default function App() {
   const [platform, setPlatform] = useState("facebook");
   const [view, setView] = useState("warm"); // "warm" | "transcripts"
-  const [mode, setMode] = useState("C");
+  const [mode, setMode] = useState("A"); // facebook default (hashtag)
   const [keyword, setKeyword] = useState("");
   const [targetN, setTargetN] = useState(10);
   const [personality, setPersonality] = useState("random");
   const [actions, setActions] = useState({ save: true, like: true, follow: false });
   const [englishOnly, setEnglishOnly] = useState(true);
+  const [relevanceMin, setRelevanceMin] = useState(0.25); // niche cosine gate (0 = off)
+  const [spamGuard, setSpamGuard] = useState(true);       // skip scam/spam posts
+  const [deepRelevance, setDeepRelevance] = useState(false); // transcribe video for relevance
   const [pacing, setPacing] = useState({ minDelay: 4, maxDelay: 9, reelMin: 6, reelMax: 15 });
   const [sessionCap, setSessionCap] = useState(0);
   const [thresholds, setThresholds] = useState({ minLikes: 0, minComments: 0 });
@@ -64,13 +67,16 @@ export default function App() {
       if (o?.pacing) setPacing(o.pacing);
       if (o?.thresholds) setThresholds(o.thresholds);
       if (o?.sessionCap != null) setSessionCap(o.sessionCap);
+      if (o?.relevanceMin != null) setRelevanceMin(o.relevanceMin);
+      if (o?.spamGuard != null) setSpamGuard(o.spamGuard);
+      if (o?.deepRelevance != null) setDeepRelevance(o.deepRelevance);
       optsLoaded.current = true;
     });
   }, []);
   useEffect(() => {
     if (!optsLoaded.current || typeof chrome === "undefined" || !chrome?.storage?.local) return;
-    chrome.storage.local.set({ swOptions: { pacing, thresholds, sessionCap } });
-  }, [pacing, thresholds, sessionCap]);
+    chrome.storage.local.set({ swOptions: { pacing, thresholds, sessionCap, relevanceMin, spamGuard, deepRelevance } });
+  }, [pacing, thresholds, sessionCap, relevanceMin, spamGuard, deepRelevance]);
 
   const [status, setStatus] = useState(null);
   const [noTab, setNoTab] = useState(false);
@@ -126,7 +132,7 @@ export default function App() {
     if (mode === "A" && !keyword.trim()) return;
     const settings = {
       platform, mode, keyword: keyword.trim(), targetN: Number(targetN) || 10,
-      ...actions, englishOnly, personality,
+      ...actions, englishOnly, relevanceMin: Number(relevanceMin) || 0, spamGuard, deepRelevance, personality,
       thresholds: { minLikes: Number(thresholds.minLikes) || 0, minComments: Number(thresholds.minComments) || 0 },
       sessionCapMinutes: Number(sessionCap) || 0,
       pacing: {
@@ -166,9 +172,7 @@ export default function App() {
 
   const hint = (() => {
     if (platform === "facebook")
-      return mode === "C"
-        ? "Facebook reels: Save + Like verified."
-        : "Facebook posts: Save, Like + Follow verified. English-only filters posts.";
+      return "Facebook hashtag: lurks first, then Likes/Loves posts weighted by niche relevance — human pointer trail, per-author throttle, hourly cap, circadian pacing.";
     if (platform === "instagram")
       return mode === "C"
         ? "Instagram reels: Like, Save + Follow verified (localized labels handled)."
@@ -203,7 +207,7 @@ export default function App() {
           </div>
         ) : (
           <span className="text-xs text-muted-foreground">
-            {view === "transcripts" ? "Captured transcripts" : view === "download" ? "Bulk downloads" : "Saved videos"}
+            {view === "transcripts" ? "Captured transcripts" : view === "download" ? "Bulk downloads" : view === "history" ? "Run history" : "Saved videos"}
           </span>
         )}
       </header>
@@ -216,6 +220,8 @@ export default function App() {
         <SavedPanel />
       ) : view === "download" ? (
         <DownloadPanel />
+      ) : view === "history" ? (
+        <HistoryPanel />
       ) : (
         <>
 
@@ -232,11 +238,11 @@ export default function App() {
 
       {!running && !halted && (
         <div className="space-y-3">
-          <Segmented value={mode} onChange={setMode} items={modeTabs} />
+          {modeTabs.length > 1 && <Segmented value={mode} onChange={setMode} items={modeTabs} />}
 
           {mode === "A" && (
             <div className="space-y-1.5">
-              <Label htmlFor="kw">Keyword or #hashtag</Label>
+              <Label htmlFor="kw">{platform === "facebook" ? "Hashtag (no # needed)" : "Keyword or #hashtag"}</Label>
               <Input id="kw" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={platformCfg.keywordPlaceholder} />
             </div>
           )}
@@ -266,13 +272,16 @@ export default function App() {
                 ["save", "Save"],
                 ["like", "Like"],
                 ["follow", "Follow"],
-              ].map(([k, label]) => (
+              ]
+                // Facebook hashtag warmer is like-only — hide Save/Follow there.
+                .filter(([k]) => platform !== "facebook" || k === "like")
+                .map(([k, label]) => (
                 <div key={k} className="flex items-center justify-between">
                   <Label htmlFor={`act-${k}`} className="text-sm text-foreground cursor-pointer">{label}</Label>
                   <Switch id={`act-${k}`} checked={actions[k]} onCheckedChange={() => toggle(k)} />
                 </div>
               ))}
-              {platform === "facebook" && mode !== "C" && (
+              {platform === "facebook" && (
                 <>
                   <Separator />
                   <div className="flex items-center justify-between">
@@ -283,6 +292,44 @@ export default function App() {
               )}
             </CardContent>
           </Card>
+
+          {mode === "A" && (
+            <Card>
+              <CardContent className="p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="relMin" className="text-sm text-foreground">Niche relevance (AI)</Label>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {relevanceMin <= 0 ? "off" : `≥ ${Number(relevanceMin).toFixed(2)}`}
+                  </span>
+                </div>
+                <input
+                  id="relMin"
+                  type="range"
+                  min={0}
+                  max={0.6}
+                  step={0.05}
+                  value={relevanceMin}
+                  onChange={(e) => setRelevanceMin(Number(e.target.value))}
+                  className="w-full accent-foreground cursor-pointer"
+                />
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Local MiniLM embeds each post and weights likes toward ones semantically close to your keyword. Higher = stricter. 0 = like regardless.
+                </p>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="spamGuard" className="text-sm text-foreground cursor-pointer">Spam / scam guard</Label>
+                  <Switch id="spamGuard" checked={spamGuard} onCheckedChange={() => setSpamGuard((v) => !v)} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="deepRel" className="text-sm text-foreground cursor-pointer">Deep relevance (transcribe video)</Label>
+                    <p className="text-[11px] text-muted-foreground">Whisper reads the video's audio — better on caption-thin posts. Slower.</p>
+                  </div>
+                  <Switch id="deepRel" checked={deepRelevance} onCheckedChange={() => setDeepRelevance((v) => !v)} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <p className="text-xs text-muted-foreground leading-relaxed">{hint}</p>
         </div>
@@ -296,9 +343,19 @@ export default function App() {
           </div>
           <div className="grid grid-cols-4 gap-2">
             <Counter label="done" value={`${status.processed}/${status.targetN}`} />
-            <Counter label="saved" value={status.saved} />
-            <Counter label="liked" value={status.liked} />
-            <Counter label="followed" value={status.followed} />
+            {platform === "facebook" ? (
+              <>
+                <Counter label="liked" value={status.liked} />
+                <Counter label="loved" value={status.loved ?? 0} />
+                <Counter label="skipped" value={status.skipped} />
+              </>
+            ) : (
+              <>
+                <Counter label="saved" value={status.saved} />
+                <Counter label="liked" value={status.liked} />
+                <Counter label="followed" value={status.followed} />
+              </>
+            )}
           </div>
           {status.etaMs > 0 && (
             <p className="text-xs text-muted-foreground text-right">time left {fmtMs(status.etaMs)}</p>
@@ -348,6 +405,7 @@ export default function App() {
         pulse={running ? "warm" : null}
         items={[
           { id: "warm", label: "Warm", Icon: Flame },
+          { id: "history", label: "History", Icon: History },
           { id: "transcripts", label: "Transcripts", Icon: FileText },
           { id: "saved", label: "Saved", Icon: Bookmark },
           { id: "download", label: "Download", Icon: Download },
@@ -372,6 +430,48 @@ function StatusChip({ running, paused, halted }) {
       <span className="ember-pulse h-1.5 w-1.5 rounded-full" style={{ background: "hsl(var(--sw-ember))" }} />
       running
     </span>
+  );
+}
+
+function HistoryPanel() {
+  const [hist, setHist] = useState([]);
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    chrome.storage.local.get("fbw_history").then((r) => setHist(Array.isArray(r?.fbw_history) ? r.fbw_history.slice().reverse() : []));
+  }, []);
+  const clear = () => { chrome?.storage?.local?.set({ fbw_history: [] }); setHist([]); };
+  if (!hist.length)
+    return <p className="text-sm text-muted-foreground py-8 text-center">No runs yet. Start a warm session to log history here.</p>;
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" className="text-xs h-7" onClick={clear}>Clear</Button>
+      </div>
+      {hist.map((h, i) => {
+        const ok = h.outcome === "complete";
+        const halted = (h.outcome || "").startsWith("halt");
+        return (
+          <Card key={i}>
+            <CardContent className="p-3 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium truncate">{h.platform} · {h.keyword || h.mode}</span>
+                <span className={`text-[10px] rounded-full px-2 py-0.5 ${ok ? "bg-emerald-500/10 text-emerald-600" : halted ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+                  {ok ? "complete" : halted ? "halted" : "stopped"}
+                </span>
+              </div>
+              {halted && <p className="text-[11px] text-destructive">{h.outcome.replace(/^halt:\s*/, "")}</p>}
+              <div className="flex gap-3 text-[11px] text-muted-foreground">
+                <span>👍 {h.liked ?? 0}</span>
+                <span>❤️ {h.loved ?? 0}</span>
+                <span>seen {h.processed ?? 0}</span>
+                <span>skip {h.skipped ?? 0}</span>
+              </div>
+              <div className="text-[10px] text-muted-foreground">{new Date(h.at).toLocaleString()}</div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
