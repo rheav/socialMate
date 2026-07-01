@@ -1,5 +1,3 @@
-import { fmtCount } from "../../lib/igMedia.js";
-
 // Instagram bridge — isolated content-script world.
 //
 // Unlike Facebook (media hidden in a worker → webRequest + DASH mux), Instagram
@@ -189,6 +187,18 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   // views/likes/comments (lucide-style SVG on a gradient). Toggle via the panel
   // (sw_ig_overlay). pointer-events:none so tile clicks still open the post.
   // ============================================================
+  // Compact count, inlined so bridge.js stays a DIRECT content script — no ES
+  // import means CRXJS won't wrap it in a loader/dynamic-import, which can fail
+  // on Instagram's strict CSP (and would kill capture + FBW_IG_LIST + overlay).
+  const fmtCount = (n) =>
+    n == null
+      ? "—"
+      : n >= 1e6
+        ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M"
+        : n >= 1e3
+          ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K"
+          : String(n);
+
   let overlayOn = true;
   let ovlStyleAdded = false;
   let ovlTimer = null;
