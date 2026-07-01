@@ -216,12 +216,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     ovlStyleAdded = true;
     const s = document.createElement("style");
     s.textContent = `
-      .sw-ovl{position:absolute;left:0;right:0;bottom:0;padding:16px 7px 6px;display:flex;flex-direction:column;gap:2px;
-        background:linear-gradient(to top,rgba(0,0,0,.82),rgba(0,0,0,.15) 55%,transparent);color:#fff;pointer-events:none;z-index:5;
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-      .sw-ovl-primary{display:flex;align-items:center;gap:4px;font-size:14px;font-weight:800;line-height:1}
-      .sw-ovl-stats{display:flex;gap:9px;font-size:11px;font-weight:600;opacity:.96}
-      .sw-ovl-stats span{display:inline-flex;align-items:center;gap:3px}
+      .sw-ovl{position:absolute;left:0;right:0;bottom:0;padding:22px 10px 9px;display:flex;flex-direction:column;gap:3px;
+        background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.2) 58%,transparent);color:#fff;pointer-events:none;z-index:5;
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-shadow:0 1px 3px rgba(0,0,0,.55)}
+      .sw-ovl-primary{display:flex;align-items:center;gap:5px;font-size:20px;font-weight:800;line-height:1}
+      .sw-ovl-stats{display:flex;gap:11px;font-size:14px;font-weight:700;opacity:.97}
+      .sw-ovl-stats span{display:inline-flex;align-items:center;gap:4px}
       .sw-ovl svg{flex:none}`;
     (document.head || document.documentElement).appendChild(s);
   }
@@ -237,11 +237,11 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     // Primary = views when we have them (reels), else likes (grid JSON often
     // omits play_count). Stats row shows the rest without duplicating primary.
     const primary = hasViews
-      ? `${ovlIcon("eye", 15)}<span>${fmtCount(rec.play_count)}</span>`
-      : `${ovlIcon("heart", 15)}<span>${fmtCount(rec.like_count)}</span>`;
+      ? `${ovlIcon("eye", 20)}<span>${fmtCount(rec.play_count)}</span>`
+      : `${ovlIcon("heart", 20)}<span>${fmtCount(rec.like_count)}</span>`;
     const stats = hasViews
-      ? `<span>${ovlIcon("heart", 12)}${fmtCount(rec.like_count)}</span><span>${ovlIcon("msg", 12)}${fmtCount(rec.comment_count)}</span>`
-      : `<span>${ovlIcon("msg", 12)}${fmtCount(rec.comment_count)}</span>`;
+      ? `<span>${ovlIcon("heart", 15)}${fmtCount(rec.like_count)}</span><span>${ovlIcon("msg", 15)}${fmtCount(rec.comment_count)}</span>`
+      : `<span>${ovlIcon("msg", 15)}${fmtCount(rec.comment_count)}</span>`;
     el.innerHTML = `<div class="sw-ovl-primary">${primary}</div><div class="sw-ovl-stats">${stats}</div>`;
     return el;
   }
@@ -252,7 +252,10 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     }
     ensureOvlStyle();
     for (const a of document.querySelectorAll('a[href*="/reel/"], a[href*="/p/"]')) {
-      if (!a.querySelector("img")) continue;
+      // Real thumbnails only. Grid tiles have <img>; Reels-tab tiles use a
+      // background-image DIV (no <img>/<video>), so match by rendered size.
+      const rect = a.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 80) continue;
       const code = tileCode(a);
       if (!code) continue;
       const rec = byId.get(code);

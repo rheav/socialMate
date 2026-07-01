@@ -75,7 +75,11 @@ export function filterBySurface(records, surface) {
     if (r.surface !== surface) return false;
     if (surface.startsWith("profile:")) {
       const owner = surface.slice("profile:".length).toLowerCase();
-      return (r.username || "").toLowerCase() === owner;
+      const u = (r.username || "").toLowerCase();
+      // Keep the owner's posts. The profile's own Reels-tab items omit the
+      // username (context implies the owner), so keep null-username records too;
+      // only records that explicitly name a DIFFERENT account are dropped.
+      return u === owner || u === "";
     }
     return true;
   });

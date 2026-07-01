@@ -71,11 +71,12 @@ describe("fmtCount", () => {
 describe("filterBySurface", () => {
   const recs = [
     { code: "1", username: "luxury_listings", surface: "profile:luxury_listings" },
-    { code: "2", username: "theagencyre", surface: "profile:luxury_listings" }, // suggested → drop
+    { code: "2", username: "theagencyre", surface: "profile:luxury_listings" }, // named other account → drop
     { code: "3", username: "someone", surface: "tag:tarot" },
+    { code: "4", username: null, surface: "profile:luxury_listings" }, // owner reels-tab item (no username) → keep
   ];
-  it("scopes a profile surface to the owner's posts only", () => {
-    expect(filterBySurface(recs, "profile:luxury_listings").map((r) => r.code)).toEqual(["1"]);
+  it("keeps owner + null-username posts, drops named other accounts", () => {
+    expect(filterBySurface(recs, "profile:luxury_listings").map((r) => r.code)).toEqual(["1", "4"]);
   });
   it("matches owner case-insensitively", () => {
     expect(filterBySurface([{ code: "x", username: "Ivy", surface: "profile:ivy" }], "profile:ivy")).toHaveLength(1);
@@ -88,6 +89,6 @@ describe("filterBySurface", () => {
     expect(filterBySurface(tag, "tag:tarot").map((r) => r.code)).toEqual(["a", "b"]);
   });
   it("returns all records when no surface", () => {
-    expect(filterBySurface(recs, null)).toHaveLength(3);
+    expect(filterBySurface(recs, null)).toHaveLength(4);
   });
 });
