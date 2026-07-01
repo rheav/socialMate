@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Bookmark } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
 import { toolsForPlatform, globalTools, getTool } from "@/lib/tools";
 import { detectActivePlatform } from "@/lib/tabs";
@@ -53,11 +53,12 @@ export default function Shell() {
   if (!ready) return null;
 
   const goHome = () => setNav({ screen: "home", platform: null, tool: null });
+  const goSaved = () => setNav({ screen: "tool", platform: null, tool: "library" });
 
   // HOME — brand-tinted platform rows + a distinct Library row
   if (nav.screen === "home") {
     return (
-      <Chrome>
+      <Chrome onSaved={goSaved}>
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Pick a platform
         </p>
@@ -126,7 +127,7 @@ export default function Shell() {
       Icon: t.Icon,
     }));
     return (
-      <Chrome>
+      <Chrome onSaved={goSaved}>
         <ToolFrame title={PLATFORMS[nav.platform].name} onBack={goHome} platform={null}>
           <Launcher items={items} onPick={(tid) => setNav({ ...nav, screen: "tool", tool: tid })} />
         </ToolFrame>
@@ -165,15 +166,26 @@ export default function Shell() {
 }
 
 // Shared header chrome (logo squircle + wordmark).
-function Chrome({ children }) {
+function Chrome({ children, onSaved }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="px-4 pt-4 pb-2.5">
-        <div className="flex items-center gap-2.5">
-          <div className="grad-identity size-7 rounded-[9px]" />
-          <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
-            socialWarmer
-          </h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="grad-identity size-7 rounded-[9px]" />
+            <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
+              socialWarmer
+            </h1>
+          </div>
+          {onSaved && (
+            <button
+              onClick={onSaved}
+              title="Saved (all platforms)"
+              className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Bookmark className="size-4" />
+            </button>
+          )}
         </div>
       </header>
       <main className="flex-1 px-4 py-3 space-y-3">{children}</main>

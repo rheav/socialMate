@@ -19,6 +19,31 @@ export function fmtDate(unixSeconds) {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
+// IG media ids encode creation time in their high bits (snowflake, epoch below),
+// so we can show a date even when the lightweight grid JSON omits taken_at.
+const IG_EPOCH_MS = 1314220021721n;
+export function dateFromPk(pk) {
+  const raw = String(pk || "").split("_")[0];
+  if (!/^\d{6,}$/.test(raw)) return "";
+  try {
+    const ms = (BigInt(raw) >> 23n) + IG_EPOCH_MS;
+    const d = new Date(Number(ms));
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
+}
+
+// Engagement-rate label. Never collapses to "0.0%": 1 decimal ≥10, 2 decimals
+// ≥0.1, else 2 significant figures (e.g. "0.06%", "0.004%").
+export function fmtER(er) {
+  if (er == null) return null;
+  if (er === 0) return "0%";
+  if (er >= 10) return er.toFixed(1) + "%";
+  if (er >= 0.1) return er.toFixed(2) + "%";
+  return Number(er.toPrecision(2)) + "%";
+}
+
 const METRIC = {
   likes: (r) => r.like_count,
   views: (r) => r.play_count,
@@ -57,7 +82,7 @@ export function recordToCard(rec) {
     comments: rec.comment_count ?? null,
     views: rec.play_count ?? null,
     reposts: rec.repost ?? null,
-    date: fmtDate(rec.taken_at),
+    date: fmtDate(rec.taken_at) || dateFromPk(rec.pk),
     hasVideo: !!rec.video || type === "video",
     permalink: code ? `https://www.instagram.com/p/${code}/` : null,
   };

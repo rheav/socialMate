@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate, fmtDate,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate, fmtDate, fmtER, dateFromPk,
 } from "./igMedia.js";
 
 const recs = [
@@ -90,6 +90,26 @@ describe("fmtDate", () => {
     expect(fmtDate(1704067200)).toBe("2024-01-01");
     expect(fmtDate(null)).toBe("");
     expect(fmtDate(0)).toBe("");
+  });
+});
+
+describe("dateFromPk", () => {
+  it("decodes the creation date from an IG media id", () => {
+    expect(dateFromPk("3930984963814834483")).toBe("2026-06-30");
+    expect(dateFromPk("3930984963814834483_1234")).toBe("2026-06-30");
+    expect(dateFromPk("abc")).toBe("");
+    expect(dateFromPk(null)).toBe("");
+  });
+});
+
+describe("fmtER", () => {
+  it("never collapses small values to 0.0%", () => {
+    expect(fmtER(20.94)).toBe("20.9%");
+    expect(fmtER(3.08)).toBe("3.08%");
+    expect(fmtER(0.06)).toBe("0.06%");
+    expect(fmtER(0.004)).toBe("0.004%");
+    expect(fmtER(0)).toBe("0%");
+    expect(fmtER(null)).toBe(null);
   });
 });
 

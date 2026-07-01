@@ -9,6 +9,25 @@
 if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   window.__fbwIgInit = true;
 
+  // ================== IN-PAGE OVERLAY SETTINGS ==================
+  // Tweak the look of the on-Instagram stats overlay here, then rebuild
+  // (`npm run build`) and Reload ↻ the extension. (The side-panel card's
+  // matching styles live in src/components/tools/IgSortTool.jsx.)
+  const OVL = {
+    blurPx: 4, // backdrop blur strength behind the rail
+    bgOpacity: 0.42, // rail background darkness (0–1)
+    fontPrimary: 17, // headline (views) font size, px
+    fontRow: 13, // other rows font size, px
+    iconPrimary: 17, // headline icon size, px
+    iconRow: 14, // row icon size, px
+    glow: "rgba(70,130,255,.28)", // blue outer glow
+    borderColor: "rgba(150,180,255,.38)", // blue border
+    radius: 13, // rail corner radius, px
+    btnSize: 27, // action-button size, px
+    gap: 8, // rail distance from the tile edge, px
+  };
+  // =============================================================
+
   // code/pk -> record (lookups, e.g. publishCurrent) + canonical-id list (deduped)
   const igMedia = {};
   const byId = new Map(); // code||pk -> record; insertion order preserved for the list
@@ -219,6 +238,26 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const d = new Date(t * 1000);
     return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
   };
+  // Date decoded from the IG media id (works even when taken_at is absent).
+  const dateFromPkOvl = (pk) => {
+    const raw = String(pk || "").split("_")[0];
+    if (!/^\d{6,}$/.test(raw)) return "";
+    try {
+      const ms = (BigInt(raw) >> 23n) + 1314220021721n;
+      const d = new Date(Number(ms));
+      return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  };
+  // ER label — never collapses to "0.0%".
+  const fmtErOvl = (er) => {
+    if (er == null) return null;
+    if (er === 0) return "0%";
+    if (er >= 10) return er.toFixed(1) + "%";
+    if (er >= 0.1) return er.toFixed(2) + "%";
+    return Number(er.toPrecision(2)) + "%";
+  };
   // Filename helpers (inlined — bridge stays import-free).
   const sanit = (s) => String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
   const igExt = (url, kind) => {
@@ -230,6 +269,23 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const base = `ig-${sanit(rec.username)}-${rec.code || rec.pk || Date.now()}`;
     return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
   };
+  // Shape an IG record for the shared Saved tab (VideoCard reads author/counts).
+  const igSavedShape = (rec, id) => ({
+    videoId: id,
+    platform: "instagram",
+    thumb: rec.thumb || rec.image || null,
+    caption: rec.caption || null,
+    author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
+    counts: {
+      like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+      comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
+      views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+    },
+    code: rec.code || null,
+    pk: rec.pk || null,
+    media_type: rec.media_type || null,
+    updatedAt: Date.now(),
+  });
 
   let overlayOn = true;
   let ovlStyleAdded = false;
@@ -254,19 +310,19 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     ovlStyleAdded = true;
     const s = document.createElement("style");
     s.textContent = `
-      .sw-ovl{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;gap:4px;
-        padding:8px 11px;border-radius:13px;background:rgba(0,0,0,.42);
-        -webkit-backdrop-filter:blur(4px) saturate(125%);backdrop-filter:blur(4px) saturate(125%);
-        border:1px solid rgba(150,180,255,.38);box-shadow:0 0 12px rgba(70,130,255,.28),inset 0 0 0 1px rgba(160,190,255,.12);
+      .sw-ovl{position:absolute;right:${OVL.gap}px;bottom:${OVL.gap}px;display:flex;flex-direction:column;gap:4px;
+        padding:8px 11px;border-radius:${OVL.radius}px;background:rgba(0,0,0,${OVL.bgOpacity});
+        -webkit-backdrop-filter:blur(${OVL.blurPx}px) saturate(125%);backdrop-filter:blur(${OVL.blurPx}px) saturate(125%);
+        border:1px solid ${OVL.borderColor};box-shadow:0 0 12px ${OVL.glow},inset 0 0 0 1px rgba(160,190,255,.12);
         color:#fff;pointer-events:none;z-index:5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         text-shadow:0 1px 2px rgba(0,0,0,.45)}
-      .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;line-height:1;white-space:nowrap}
-      .sw-ovl-row.primary{font-size:17px;font-weight:800}
+      .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:${OVL.fontRow}px;font-weight:700;line-height:1;white-space:nowrap}
+      .sw-ovl-row.primary{font-size:${OVL.fontPrimary}px;font-weight:800}
       .sw-ovl svg{flex:none}
       .sw-acts{position:absolute;top:7px;left:7px;display:flex;flex-direction:column;gap:5px;z-index:6}
-      .sw-actbtn{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;cursor:pointer;color:#fff;
-        background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
-        border:1px solid rgba(150,180,255,.4);box-shadow:0 0 8px rgba(70,130,255,.25);transition:background .15s}
+      .sw-actbtn{display:grid;place-items:center;width:${OVL.btnSize}px;height:${OVL.btnSize}px;border-radius:8px;cursor:pointer;color:#fff;
+        background:rgba(0,0,0,${OVL.bgOpacity});-webkit-backdrop-filter:blur(${OVL.blurPx}px);backdrop-filter:blur(${OVL.blurPx}px);
+        border:1px solid ${OVL.borderColor};box-shadow:0 0 8px ${OVL.glow};transition:background .15s}
       .sw-actbtn:hover{background:rgba(0,0,0,.66)}`;
     (document.head || document.documentElement).appendChild(s);
   }
@@ -282,16 +338,16 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const rows = [];
     // Vertical rail: views headline (reels), then likes, comments, reposts, ER, date.
     if (hasViews)
-      rows.push(`<div class="sw-ovl-row primary">${ovlIcon("eye", 17)}<span>${fmtCount(rec.play_count)}</span></div>`);
-    rows.push(`<div class="sw-ovl-row${hasViews ? "" : " primary"}">${ovlIcon("heart", 14)}<span>${fmtCount(rec.like_count)}</span></div>`);
-    rows.push(`<div class="sw-ovl-row">${ovlIcon("msg", 14)}<span>${fmtCount(rec.comment_count)}</span></div>`);
+      rows.push(`<div class="sw-ovl-row primary">${ovlIcon("eye", OVL.iconPrimary)}<span>${fmtCount(rec.play_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row${hasViews ? "" : " primary"}">${ovlIcon("heart", OVL.iconRow)}<span>${fmtCount(rec.like_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row">${ovlIcon("msg", OVL.iconRow)}<span>${fmtCount(rec.comment_count)}</span></div>`);
     if (rec.repost != null)
-      rows.push(`<div class="sw-ovl-row">${ovlIcon("repost", 14)}<span>${fmtCount(rec.repost)}</span></div>`);
-    const e = erOf(rec);
+      rows.push(`<div class="sw-ovl-row">${ovlIcon("repost", OVL.iconRow)}<span>${fmtCount(rec.repost)}</span></div>`);
+    const e = fmtErOvl(erOf(rec));
     if (e != null)
-      rows.push(`<div class="sw-ovl-row">${ovlIcon("zap", 14)}<span>${e.toFixed(1)}%</span></div>`);
-    const d = fmtDateOvl(rec.taken_at);
-    if (d) rows.push(`<div class="sw-ovl-row">${ovlIcon("cal", 14)}<span>${d}</span></div>`);
+      rows.push(`<div class="sw-ovl-row">${ovlIcon("zap", OVL.iconRow)}<span>${e}</span></div>`);
+    const d = fmtDateOvl(rec.taken_at) || dateFromPkOvl(rec.pk);
+    if (d) rows.push(`<div class="sw-ovl-row">${ovlIcon("cal", OVL.iconRow)}<span>${d}</span></div>`);
     el.innerHTML = rows.join("");
     return el;
   }
@@ -323,7 +379,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       const r = await chrome.storage.local.get("fbw_saved");
       const map = r.fbw_saved || {};
       const id = rec.code || rec.pk;
-      map[id] = { ...(map[id] || {}), ...rec, videoId: id, platform: "instagram", autoSaved: false, updatedAt: Date.now() };
+      map[id] = igSavedShape(rec, id);
       await chrome.storage.local.set({ fbw_saved: map });
     } catch {
       /* ignore */

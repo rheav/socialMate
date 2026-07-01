@@ -34,6 +34,7 @@ import {
   fmtCount,
   filterBySurface,
   engagementRate,
+  fmtER,
 } from "@/lib/igMedia";
 
 const SORT_LABEL = { views: "Views", likes: "Likes", comments: "Comments", er: "ER %", date: "Date" };
@@ -178,11 +179,19 @@ export default function IgSortTool() {
       const map = r.fbw_saved || {};
       const id = rec.code || rec.pk;
       map[id] = {
-        ...(map[id] || {}),
-        ...rec,
         videoId: id,
         platform: "instagram",
-        autoSaved: false,
+        thumb: rec.thumb || rec.image || null,
+        caption: rec.caption || null,
+        author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
+        counts: {
+          like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+          comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
+          views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+        },
+        code: rec.code || null,
+        pk: rec.pk || null,
+        media_type: rec.media_type || null,
         updatedAt: Date.now(),
       };
       await chrome.storage.local.set({ fbw_saved: map });
@@ -331,7 +340,7 @@ export default function IgSortTool() {
                   {er != null && (
                     <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
                       <Zap className="size-3" />
-                      {er.toFixed(1)}%
+                      {fmtER(er)}
                     </div>
                   )}
                   {c.date && (
