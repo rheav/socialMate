@@ -64,16 +64,22 @@ export default function IgSortTool() {
   const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const [overlay, setOverlay] = useState(true);
+  const [fullStats, setFullStats] = useState(false);
   const tabId = useRef(null);
 
   useEffect(() => {
-    chrome?.storage?.local?.get("sw_ig_overlay").then((r) => {
+    chrome?.storage?.local?.get(["sw_ig_overlay", "sw_ig_fullstats"]).then((r) => {
       if (r?.sw_ig_overlay != null) setOverlay(!!r.sw_ig_overlay);
+      if (r?.sw_ig_fullstats != null) setFullStats(!!r.sw_ig_fullstats);
     });
   }, []);
   const toggleOverlay = (v) => {
     setOverlay(v);
     chrome?.storage?.local?.set({ sw_ig_overlay: v });
+  };
+  const toggleFullStats = (v) => {
+    setFullStats(v);
+    chrome?.storage?.local?.set({ sw_ig_fullstats: v });
   };
 
   const listFromTab = useCallback(async () => {
@@ -249,6 +255,18 @@ export default function IgSortTool() {
           Stats overlay on Instagram
         </Label>
         <Switch id="ig-overlay" checked={overlay} onCheckedChange={toggleOverlay} />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+        <div className="min-w-0 pr-2">
+          <Label htmlFor="ig-full" className="text-xs text-foreground cursor-pointer">
+            Full stats (fetch IG detail)
+          </Label>
+          <p className="text-[10px] text-muted-foreground leading-snug">
+            Exact ER (views + reposts on every post) via paced API calls. Off = passive only.
+          </p>
+        </div>
+        <Switch id="ig-full" checked={fullStats} onCheckedChange={toggleFullStats} />
       </div>
 
       {!sorted.length ? (

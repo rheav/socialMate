@@ -450,4 +450,34 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   });
   new MutationObserver(scheduleRender).observe(document.body, { childList: true, subtree: true });
   scheduleRender();
+
+  // ---- opt-in full-stats fetch (drives the main-world detail fetcher) ----
+  // When enabled, periodically hand the MAIN world the surface-scoped pks that
+  // are still missing views or reposts; it fetches /media/{pk}/info/ (paced) and
+  // relays complete records back through the normal capture channel.
+  let fullStatsOn = false;
+  let fullTimer = null;
+  function fullTick() {
+    if (!fullStatsOn) return;
+    const surface = surfaceKey();
+    const pks = [];
+    for (const r of byId.values()) {
+      if (r.surface !== surface || !r.pk) continue;
+      if (r.play_count != null && r.repost != null) continue; // already complete
+      pks.push(String(r.pk).split("_")[0]);
+      if (pks.length >= 60) break;
+    }
+    if (pks.length) window.postMessage({ __fbwIgFetch: pks }, location.origin);
+    fullTimer = setTimeout(fullTick, 2500);
+  }
+  function setFullStats(on) {
+    fullStatsOn = on;
+    window.postMessage({ __fbwIgFull: { on } }, location.origin);
+    clearTimeout(fullTimer);
+    if (on) fullTick();
+  }
+  chrome.storage?.local?.get("sw_ig_fullstats").then((r) => setFullStats(!!r?.sw_ig_fullstats));
+  chrome.storage?.onChanged?.addListener((ch, area) => {
+    if (area === "local" && ch.sw_ig_fullstats) setFullStats(!!ch.sw_ig_fullstats.newValue);
+  });
 }
