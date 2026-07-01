@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Bookmark, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Download,
+  Bookmark,
+  ArrowUp,
+  ArrowDown,
+  Heart,
+  MessageCircle,
+  Eye,
+  Play,
+  Images,
+  Image as ImageIcon,
+  ImageDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectTrigger,
@@ -20,10 +33,23 @@ import {
 } from "@/lib/igMedia";
 
 const SORT_LABEL = { likes: "Likes", views: "Views", comments: "Comments", date: "Date" };
+const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
+
+// Small frosted icon button overlaid on a card thumbnail.
+function IconBtn({ children, ...props }) {
+  return (
+    <button
+      {...props}
+      className="grid size-6 place-items-center rounded-md bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
 
 // Instagram Sort + Download. Reads the passive JSON.parse capture (via the IG
-// content bridge, message FBW_IG_LIST), sorts it in-panel, and downloads media
-// through the background (FBW_DL_MEDIA). No in-page feed manipulation.
+// content bridge, FBW_IG_LIST), sorts it in-panel as a 2-col grid of 9:16 cards,
+// and downloads media/thumbnail through the background (FBW_DL_MEDIA).
 export default function IgSortTool() {
   const [records, setRecords] = useState([]);
   const [surface, setSurface] = useState(null);
@@ -32,7 +58,18 @@ export default function IgSortTool() {
   const [sortDir, setSortDir] = useState("desc");
   const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
+  const [overlay, setOverlay] = useState(true);
   const tabId = useRef(null);
+
+  useEffect(() => {
+    chrome?.storage?.local?.get("sw_ig_overlay").then((r) => {
+      if (r?.sw_ig_overlay != null) setOverlay(!!r.sw_ig_overlay);
+    });
+  }, []);
+  const toggleOverlay = (v) => {
+    setOverlay(v);
+    chrome?.storage?.local?.set({ sw_ig_overlay: v });
+  };
 
   const listFromTab = useCallback(async () => {
     if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
@@ -64,9 +101,11 @@ export default function IgSortTool() {
   const bg = (msg) =>
     new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
 
+  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+
   async function downloadRecord(rec) {
-    const card = recordToCard(rec);
-    setBusy((b) => ({ ...b, [card.id]: "downloading" }));
+    const id = rec.code || rec.pk;
+    setStatus(id, "downloading");
     try {
       if (rec.media_type === "carousel" && Array.isArray(rec.carousel)) {
         let i = 0;
@@ -97,9 +136,28 @@ export default function IgSortTool() {
           filename: filenameFor(rec, extFromUrl(rec.image, "image")),
         });
       }
-      setBusy((b) => ({ ...b, [card.id]: "done" }));
+      setStatus(id, "done");
     } catch {
-      setBusy((b) => ({ ...b, [card.id]: "error" }));
+      setStatus(id, "error");
+    }
+  }
+
+  // Download just the cover image (thumbnail), suffixed -thumb.
+  async function downloadThumb(rec) {
+    const id = rec.code || rec.pk;
+    const url = rec.image || rec.thumb;
+    if (!url) return;
+    setStatus(id, "downloading");
+    try {
+      const ext = extFromUrl(url, "image");
+      const filename = filenameFor(rec, ext).replace(
+        new RegExp("\\." + ext + "$"),
+        "-thumb." + ext,
+      );
+      await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename });
+      setStatus(id, "done");
+    } catch {
+      setStatus(id, "error");
     }
   }
 
@@ -173,75 +231,90 @@ export default function IgSortTool() {
         </button>
       </div>
 
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+        <Label htmlFor="ig-overlay" className="text-xs text-foreground cursor-pointer">
+          Stats overlay on Instagram
+        </Label>
+        <Switch id="ig-overlay" checked={overlay} onCheckedChange={toggleOverlay} />
+      </div>
+
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
           Scroll the Instagram feed to collect posts, then sort here.
         </p>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
           {sorted.map((rec) => {
             const c = recordToCard(rec);
             const st = busy[c.id];
-            const thumbStyle = c.thumb ? { backgroundImage: `url(${c.thumb})` } : undefined;
-            const thumbCls =
-              "block w-20 h-28 rounded-lg bg-muted bg-cover bg-center flex-none ring-1 ring-black/5";
+            const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
             return (
-              <Card key={c.id}>
-                <CardContent className="p-2 flex items-center gap-3">
-                  {c.permalink ? (
-                    <a
-                      href={c.permalink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={thumbCls}
-                      style={thumbStyle}
-                      title="Open on Instagram"
-                    />
+              <div
+                key={c.id}
+                className="group relative aspect-[9/16] overflow-hidden rounded-xl bg-muted ring-1 ring-black/5"
+              >
+                {c.thumb ? (
+                  c.permalink ? (
+                    <a href={c.permalink} target="_blank" rel="noreferrer" className="absolute inset-0">
+                      <img src={c.thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+                    </a>
                   ) : (
-                    <div className={thumbCls} style={thumbStyle} />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">@{c.username}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
-                      <span>❤ {fmtCount(c.likes)}</span>
-                      <span>💬 {fmtCount(c.comments)}</span>
-                      {c.views != null && <span>▶ {fmtCount(c.views)}</span>}
-                    </div>
-                    <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground capitalize">
-                      {c.type}
+                    <img src={c.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+                  )
+                ) : null}
+
+                {/* media type */}
+                <span className="absolute left-1.5 top-1.5 grid place-items-center rounded-md bg-black/45 p-1 text-white backdrop-blur-sm">
+                  <TypeIcon className="size-3.5" />
+                </span>
+
+                {/* actions */}
+                <div className="absolute right-1.5 top-1.5 flex flex-col gap-1">
+                  <IconBtn title="Save to Library" onClick={() => saveToLibrary(rec)}>
+                    <Bookmark className="size-3.5" />
+                  </IconBtn>
+                  <IconBtn
+                    title="Download media"
+                    onClick={() => downloadRecord(rec)}
+                    disabled={st === "downloading"}
+                  >
+                    <Download
+                      className={
+                        "size-3.5 " +
+                        (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")
+                      }
+                    />
+                  </IconBtn>
+                  <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)}>
+                    <ImageDown className="size-3.5" />
+                  </IconBtn>
+                </div>
+
+                {/* stats */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-2 pt-7">
+                  <a
+                    href={c.permalink || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="pointer-events-auto block truncate text-[11px] font-semibold text-white"
+                  >
+                    @{c.username}
+                  </a>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-medium text-white/95">
+                    <span className="flex items-center gap-0.5">
+                      <Heart className="size-3" /> {fmtCount(c.likes)}
                     </span>
+                    <span className="flex items-center gap-0.5">
+                      <MessageCircle className="size-3" /> {fmtCount(c.comments)}
+                    </span>
+                    {c.views != null && (
+                      <span className="flex items-center gap-0.5">
+                        <Eye className="size-3" /> {fmtCount(c.views)}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-col gap-1 flex-none">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => saveToLibrary(rec)}
-                      title="Save to Library"
-                    >
-                      <Bookmark />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => downloadRecord(rec)}
-                      title="Download"
-                      disabled={st === "downloading"}
-                    >
-                      <Download
-                        className={
-                          st === "done"
-                            ? "text-emerald-600"
-                            : st === "error"
-                              ? "text-destructive"
-                              : undefined
-                        }
-                      />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             );
           })}
         </div>
