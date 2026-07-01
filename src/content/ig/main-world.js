@@ -17,6 +17,24 @@
     else { for (const k in o) yield* findMedia(o[k], seen); }
   }
 
+  function mediaTypeName(m) {
+    if (m.media_type === 8 || m.carousel_media) return "carousel";
+    if (m.media_type === 2 || m.video_versions) return "video";
+    return "photo";
+  }
+  function bestImage(m) {
+    const c = m.image_versions2 && m.image_versions2.candidates;
+    return (c && c[0] && c[0].url) || null;
+  }
+  function carouselOf(m) {
+    if (!m.carousel_media) return null;
+    return m.carousel_media.map((ch) => ({
+      media_type: mediaTypeName(ch),
+      image: bestImage(ch),
+      video: (ch.video_versions && ch.video_versions[0] && ch.video_versions[0].url) || null,
+    }));
+  }
+
   function lite(m) {
     const u = m.user || m.owner || {};
     const img = m.image_versions2 && m.image_versions2.candidates && m.image_versions2.candidates[0];
@@ -34,6 +52,10 @@
       thumb: img ? img.url : null,
       video: vid ? vid.url : null,
       duration: m.video_duration != null ? Math.round(m.video_duration) : null,
+      media_type: mediaTypeName(m),
+      image: bestImage(m),
+      carousel: carouselOf(m),
+      taken_at: m.taken_at != null ? m.taken_at : (m.taken_at_timestamp != null ? m.taken_at_timestamp : null),
     };
   }
 
@@ -50,7 +72,7 @@
         const key = r.code || r.pk;
         if (r.code) all.set(r.code, r);
         if (r.pk) all.set(r.pk, r);
-        const sig = `${r.like_count}|${r.comment_count}|${!!r.video}`;
+        const sig = `${r.like_count}|${r.comment_count}|${!!r.video}|${r.media_type}`;
         if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
       }
     } catch (_) {}

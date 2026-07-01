@@ -9,11 +9,32 @@
 if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   window.__fbwIgInit = true;
 
-  // code/pk -> record (from the MAIN-world JSON.parse capture)
+  // code/pk -> record (lookups, e.g. publishCurrent) + canonical-id list (deduped)
   const igMedia = {};
+  const byId = new Map(); // code||pk -> record; insertion order preserved for the list
+
+  // The IG surface the current records belong to — scopes the Sort list to the
+  // hashtag/profile you're viewing (IG is an SPA, so records accumulate across surfaces).
+  function surfaceKey() {
+    const p = location.pathname;
+    let m;
+    if ((m = p.match(/\/explore\/tags\/([^/]+)/))) return "tag:" + decodeURIComponent(m[1]);
+    if (p.startsWith("/explore")) return "explore";
+    if ((m = p.match(/^\/([^/]+)\/?(?:reels\/?)?$/))) {
+      const u = m[1];
+      if (!["explore", "reels", "p", "reel", "direct", "stories", "accounts"].includes(u))
+        return "profile:" + u;
+    }
+    return "feed";
+  }
+
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || !e.data.__fbwIg) return;
+    const surface = surfaceKey();
     for (const r of e.data.records || []) {
+      r.surface = surface;
+      const id = r.code || r.pk;
+      if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
       if (r.code) igMedia[r.code] = r;
       if (r.pk) igMedia[r.pk] = r;
     }
@@ -151,6 +172,10 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     else chrome.runtime.sendMessage({ type: "FBW_DOWNLOAD", videoId: meta.videoId, mediaUrl: meta.mediaUrl }).catch(() => {});
   }
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg?.type === "FBW_IG_LIST") {
+      sendResponse({ records: Array.from(byId.values()), surface: surfaceKey() });
+      return;
+    }
     if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");
     if (msg?.type === "FBW_RUN_DOWNLOAD") run("download");
     if (msg?.type === "FBW_PING") { lastKey = null; publishCurrent(); sendResponse?.({ ok: true }); }
