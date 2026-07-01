@@ -33,6 +33,10 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const surface = surfaceKey();
     for (const r of e.data.records || []) {
       r.surface = surface;
+      // The profile's own Reels-tab items omit the username → label them with the
+      // profile owner (from the surface) so the panel shows @name, not @unknown.
+      if (!r.username && surface.startsWith("profile:"))
+        r.username = surface.slice("profile:".length);
       const id = r.code || r.pk;
       if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
       if (r.code) igMedia[r.code] = r;
@@ -198,6 +202,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         : n >= 1e3
           ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K"
           : String(n);
+  // Engagement rate by views: (likes + comments) / views × 100, or null.
+  const erOf = (r) => {
+    const v = r.play_count;
+    if (!v || v <= 0) return null;
+    return (((r.like_count || 0) + (r.comment_count || 0)) / v) * 100;
+  };
 
   let overlayOn = true;
   let ovlStyleAdded = false;
@@ -207,6 +217,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     eye: '<circle cx="12" cy="12" r="3"/><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/>',
     heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
     msg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -216,12 +227,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     ovlStyleAdded = true;
     const s = document.createElement("style");
     s.textContent = `
-      .sw-ovl{position:absolute;left:0;right:0;bottom:0;padding:22px 10px 9px;display:flex;flex-direction:column;gap:3px;
-        background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.2) 58%,transparent);color:#fff;pointer-events:none;z-index:5;
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-shadow:0 1px 3px rgba(0,0,0,.55)}
-      .sw-ovl-primary{display:flex;align-items:center;gap:5px;font-size:20px;font-weight:800;line-height:1}
-      .sw-ovl-stats{display:flex;gap:11px;font-size:14px;font-weight:700;opacity:.97}
-      .sw-ovl-stats span{display:inline-flex;align-items:center;gap:4px}
+      .sw-ovl{position:absolute;left:8px;bottom:8px;display:flex;flex-direction:column;gap:5px;
+        padding:9px 12px;border-radius:14px;background:rgba(0,0,0,.4);
+        -webkit-backdrop-filter:blur(7px) saturate(130%);backdrop-filter:blur(7px) saturate(130%);
+        color:#fff;pointer-events:none;z-index:5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        text-shadow:0 1px 2px rgba(0,0,0,.45)}
+      .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;line-height:1;white-space:nowrap}
+      .sw-ovl-row.primary{font-size:21px;font-weight:800}
       .sw-ovl svg{flex:none}`;
     (document.head || document.documentElement).appendChild(s);
   }
@@ -234,15 +246,17 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     el.className = "sw-ovl";
     el.dataset.code = code;
     const hasViews = rec.play_count != null;
-    // Primary = views when we have them (reels), else likes (grid JSON often
-    // omits play_count). Stats row shows the rest without duplicating primary.
-    const primary = hasViews
-      ? `${ovlIcon("eye", 20)}<span>${fmtCount(rec.play_count)}</span>`
-      : `${ovlIcon("heart", 20)}<span>${fmtCount(rec.like_count)}</span>`;
-    const stats = hasViews
-      ? `<span>${ovlIcon("heart", 15)}${fmtCount(rec.like_count)}</span><span>${ovlIcon("msg", 15)}${fmtCount(rec.comment_count)}</span>`
-      : `<span>${ovlIcon("msg", 15)}${fmtCount(rec.comment_count)}</span>`;
-    el.innerHTML = `<div class="sw-ovl-primary">${primary}</div><div class="sw-ovl-stats">${stats}</div>`;
+    const rows = [];
+    // Vertical rail: views (reels) as the headline, then likes, comments, ER.
+    // Grid JSON omits play_count → likes becomes the headline instead.
+    if (hasViews)
+      rows.push(`<div class="sw-ovl-row primary">${ovlIcon("eye", 21)}<span>${fmtCount(rec.play_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row${hasViews ? "" : " primary"}">${ovlIcon("heart", 16)}<span>${fmtCount(rec.like_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row">${ovlIcon("msg", 16)}<span>${fmtCount(rec.comment_count)}</span></div>`);
+    const e = erOf(rec);
+    if (e != null)
+      rows.push(`<div class="sw-ovl-row">${ovlIcon("zap", 16)}<span>${e.toFixed(1)}%</span></div>`);
+    el.innerHTML = rows.join("");
     return el;
   }
   function renderOverlays() {

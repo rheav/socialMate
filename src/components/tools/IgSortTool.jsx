@@ -7,6 +7,7 @@ import {
   Heart,
   MessageCircle,
   Eye,
+  Zap,
   Play,
   Images,
   Image as ImageIcon,
@@ -30,9 +31,10 @@ import {
   extFromUrl,
   fmtCount,
   filterBySurface,
+  engagementRate,
 } from "@/lib/igMedia";
 
-const SORT_LABEL = { likes: "Likes", views: "Views", comments: "Comments", date: "Date" };
+const SORT_LABEL = { views: "Views", likes: "Likes", comments: "Comments", er: "ER %", date: "Date" };
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
 // Small frosted icon button overlaid on a card thumbnail.
@@ -48,13 +50,13 @@ function IconBtn({ children, ...props }) {
 }
 
 // Instagram Sort + Download. Reads the passive JSON.parse capture (via the IG
-// content bridge, FBW_IG_LIST), sorts it in-panel as a 2-col grid of 9:16 cards,
-// and downloads media/thumbnail through the background (FBW_DL_MEDIA).
+// content bridge, FBW_IG_LIST), sorts it in-panel as a 2-col grid of 9:16 cards
+// with a right-side stat rail, and downloads media/thumbnail via FBW_DL_MEDIA.
 export default function IgSortTool() {
   const [records, setRecords] = useState([]);
   const [surface, setSurface] = useState(null);
   const [showAll, setShowAll] = useState(false);
-  const [sortKey, setSortKey] = useState("likes");
+  const [sortKey, setSortKey] = useState("views");
   const [sortDir, setSortDir] = useState("desc");
   const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
@@ -247,6 +249,7 @@ export default function IgSortTool() {
           {sorted.map((rec) => {
             const c = recordToCard(rec);
             const st = busy[c.id];
+            const er = engagementRate(rec);
             const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
             return (
               <div
@@ -263,13 +266,8 @@ export default function IgSortTool() {
                   )
                 ) : null}
 
-                {/* media type */}
-                <span className="absolute left-1.5 top-1.5 grid place-items-center rounded-md bg-black/45 p-1 text-white backdrop-blur-sm">
-                  <TypeIcon className="size-3.5" />
-                </span>
-
-                {/* actions */}
-                <div className="absolute right-1.5 top-1.5 flex flex-col gap-1">
+                {/* actions — top-left */}
+                <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
                   <IconBtn title="Save to Library" onClick={() => saveToLibrary(rec)}>
                     <Bookmark className="size-3.5" />
                   </IconBtn>
@@ -290,29 +288,50 @@ export default function IgSortTool() {
                   </IconBtn>
                 </div>
 
-                {/* stats */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-2 pt-7">
+                {/* media type — top-right */}
+                <span className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/45 p-1 text-white backdrop-blur-sm">
+                  <TypeIcon className="size-3.5" />
+                </span>
+
+                {/* stat rail — right side, blurred, bigger */}
+                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-1 rounded-lg bg-black/35 px-2 py-1.5 text-white backdrop-blur-md">
+                  {c.views != null && (
+                    <div className="flex items-center gap-1 text-[15px] font-extrabold leading-none">
+                      <Eye className="size-4" />
+                      {fmtCount(c.views)}
+                    </div>
+                  )}
+                  <div
+                    className={
+                      "flex items-center gap-1 leading-none " +
+                      (c.views == null ? "text-[15px] font-extrabold" : "text-[12.5px] font-bold")
+                    }
+                  >
+                    <Heart className={c.views == null ? "size-4" : "size-3.5"} />
+                    {fmtCount(c.likes)}
+                  </div>
+                  <div className="flex items-center gap-1 text-[12.5px] font-bold leading-none">
+                    <MessageCircle className="size-3.5" />
+                    {fmtCount(c.comments)}
+                  </div>
+                  {er != null && (
+                    <div className="flex items-center gap-1 text-[12.5px] font-bold leading-none">
+                      <Zap className="size-3.5" />
+                      {er.toFixed(1)}%
+                    </div>
+                  )}
+                </div>
+
+                {/* @username — bottom-left */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
                   <a
                     href={c.permalink || undefined}
                     target="_blank"
                     rel="noreferrer"
-                    className="pointer-events-auto block truncate text-[11px] font-semibold text-white"
+                    className="pointer-events-auto block max-w-[60%] truncate text-[12px] font-semibold text-white"
                   >
                     @{c.username}
                   </a>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-medium text-white/95">
-                    <span className="flex items-center gap-0.5">
-                      <Heart className="size-3" /> {fmtCount(c.likes)}
-                    </span>
-                    <span className="flex items-center gap-0.5">
-                      <MessageCircle className="size-3" /> {fmtCount(c.comments)}
-                    </span>
-                    {c.views != null && (
-                      <span className="flex items-center gap-0.5">
-                        <Eye className="size-3" /> {fmtCount(c.views)}
-                      </span>
-                    )}
-                  </div>
                 </div>
               </div>
             );

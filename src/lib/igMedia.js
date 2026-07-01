@@ -1,19 +1,29 @@
 // Pure, DOM-free helpers for the IG Sort tool (panel side). Unit-tested.
 
-const KEY_FIELD = {
-  likes: "like_count",
-  views: "play_count",
-  comments: "comment_count",
-  date: "taken_at",
+// Engagement rate by views: (likes + comments) / views × 100. Null when there's
+// no view count (photos / grid JSON without play_count) so ER-sorted lists and
+// ER labels degrade gracefully (null sorts last, label shows "—").
+export function engagementRate(rec) {
+  const v = rec.play_count;
+  if (!v || v <= 0) return null;
+  return (((rec.like_count || 0) + (rec.comment_count || 0)) / v) * 100;
+}
+
+const METRIC = {
+  likes: (r) => r.like_count,
+  views: (r) => r.play_count,
+  comments: (r) => r.comment_count,
+  date: (r) => r.taken_at,
+  er: engagementRate,
 };
 
 // Comparator over IG records. Missing metrics (e.g. photos have no play_count)
 // always sort last, whatever the direction.
 export function sortComparator(key, dir = "desc") {
-  const field = KEY_FIELD[key] || "like_count";
+  const get = METRIC[key] || METRIC.likes;
   const sign = dir === "asc" ? 1 : -1;
   return (a, b) => {
-    const av = a[field], bv = b[field];
+    const av = get(a), bv = get(b);
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;

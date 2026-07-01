@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate,
 } from "./igMedia.js";
 
 const recs = [
@@ -23,6 +23,10 @@ describe("sortComparator", () => {
   });
   it("sorts by date desc", () => {
     expect(sortRecords(recs, "date", "desc").map(r => r.code)).toEqual(["B", "A", "C"]);
+  });
+  it("sorts by engagement rate, nulls (no views) last", () => {
+    // A: (10+3)/100=13% · C: (30+9)/200=19.5% · B: no views → null (last)
+    expect(sortRecords(recs, "er", "desc").map(r => r.code)).toEqual(["C", "A", "B"]);
   });
   it("does not mutate input", () => {
     const before = recs.map(r => r.code);
@@ -65,6 +69,16 @@ describe("fmtCount", () => {
     expect(fmtCount(1200000)).toBe("1.2M");
     expect(fmtCount(2000)).toBe("2K");
     expect(fmtCount(null)).toBe("—");
+  });
+});
+
+describe("engagementRate", () => {
+  it("computes (likes+comments)/views %", () => {
+    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20 })).toBeCloseTo(10);
+  });
+  it("is null without a positive view count", () => {
+    expect(engagementRate({ play_count: null, like_count: 5, comment_count: 5 })).toBe(null);
+    expect(engagementRate({ play_count: 0, like_count: 5, comment_count: 5 })).toBe(null);
   });
 });
 
