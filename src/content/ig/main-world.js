@@ -56,6 +56,7 @@
       image: bestImage(m),
       carousel: carouselOf(m),
       taken_at: m.taken_at != null ? m.taken_at : (m.taken_at_timestamp != null ? m.taken_at_timestamp : null),
+      repost: m.media_repost_count != null ? m.media_repost_count : null,
     };
   }
 
@@ -72,7 +73,7 @@
         const key = r.code || r.pk;
         if (r.code) all.set(r.code, r);
         if (r.pk) all.set(r.pk, r);
-        const sig = `${r.like_count}|${r.comment_count}|${!!r.video}|${r.media_type}`;
+        const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}`;
         if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
       }
     } catch (_) {}

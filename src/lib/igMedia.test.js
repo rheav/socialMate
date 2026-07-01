@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate, fmtDate,
 } from "./igMedia.js";
 
 const recs = [
@@ -79,6 +79,17 @@ describe("engagementRate", () => {
   it("is null without a positive view count", () => {
     expect(engagementRate({ play_count: null, like_count: 5, comment_count: 5 })).toBe(null);
     expect(engagementRate({ play_count: 0, like_count: 5, comment_count: 5 })).toBe(null);
+  });
+  it("includes reposts in the numerator", () => {
+    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20, repost: 100 })).toBeCloseTo(20);
+  });
+});
+
+describe("fmtDate", () => {
+  it("formats unix seconds to YYYY-MM-DD", () => {
+    expect(fmtDate(1704067200)).toBe("2024-01-01");
+    expect(fmtDate(null)).toBe("");
+    expect(fmtDate(0)).toBe("");
   });
 });
 

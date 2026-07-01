@@ -6,7 +6,17 @@
 export function engagementRate(rec) {
   const v = rec.play_count;
   if (!v || v <= 0) return null;
-  return (((rec.like_count || 0) + (rec.comment_count || 0)) / v) * 100;
+  // (likes + comments + reposts) / views. IG doesn't expose a save COUNT, so we
+  // can't include saves — this runs a touch below tools that do (e.g. IG Sorter).
+  const eng = (rec.like_count || 0) + (rec.comment_count || 0) + (rec.repost || 0);
+  return (eng / v) * 100;
+}
+
+// Unix seconds → "YYYY-MM-DD" (empty string when missing/invalid).
+export function fmtDate(unixSeconds) {
+  if (!unixSeconds) return "";
+  const d = new Date(unixSeconds * 1000);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
 const METRIC = {
@@ -46,6 +56,8 @@ export function recordToCard(rec) {
     likes: rec.like_count ?? null,
     comments: rec.comment_count ?? null,
     views: rec.play_count ?? null,
+    reposts: rec.repost ?? null,
+    date: fmtDate(rec.taken_at),
     hasVideo: !!rec.video || type === "video",
     permalink: code ? `https://www.instagram.com/p/${code}/` : null,
   };

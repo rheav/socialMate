@@ -38,7 +38,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (!r.username && surface.startsWith("profile:"))
         r.username = surface.slice("profile:".length);
       const id = r.code || r.pk;
-      if (id) byId.set(id, { ...(byId.get(id) || {}), ...r });
+      if (id) {
+        // Coalesce: later payloads add fields (play_count, repost) or drop them
+        // (null) — never let a null clobber a value we already captured.
+        const prev = byId.get(id) || {};
+        for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
+        byId.set(id, prev);
+      }
       if (r.code) igMedia[r.code] = r;
       if (r.pk) igMedia[r.pk] = r;
     }
@@ -202,11 +208,27 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         : n >= 1e3
           ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K"
           : String(n);
-  // Engagement rate by views: (likes + comments) / views × 100, or null.
+  // Engagement rate by views: (likes + comments + reposts) / views × 100, or null.
   const erOf = (r) => {
     const v = r.play_count;
     if (!v || v <= 0) return null;
-    return (((r.like_count || 0) + (r.comment_count || 0)) / v) * 100;
+    return (((r.like_count || 0) + (r.comment_count || 0) + (r.repost || 0)) / v) * 100;
+  };
+  const fmtDateOvl = (t) => {
+    if (!t) return "";
+    const d = new Date(t * 1000);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  };
+  // Filename helpers (inlined — bridge stays import-free).
+  const sanit = (s) => String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  const igExt = (url, kind) => {
+    const m = String(url || "").match(/\.(mp4|mov|webm|jpg|jpeg|png|webp|gif)(\?|$)/i);
+    if (m) { const e = m[1].toLowerCase(); return e === "jpeg" ? "jpg" : e; }
+    return kind === "video" ? "mp4" : "jpg";
+  };
+  const igName = (rec, ext, idx) => {
+    const base = `ig-${sanit(rec.username)}-${rec.code || rec.pk || Date.now()}`;
+    return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
   };
 
   let overlayOn = true;
@@ -218,6 +240,11 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
     msg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+    repost: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+    cal: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+    save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+    dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -227,14 +254,20 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     ovlStyleAdded = true;
     const s = document.createElement("style");
     s.textContent = `
-      .sw-ovl{position:absolute;left:8px;bottom:8px;display:flex;flex-direction:column;gap:5px;
-        padding:9px 12px;border-radius:14px;background:rgba(0,0,0,.4);
-        -webkit-backdrop-filter:blur(7px) saturate(130%);backdrop-filter:blur(7px) saturate(130%);
+      .sw-ovl{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;gap:4px;
+        padding:8px 11px;border-radius:13px;background:rgba(0,0,0,.42);
+        -webkit-backdrop-filter:blur(4px) saturate(125%);backdrop-filter:blur(4px) saturate(125%);
+        border:1px solid rgba(150,180,255,.38);box-shadow:0 0 12px rgba(70,130,255,.28),inset 0 0 0 1px rgba(160,190,255,.12);
         color:#fff;pointer-events:none;z-index:5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         text-shadow:0 1px 2px rgba(0,0,0,.45)}
-      .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;line-height:1;white-space:nowrap}
-      .sw-ovl-row.primary{font-size:21px;font-weight:800}
-      .sw-ovl svg{flex:none}`;
+      .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;line-height:1;white-space:nowrap}
+      .sw-ovl-row.primary{font-size:17px;font-weight:800}
+      .sw-ovl svg{flex:none}
+      .sw-acts{position:absolute;top:7px;left:7px;display:flex;flex-direction:column;gap:5px;z-index:6}
+      .sw-actbtn{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;cursor:pointer;color:#fff;
+        background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+        border:1px solid rgba(150,180,255,.4);box-shadow:0 0 8px rgba(70,130,255,.25);transition:background .15s}
+      .sw-actbtn:hover{background:rgba(0,0,0,.66)}`;
     (document.head || document.documentElement).appendChild(s);
   }
   function tileCode(a) {
@@ -247,21 +280,75 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     el.dataset.code = code;
     const hasViews = rec.play_count != null;
     const rows = [];
-    // Vertical rail: views (reels) as the headline, then likes, comments, ER.
-    // Grid JSON omits play_count → likes becomes the headline instead.
+    // Vertical rail: views headline (reels), then likes, comments, reposts, ER, date.
     if (hasViews)
-      rows.push(`<div class="sw-ovl-row primary">${ovlIcon("eye", 21)}<span>${fmtCount(rec.play_count)}</span></div>`);
-    rows.push(`<div class="sw-ovl-row${hasViews ? "" : " primary"}">${ovlIcon("heart", 16)}<span>${fmtCount(rec.like_count)}</span></div>`);
-    rows.push(`<div class="sw-ovl-row">${ovlIcon("msg", 16)}<span>${fmtCount(rec.comment_count)}</span></div>`);
+      rows.push(`<div class="sw-ovl-row primary">${ovlIcon("eye", 17)}<span>${fmtCount(rec.play_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row${hasViews ? "" : " primary"}">${ovlIcon("heart", 14)}<span>${fmtCount(rec.like_count)}</span></div>`);
+    rows.push(`<div class="sw-ovl-row">${ovlIcon("msg", 14)}<span>${fmtCount(rec.comment_count)}</span></div>`);
+    if (rec.repost != null)
+      rows.push(`<div class="sw-ovl-row">${ovlIcon("repost", 14)}<span>${fmtCount(rec.repost)}</span></div>`);
     const e = erOf(rec);
     if (e != null)
-      rows.push(`<div class="sw-ovl-row">${ovlIcon("zap", 16)}<span>${e.toFixed(1)}%</span></div>`);
+      rows.push(`<div class="sw-ovl-row">${ovlIcon("zap", 14)}<span>${e.toFixed(1)}%</span></div>`);
+    const d = fmtDateOvl(rec.taken_at);
+    if (d) rows.push(`<div class="sw-ovl-row">${ovlIcon("cal", 14)}<span>${d}</span></div>`);
     el.innerHTML = rows.join("");
     return el;
   }
+  // ---- in-page action buttons (save / download / thumbnail) ----
+  function ovlDownload(rec) {
+    if (rec.media_type === "carousel" && Array.isArray(rec.carousel)) {
+      let i = 0;
+      for (const ch of rec.carousel) {
+        i += 1;
+        const vid = ch.media_type === "video" && ch.video;
+        const url = vid ? ch.video : ch.image;
+        if (!url) continue;
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: vid ? "video" : "image", url, filename: igName(rec, igExt(url, vid ? "video" : "image"), i) });
+      }
+    } else if (rec.video) {
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "video", url: rec.video, filename: igName(rec, igExt(rec.video, "video")) });
+    } else if (rec.image) {
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: rec.image, filename: igName(rec, igExt(rec.image, "image")) });
+    }
+  }
+  function ovlThumb(rec) {
+    const url = rec.image || rec.thumb;
+    if (!url) return;
+    const ext = igExt(url, "image");
+    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: igName(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext) });
+  }
+  async function ovlSave(rec) {
+    try {
+      const r = await chrome.storage.local.get("fbw_saved");
+      const map = r.fbw_saved || {};
+      const id = rec.code || rec.pk;
+      map[id] = { ...(map[id] || {}), ...rec, videoId: id, platform: "instagram", autoSaved: false, updatedAt: Date.now() };
+      await chrome.storage.local.set({ fbw_saved: map });
+    } catch {
+      /* ignore */
+    }
+  }
+  function buildActs(rec) {
+    const wrap = document.createElement("div");
+    wrap.className = "sw-acts";
+    const mk = (icon, title, fn) => {
+      const b = document.createElement("button");
+      b.className = "sw-actbtn";
+      b.type = "button";
+      b.title = title;
+      b.innerHTML = ovlIcon(icon, 15);
+      b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(); });
+      return b;
+    };
+    wrap.appendChild(mk("save", "Save to Library", () => ovlSave(rec)));
+    wrap.appendChild(mk("dl", "Download media", () => ovlDownload(rec)));
+    wrap.appendChild(mk("img", "Download thumbnail", () => ovlThumb(rec)));
+    return wrap;
+  }
   function renderOverlays() {
     if (!overlayOn) {
-      document.querySelectorAll(".sw-ovl").forEach((e) => e.remove());
+      document.querySelectorAll(".sw-ovl, .sw-acts").forEach((e) => e.remove());
       return;
     }
     ensureOvlStyle();
@@ -274,13 +361,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (!code) continue;
       const rec = byId.get(code);
       if (!rec) continue;
-      const existing = a.querySelector(":scope > .sw-ovl");
-      if (existing) {
-        if (existing.dataset.code === code) continue;
-        existing.remove();
-      }
+      if (a.dataset.swCode === code && a.querySelector(":scope > .sw-ovl")) continue;
+      a.querySelectorAll(":scope > .sw-ovl, :scope > .sw-acts").forEach((e) => e.remove());
+      a.dataset.swCode = code;
       if (getComputedStyle(a).position === "static") a.style.position = "relative";
       a.appendChild(buildOvl(rec, code));
+      a.appendChild(buildActs(rec));
     }
   }
   function scheduleRender() {

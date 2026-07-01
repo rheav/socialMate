@@ -8,6 +8,8 @@ import {
   MessageCircle,
   Eye,
   Zap,
+  Repeat2,
+  Calendar,
   Play,
   Images,
   Image as ImageIcon,
@@ -288,36 +290,54 @@ export default function IgSortTool() {
                   </IconBtn>
                 </div>
 
-                {/* media type — top-right */}
-                <span className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/45 p-1 text-white backdrop-blur-sm">
+                {/* media type — top-right, opens the post */}
+                <a
+                  href={c.permalink || undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open on Instagram"
+                  className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/45 p-1 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
+                >
                   <TypeIcon className="size-3.5" />
-                </span>
+                </a>
 
-                {/* stat rail — right side, blurred, bigger */}
-                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-1 rounded-lg bg-black/35 px-2 py-1.5 text-white backdrop-blur-md">
+                {/* stat rail — right side, subtle blue glow */}
+                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/40 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)] backdrop-blur-sm">
                   {c.views != null && (
-                    <div className="flex items-center gap-1 text-[15px] font-extrabold leading-none">
-                      <Eye className="size-4" />
+                    <div className="flex items-center gap-1 text-[14px] font-extrabold leading-none">
+                      <Eye className="size-3.5" />
                       {fmtCount(c.views)}
                     </div>
                   )}
                   <div
                     className={
                       "flex items-center gap-1 leading-none " +
-                      (c.views == null ? "text-[15px] font-extrabold" : "text-[12.5px] font-bold")
+                      (c.views == null ? "text-[14px] font-extrabold" : "text-[11.5px] font-bold")
                     }
                   >
-                    <Heart className={c.views == null ? "size-4" : "size-3.5"} />
+                    <Heart className={c.views == null ? "size-3.5" : "size-3"} />
                     {fmtCount(c.likes)}
                   </div>
-                  <div className="flex items-center gap-1 text-[12.5px] font-bold leading-none">
-                    <MessageCircle className="size-3.5" />
+                  <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                    <MessageCircle className="size-3" />
                     {fmtCount(c.comments)}
                   </div>
+                  {c.reposts != null && (
+                    <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                      <Repeat2 className="size-3" />
+                      {fmtCount(c.reposts)}
+                    </div>
+                  )}
                   {er != null && (
-                    <div className="flex items-center gap-1 text-[12.5px] font-bold leading-none">
-                      <Zap className="size-3.5" />
+                    <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                      <Zap className="size-3" />
                       {er.toFixed(1)}%
+                    </div>
+                  )}
+                  {c.date && (
+                    <div className="flex items-center gap-1 text-[10.5px] font-semibold leading-none opacity-90">
+                      <Calendar className="size-3" />
+                      {c.date}
                     </div>
                   )}
                 </div>
