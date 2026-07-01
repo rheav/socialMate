@@ -25,6 +25,10 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     radius: 13, // rail corner radius, px
     btnSize: 27, // action-button size, px
     gap: 8, // rail distance from the tile edge, px
+    // ER weights — IG Sorter defaults (comments & reposts each count 4×).
+    erLike: 1,
+    erComment: 4,
+    erRepost: 4,
   };
   // =============================================================
 
@@ -231,7 +235,11 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   const erOf = (r) => {
     const v = r.play_count;
     if (!v || v <= 0) return null;
-    return (((r.like_count || 0) + (r.comment_count || 0) + (r.repost || 0)) / v) * 100;
+    const eng =
+      OVL.erLike * (r.like_count || 0) +
+      OVL.erComment * (r.comment_count || 0) +
+      OVL.erRepost * (r.repost || 0);
+    return (eng / v) * 100;
   };
   const fmtDateOvl = (t) => {
     if (!t) return "";

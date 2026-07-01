@@ -73,15 +73,20 @@ describe("fmtCount", () => {
 });
 
 describe("engagementRate", () => {
-  it("computes (likes+comments)/views %", () => {
-    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20 })).toBeCloseTo(10);
+  it("weights comments/reposts 4x (IG Sorter default)", () => {
+    // (80×1 + 20×4) / 1000 × 100 = 16
+    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20 })).toBeCloseTo(16);
   });
   it("is null without a positive view count", () => {
     expect(engagementRate({ play_count: null, like_count: 5, comment_count: 5 })).toBe(null);
     expect(engagementRate({ play_count: 0, like_count: 5, comment_count: 5 })).toBe(null);
   });
-  it("includes reposts in the numerator", () => {
-    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20, repost: 100 })).toBeCloseTo(20);
+  it("includes reposts (×4) in the numerator", () => {
+    // (80 + 20×4 + 100×4) / 1000 × 100 = 56
+    expect(engagementRate({ play_count: 1000, like_count: 80, comment_count: 20, repost: 100 })).toBeCloseTo(56);
+  });
+  it("matches IG Sorter's published example (3.08%)", () => {
+    expect(engagementRate({ play_count: 323727, like_count: 8870, comment_count: 121, repost: 151 })).toBeCloseTo(3.08, 1);
   });
 });
 

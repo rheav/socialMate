@@ -3,12 +3,21 @@
 // Engagement rate by views: (likes + comments) / views × 100. Null when there's
 // no view count (photos / grid JSON without play_count) so ER-sorted lists and
 // ER labels degrade gracefully (null sorts last, label shows "—").
+// ER weights — matches IG Sorter's defaults (comments & reposts each count 4×,
+// likes 1×). Tweak to reweight. Mirrored in the DOM overlay
+// (OVL.erLike/erComment/erRepost at the top of src/content/ig/bridge.js).
+export const ER_WEIGHTS = { like: 1, comment: 4, repost: 4 };
+
 export function engagementRate(rec) {
   const v = rec.play_count;
   if (!v || v <= 0) return null;
-  // (likes + comments + reposts) / views. IG doesn't expose a save COUNT, so we
-  // can't include saves — this runs a touch below tools that do (e.g. IG Sorter).
-  const eng = (rec.like_count || 0) + (rec.comment_count || 0) + (rec.repost || 0);
+  // ER = (like×wLike + comment×wComment + repost×wRepost) / plays × 100 — the
+  // exact shape IG Sorter uses. (IG exposes no save count, so saves are omitted.)
+  const w = ER_WEIGHTS;
+  const eng =
+    w.like * (rec.like_count || 0) +
+    w.comment * (rec.comment_count || 0) +
+    w.repost * (rec.repost || 0);
   return (eng / v) * 100;
 }
 
