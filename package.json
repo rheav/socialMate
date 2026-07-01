@@ -1,13 +1,15 @@
 {
   "name": "social-warmer",
   "private": true,
-  "version": "0.31.0",
+  "version": "0.33.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -37,7 +39,8 @@
     "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react": "^6.0.2",
     "tailwindcss": "^4.3.0",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   },
   "overrides": {
     "rollup": "^4.61.0"
