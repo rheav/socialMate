@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface,
 } from "./igMedia.js";
 
 const recs = [
@@ -65,5 +65,29 @@ describe("fmtCount", () => {
     expect(fmtCount(1200000)).toBe("1.2M");
     expect(fmtCount(2000)).toBe("2K");
     expect(fmtCount(null)).toBe("—");
+  });
+});
+
+describe("filterBySurface", () => {
+  const recs = [
+    { code: "1", username: "luxury_listings", surface: "profile:luxury_listings" },
+    { code: "2", username: "theagencyre", surface: "profile:luxury_listings" }, // suggested → drop
+    { code: "3", username: "someone", surface: "tag:tarot" },
+  ];
+  it("scopes a profile surface to the owner's posts only", () => {
+    expect(filterBySurface(recs, "profile:luxury_listings").map((r) => r.code)).toEqual(["1"]);
+  });
+  it("matches owner case-insensitively", () => {
+    expect(filterBySurface([{ code: "x", username: "Ivy", surface: "profile:ivy" }], "profile:ivy")).toHaveLength(1);
+  });
+  it("keeps all authors on a tag surface", () => {
+    const tag = [
+      { code: "a", username: "x", surface: "tag:tarot" },
+      { code: "b", username: "y", surface: "tag:tarot" },
+    ];
+    expect(filterBySurface(tag, "tag:tarot").map((r) => r.code)).toEqual(["a", "b"]);
+  });
+  it("returns all records when no surface", () => {
+    expect(filterBySurface(recs, null)).toHaveLength(3);
   });
 });

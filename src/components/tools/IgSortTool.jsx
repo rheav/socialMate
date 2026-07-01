@@ -10,7 +10,14 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { resolvePlatformTab } from "@/lib/tabs";
-import { sortRecords, recordToCard, filenameFor, extFromUrl, fmtCount } from "@/lib/igMedia";
+import {
+  sortRecords,
+  recordToCard,
+  filenameFor,
+  extFromUrl,
+  fmtCount,
+  filterBySurface,
+} from "@/lib/igMedia";
 
 const SORT_LABEL = { likes: "Likes", views: "Views", comments: "Comments", date: "Date" };
 
@@ -51,7 +58,7 @@ export default function IgSortTool() {
     return () => clearInterval(id);
   }, [listFromTab]);
 
-  const scoped = showAll ? records : records.filter((r) => !surface || r.surface === surface);
+  const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
 
   const bg = (msg) =>

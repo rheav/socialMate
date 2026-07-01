@@ -63,3 +63,20 @@ export function fmtCount(n) {
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
   return String(n);
 }
+
+// Scope captured records to a surface. IG's JSON.parse also parses suggested/
+// recommended media (explore rails, "suggested for you") while you're on a page,
+// so a raw surface match still leaks other creators. On a profile surface we
+// additionally require the record's author to BE that profile; hashtag/feed
+// surfaces are legitimately multi-author and pass through on surface match.
+export function filterBySurface(records, surface) {
+  if (!surface) return records;
+  return records.filter((r) => {
+    if (r.surface !== surface) return false;
+    if (surface.startsWith("profile:")) {
+      const owner = surface.slice("profile:".length).toLowerCase();
+      return (r.username || "").toLowerCase() === owner;
+    }
+    return true;
+  });
+}
