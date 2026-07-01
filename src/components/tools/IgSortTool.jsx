@@ -10,7 +10,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { resolvePlatformTab } from "@/lib/tabs";
-import { sortRecords, recordToCard, filenameFor, extFromUrl } from "@/lib/igMedia";
+import { sortRecords, recordToCard, filenameFor, extFromUrl, fmtCount } from "@/lib/igMedia";
 
 const SORT_LABEL = { likes: "Likes", views: "Views", comments: "Comments", date: "Date" };
 
@@ -174,37 +174,65 @@ export default function IgSortTool() {
         <div className="space-y-2">
           {sorted.map((rec) => {
             const c = recordToCard(rec);
+            const st = busy[c.id];
+            const thumbStyle = c.thumb ? { backgroundImage: `url(${c.thumb})` } : undefined;
+            const thumbCls =
+              "block w-20 h-28 rounded-lg bg-muted bg-cover bg-center flex-none ring-1 ring-black/5";
             return (
               <Card key={c.id}>
-                <CardContent className="p-2.5 flex items-center gap-2.5">
-                  <div
-                    className="w-9 h-11 rounded-md bg-muted bg-cover bg-center flex-none"
-                    style={c.thumb ? { backgroundImage: `url(${c.thumb})` } : undefined}
-                  />
+                <CardContent className="p-2 flex items-center gap-3">
+                  {c.permalink ? (
+                    <a
+                      href={c.permalink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={thumbCls}
+                      style={thumbStyle}
+                      title="Open on Instagram"
+                    />
+                  ) : (
+                    <div className={thumbCls} style={thumbStyle} />
+                  )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium truncate">@{c.username}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      ❤ {c.likes ?? "—"} · 💬 {c.comments ?? "—"}{" "}
-                      {c.views != null ? `· ▶ ${c.views}` : ""} · {c.type}
+                    <div className="text-sm font-medium truncate">@{c.username}</div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>❤ {fmtCount(c.likes)}</span>
+                      <span>💬 {fmtCount(c.comments)}</span>
+                      {c.views != null && <span>▶ {fmtCount(c.views)}</span>}
                     </div>
+                    <span className="mt-1 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground capitalize">
+                      {c.type}
+                    </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => saveToLibrary(rec)}
-                    title="Save to Library"
-                  >
-                    <Bookmark />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => downloadRecord(rec)}
-                    title="Download"
-                    disabled={busy[c.id] === "downloading"}
-                  >
-                    <Download />
-                  </Button>
+                  <div className="flex flex-col gap-1 flex-none">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => saveToLibrary(rec)}
+                      title="Save to Library"
+                    >
+                      <Bookmark />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => downloadRecord(rec)}
+                      title="Download"
+                      disabled={st === "downloading"}
+                    >
+                      <Download
+                        className={
+                          st === "done"
+                            ? "text-emerald-600"
+                            : st === "error"
+                              ? "text-destructive"
+                              : undefined
+                        }
+                      />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );

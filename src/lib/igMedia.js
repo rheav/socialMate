@@ -55,3 +55,11 @@ export function extFromUrl(url, kind) {
   if (m) { const e = m[1].toLowerCase(); return e === "jpeg" ? "jpg" : e; }
   return kind === "video" ? "mp4" : "jpg";
 }
+
+// Compact engagement count for display: 964490 -> "964.5K", 1200000 -> "1.2M".
+export function fmtCount(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}

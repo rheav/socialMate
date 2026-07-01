@@ -24,3 +24,13 @@ export async function resolvePlatformTab(platform) {
   const tabs = await chrome.tabs.query({ url: PLATFORM_HOST[platform].glob });
   return tabs.length ? tabs[0].id : null;
 }
+
+// The platform (facebook/instagram/tiktok) of the currently active tab, or null.
+export async function detectActivePlatform() {
+  if (!hasChromeTabs()) return null;
+  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = active?.url || "";
+  for (const p of Object.keys(PLATFORM_HOST))
+    if (matchesPlatform(p, url)) return p;
+  return null;
+}

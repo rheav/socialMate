@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount,
 } from "./igMedia.js";
 
 const recs = [
@@ -55,5 +55,15 @@ describe("filenames", () => {
     expect(extFromUrl("https://x/y.webp", "image")).toBe("webp");
     expect(extFromUrl("https://x/y", "image")).toBe("jpg");
     expect(extFromUrl("https://x/y", "video")).toBe("mp4");
+  });
+});
+
+describe("fmtCount", () => {
+  it("formats magnitudes", () => {
+    expect(fmtCount(3)).toBe("3");
+    expect(fmtCount(964490)).toBe("964.5K");
+    expect(fmtCount(1200000)).toBe("1.2M");
+    expect(fmtCount(2000)).toBe("2K");
+    expect(fmtCount(null)).toBe("—");
   });
 });

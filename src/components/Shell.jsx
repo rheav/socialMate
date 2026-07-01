@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
 import { toolsForPlatform, globalTools, getTool } from "@/lib/tools";
+import { detectActivePlatform } from "@/lib/tabs";
 import Launcher from "@/components/ui/Launcher";
 import ToolFrame from "@/components/ui/ToolFrame";
 
@@ -14,14 +16,28 @@ export default function Shell() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (typeof chrome === "undefined" || !chrome?.storage?.local) {
+    (async () => {
+      let saved = null;
+      if (typeof chrome !== "undefined" && chrome?.storage?.local) {
+        try {
+          const r = await chrome.storage.local.get(NAV_KEY);
+          saved = r?.[NAV_KEY] || null;
+        } catch {
+          /* ignore */
+        }
+      }
+      // Land on the active tab's platform: restore the last tool if it was on
+      // this same platform, otherwise drop into that platform's hub. Off-platform
+      // (e.g. a google.com tab) falls back to the saved location, then home.
+      const plat = await detectActivePlatform();
+      if (plat) {
+        if (saved && saved.platform === plat && saved.screen) setNav(saved);
+        else setNav({ screen: "hub", platform: plat, tool: null });
+      } else if (saved) {
+        setNav(saved);
+      }
       setReady(true);
-      return;
-    }
-    chrome.storage.local.get(NAV_KEY).then((r) => {
-      if (r?.[NAV_KEY]) setNav(r[NAV_KEY]);
-      setReady(true);
-    });
+    })();
   }, []);
   useEffect(() => {
     if (ready) chrome.storage?.local?.set({ [NAV_KEY]: nav });
@@ -38,31 +54,65 @@ export default function Shell() {
 
   const goHome = () => setNav({ screen: "home", platform: null, tool: null });
 
-  // HOME — platform cards + a Library (global tools) card
+  // HOME — brand-tinted platform rows + a distinct Library row
   if (nav.screen === "home") {
-    const platformItems = PLATFORM_ORDER.map((id) => ({
-      id,
-      name: PLATFORMS[id].name,
-      Glyph: PLATFORMS[id].Glyph,
-    }));
-    const libraryItems = globalTools().map((t) => ({
-      id: `tool:${t.id}`,
-      label: t.label,
-      Icon: t.Icon,
-    }));
     return (
       <Chrome>
-        <Launcher
-          items={platformItems}
-          onPick={(id) => setNav({ screen: "hub", platform: id, tool: null })}
-        />
-        <div className="mt-3">
-          <Launcher
-            items={libraryItems}
-            onPick={(pid) =>
-              setNav({ screen: "tool", platform: null, tool: pid.replace("tool:", "") })
-            }
-          />
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Pick a platform
+        </p>
+        <div className="space-y-2">
+          {PLATFORM_ORDER.map((id) => {
+            const { name, Glyph, theme } = PLATFORMS[id];
+            const tools = toolsForPlatform(id)
+              .map((t) => t.label)
+              .join(" · ");
+            return (
+              <button
+                key={id}
+                onClick={() => setNav({ screen: "hub", platform: id, tool: null })}
+                className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
+              >
+                <span
+                  className="grid size-10 place-items-center rounded-xl text-white shadow-sm"
+                  style={{ backgroundImage: theme["--sw-grad"] }}
+                >
+                  <Glyph width={20} height={20} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{name}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {tools}
+                  </span>
+                </span>
+                <ChevronRight className="size-4 text-muted-foreground" />
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="pt-1">
+          {globalTools().map((t) => {
+            const Icon = t.Icon;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setNav({ screen: "tool", platform: null, tool: t.id })}
+                className="flex w-full items-center gap-3 rounded-xl border border-border bg-muted/40 p-3 text-left transition-colors hover:bg-accent"
+              >
+                <span className="grid size-10 place-items-center rounded-xl bg-foreground text-background">
+                  <Icon size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{t.label}</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Saved · Transcripts · History
+                  </span>
+                </span>
+                <ChevronRight className="size-4 text-muted-foreground" />
+              </button>
+            );
+          })}
         </div>
       </Chrome>
     );
