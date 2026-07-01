@@ -68,7 +68,9 @@
     try {
       const seen = new Set();
       for (const m of findMedia(root, seen)) {
-        if (!m.code && !(m.pk || m.id)) continue;
+        // Require a shortcode: skips carousel children (image objects with a pk
+        // but no code) that would otherwise flood the list as empty-stat cards.
+        if (!m.code) continue;
         const r = lite(m);
         const key = r.code || r.pk;
         if (r.code) all.set(r.code, r);
@@ -81,7 +83,7 @@
   }
 
   const orig = JSON.parse;
-  JSON.parse = function (text, reviver) {
+  JSON.parse = function () {
     const out = orig.apply(this, arguments);
     if (out && typeof out === "object") scan(out);
     return out;

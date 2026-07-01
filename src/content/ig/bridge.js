@@ -476,8 +476,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     clearTimeout(fullTimer);
     if (on) fullTick();
   }
-  chrome.storage?.local?.get("sw_ig_fullstats").then((r) => setFullStats(!!r?.sw_ig_fullstats));
-  chrome.storage?.onChanged?.addListener((ch, area) => {
-    if (area === "local" && ch.sw_ig_fullstats) setFullStats(!!ch.sw_ig_fullstats.newValue);
-  });
+  // Full stats always on — fetch IG detail so ER / views / reposts are exact.
+  setFullStats(true);
 }

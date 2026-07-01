@@ -76,6 +76,7 @@ export function sortComparator(key, dir = "desc") {
 }
 
 export function sortRecords(records, key, dir) {
+  if (key === "default") return [...records]; // capture order (≈ IG's own order)
   return [...records].sort(sortComparator(key, dir));
 }
 
