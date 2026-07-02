@@ -128,7 +128,7 @@ export default function IgSortTool() {
 
   useEffect(() => {
     listFromTab();
-    const id = setInterval(listFromTab, 2000);
+    const id = setInterval(listFromTab, 2500);
     return () => clearInterval(id);
   }, [listFromTab]);
 

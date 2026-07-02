@@ -71,6 +71,16 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (r.code) igMedia[r.code] = r;
       if (r.pk) igMedia[r.pk] = r;
     }
+    // Cap memory across long SPA sessions: evict the oldest records (Map keeps
+    // insertion order) once the buffer outgrows what the panel usefully lists.
+    while (byId.size > 500) {
+      const k = byId.keys().next().value;
+      const old = byId.get(k);
+      byId.delete(k);
+      if (old?.code) delete igMedia[old.code];
+      if (old?.pk) delete igMedia[old.pk];
+    }
+    kickFullStats(); // new records may be missing views/reposts (hoisted fn)
     scheduleRender();
   });
 
@@ -299,15 +309,9 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   let ovlStyleAdded = false;
   let ovlTimer = null;
 
-  // Live mirrors of the shared stores, so tile buttons reflect state: transcript
-  // status per post (amber running / green done / red error — green opens the
-  // in-page transcript modal) and saved ids (yellow-filled bookmark).
-  let txStatus = {}; // videoId -> "running"|"done"|"error"
+  // Live mirror of the shared saved store (yellow-filled bookmark on tiles).
+  // Transcription is panel-only — keeps the in-page script lean.
   let savedSet = new Set();
-  function refreshTx(map) {
-    txStatus = {};
-    for (const k in map || {}) txStatus[k] = map[k].status;
-  }
   function refreshSaved(map) {
     savedSet = new Set(Object.keys(map || {}));
   }
@@ -322,7 +326,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
     dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
-    filetext: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -347,30 +350,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         border:1px solid ${OVL.borderColor};box-shadow:0 0 8px ${OVL.glow};transition:background .15s}
       .sw-actbtn:hover{background:rgba(0,0,0,.66)}
       .sw-actbtn.sw-saved{color:#facc15;border-color:rgba(250,204,21,.55);box-shadow:0 0 8px rgba(250,204,21,.3)}
-      .sw-actbtn.sw-saved svg{fill:#facc15}
-      .sw-actbtn.sw-done{color:#34d399;border-color:rgba(52,211,153,.55);box-shadow:0 0 8px rgba(52,211,153,.3)}
-      .sw-actbtn.sw-run{color:#fbbf24;animation:sw-pulse 1.1s ease-in-out infinite}
-      .sw-actbtn.sw-err{color:#f87171;border-color:rgba(248,113,113,.55)}
-      @keyframes sw-pulse{0%,100%{opacity:1}50%{opacity:.45}}
-      .sw-txwrap{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;
-        background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
-      .sw-txcard{display:flex;flex-direction:column;width:min(480px,92vw);max-height:72vh;overflow:hidden;
-        border-radius:14px;background:rgba(17,19,27,.97);border:1px solid ${OVL.borderColor};
-        box-shadow:0 0 26px ${OVL.glow};color:#fff;
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-      .sw-txhead{display:flex;align-items:center;gap:8px;padding:11px 13px;font-size:13px;font-weight:700;
-        border-bottom:1px solid rgba(255,255,255,.08)}
-      .sw-txhead span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .sw-txhead svg{flex:none;color:#34d399}
-      .sw-txclose{flex:none;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#9aa3b2;
-        font-size:13px;cursor:pointer;line-height:1}
-      .sw-txclose:hover{background:rgba(255,255,255,.1);color:#fff}
-      .sw-txbody{flex:1;overflow-y:auto;padding:12px 13px;font-size:12.5px;line-height:1.55;white-space:pre-wrap}
-      .sw-txfoot{padding:10px 13px;border-top:1px solid rgba(255,255,255,.08)}
-      .sw-txbtn{display:flex;width:100%;align-items:center;justify-content:center;gap:6px;height:33px;
-        border-radius:9px;border:1px solid ${OVL.borderColor};background:rgba(70,130,255,.2);color:#fff;
-        font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s}
-      .sw-txbtn:hover{background:rgba(70,130,255,.34)}`;
+      .sw-actbtn.sw-saved svg{fill:#facc15}`;
     (document.head || document.documentElement).appendChild(s);
   }
   function tileCode(a) {
@@ -421,27 +401,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const ext = igExt(url, "image");
     chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: igName(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext) });
   }
-  // Transcribe a reel tile: hand the background the direct MP4 URL (kept fresh by
-  // the always-on full-stats fetch). Same Whisper pipeline as Facebook; the result
-  // lands in the shared fbw_transcripts store → panel's Library → Transcripts.
-  function ovlTranscribe(rec) {
-    const id = rec.code || rec.pk;
-    if (!rec.video) return;
-    chrome.runtime.sendMessage({
-      type: "FBW_TRANSCRIBE",
-      videoId: id,
-      mediaUrl: rec.video,
-      platform: "instagram",
-      caption: rec.caption || null,
-      author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
-      thumb: rec.thumb || rec.image || null,
-      counts: {
-        like: rec.like_count != null ? fmtCount(rec.like_count) : null,
-        comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
-        views: rec.play_count != null ? fmtCount(rec.play_count) : null,
-      },
-    }).catch(() => {});
-  }
   // Toggle: first tap saves to the shared Library, second removes.
   async function ovlSave(rec) {
     try {
@@ -454,63 +413,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     } catch {
       /* ignore */
     }
-  }
-  // Green transcribe button → show the finished transcript in an in-page modal.
-  function ovlShowTranscript(rec) {
-    const id = rec.code || rec.pk;
-    chrome.storage.local.get("fbw_transcripts").then((r) => {
-      const t = (r.fbw_transcripts || {})[id];
-      if (t && t.text) buildTxModal(rec, t.text);
-    });
-  }
-  function buildTxModal(rec, text) {
-    document.querySelectorAll(".sw-txwrap").forEach((e) => e.remove());
-    const wrap = document.createElement("div");
-    wrap.className = "sw-txwrap";
-    wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
-    const card = document.createElement("div");
-    card.className = "sw-txcard";
-    const head = document.createElement("div");
-    head.className = "sw-txhead";
-    head.innerHTML = `${ovlIcon("filetext", 15)}<span>@${rec.username || "unknown"} · ${rec.code || rec.pk}</span>`;
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "sw-txclose";
-    closeBtn.type = "button";
-    closeBtn.textContent = "✕";
-    closeBtn.addEventListener("click", () => wrap.remove());
-    head.appendChild(closeBtn);
-    const body = document.createElement("div");
-    body.className = "sw-txbody";
-    body.textContent = text;
-    const foot = document.createElement("div");
-    foot.className = "sw-txfoot";
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "sw-txbtn";
-    copyBtn.type = "button";
-    copyBtn.textContent = "Copy transcript";
-    copyBtn.addEventListener("click", () => {
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
-          copyBtn.textContent = "Copied ✓";
-          setTimeout(() => { copyBtn.textContent = "Copy transcript"; }, 1400);
-        })
-        .catch(() => {
-          // Clipboard API can be denied in content scripts → textarea fallback.
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          ta.remove();
-          copyBtn.textContent = "Copied ✓";
-          setTimeout(() => { copyBtn.textContent = "Copy transcript"; }, 1400);
-        });
-    });
-    foot.appendChild(copyBtn);
-    card.append(head, body, foot);
-    wrap.appendChild(card);
-    document.body.appendChild(wrap);
   }
   function buildActs(rec) {
     const wrap = document.createElement("div");
@@ -534,43 +436,47 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     wrap.appendChild(saveBtn);
     wrap.appendChild(mk("dl", "Download media", () => ovlDownload(rec)));
     wrap.appendChild(mk("img", "Download thumbnail", () => ovlThumb(rec)));
-    const tx = txStatus[id];
-    if (rec.video || tx === "done") {
-      const txBtn = mk(
-        "filetext",
-        tx === "done" ? "View transcript" : tx === "running" ? "Transcribing…" : tx === "error" ? "Transcription failed — tap to retry" : "Transcribe",
-        () => (txStatus[id] === "done" ? ovlShowTranscript(rec) : ovlTranscribe(rec)),
-      );
-      if (tx === "done") txBtn.classList.add("sw-done");
-      else if (tx === "running") txBtn.classList.add("sw-run");
-      else if (tx === "error") txBtn.classList.add("sw-err");
-      wrap.appendChild(txBtn);
-    }
     return wrap;
   }
+  // Perf-critical: IG mutates the DOM constantly (virtualized feeds), so this
+  // pass must be cheap. Pass 1 does zero layout reads — rect/computedStyle only
+  // run for tiles that actually need (re)building — and the observer is
+  // disconnected while we append our own nodes so we never re-trigger ourselves.
   function renderOverlays() {
+    if (document.visibilityState !== "visible") return;
     if (!overlayOn) {
-      document.querySelectorAll(".sw-ovl, .sw-acts").forEach((e) => e.remove());
+      if (document.querySelector(".sw-ovl, .sw-acts")) {
+        ovlObserver.disconnect();
+        document.querySelectorAll(".sw-ovl, .sw-acts").forEach((e) => e.remove());
+        observeBody();
+      }
       return;
     }
-    ensureOvlStyle();
+    // Pass 1 (no layout): which tiles need building? Rebuild when the tile's
+    // data changed — late-arriving full-stats fields (views/reposts) and saved
+    // state must update already-annotated tiles.
+    const toBuild = [];
     for (const a of document.querySelectorAll('a[href*="/reel/"], a[href*="/p/"]')) {
-      // Real thumbnails only. Grid tiles have <img>; Reels-tab tiles use a
-      // background-image DIV (no <img>/<video>), so match by rendered size.
-      const rect = a.getBoundingClientRect();
-      if (rect.width < 80 || rect.height < 80) continue;
       const code = tileCode(a);
       if (!code) continue;
       const rec = byId.get(code);
       if (!rec) continue;
-      // Rebuild when the tile's data changed, not just when the code changed —
-      // late-arriving fields (full-stats fills video/views/reposts) and
-      // transcript/saved state must show up on already-annotated tiles.
       const sig = [
         rec.play_count, rec.like_count, rec.comment_count, rec.repost,
-        rec.video ? 1 : 0, rec.taken_at, txStatus[code] || "", savedSet.has(code) ? 1 : 0,
+        rec.taken_at, savedSet.has(code) ? 1 : 0,
       ].join("|");
       if (a.dataset.swCode === code && a.dataset.swSig === sig && a.querySelector(":scope > .sw-ovl")) continue;
+      toBuild.push([a, code, rec, sig]);
+    }
+    if (!toBuild.length) return;
+    ensureOvlStyle();
+    ovlObserver.disconnect();
+    for (const [a, code, rec, sig] of toBuild) {
+      // Real thumbnails only. Grid tiles have <img>; Reels-tab tiles use a
+      // background-image DIV, so match by rendered size. Small/unsized anchors
+      // stay unstamped and retry once they lay out.
+      const rect = a.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 80) continue;
       a.querySelectorAll(":scope > .sw-ovl, :scope > .sw-acts").forEach((e) => e.remove());
       a.dataset.swCode = code;
       a.dataset.swSig = sig;
@@ -578,54 +484,72 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       a.appendChild(buildOvl(rec, code));
       a.appendChild(buildActs(rec));
     }
+    observeBody();
   }
+  // Debounced, then run at idle so bursts of IG mutations cost one off-path pass.
   function scheduleRender() {
     clearTimeout(ovlTimer);
-    ovlTimer = setTimeout(renderOverlays, 250);
+    ovlTimer = setTimeout(() => {
+      if (typeof requestIdleCallback === "function")
+        requestIdleCallback(renderOverlays, { timeout: 700 });
+      else renderOverlays();
+    }, 300);
   }
 
-  chrome.storage?.local
-    ?.get(["sw_ig_overlay", "fbw_transcripts", "fbw_saved"])
-    .then((r) => {
-      if (r?.sw_ig_overlay != null) overlayOn = !!r.sw_ig_overlay;
-      refreshTx(r?.fbw_transcripts);
-      refreshSaved(r?.fbw_saved);
-      scheduleRender();
-    });
+  chrome.storage?.local?.get(["sw_ig_overlay", "fbw_saved"]).then((r) => {
+    if (r?.sw_ig_overlay != null) overlayOn = !!r.sw_ig_overlay;
+    refreshSaved(r?.fbw_saved);
+    scheduleRender();
+  });
   chrome.storage?.onChanged?.addListener((ch, area) => {
     if (area !== "local") return;
     if (ch.sw_ig_overlay) overlayOn = !!ch.sw_ig_overlay.newValue;
-    if (ch.fbw_transcripts) refreshTx(ch.fbw_transcripts.newValue);
     if (ch.fbw_saved) refreshSaved(ch.fbw_saved.newValue);
-    if (ch.sw_ig_overlay || ch.fbw_transcripts || ch.fbw_saved) renderOverlays();
+    if (ch.sw_ig_overlay || ch.fbw_saved) scheduleRender();
   });
-  new MutationObserver(scheduleRender).observe(document.body, { childList: true, subtree: true });
+  const ovlObserver = new MutationObserver(scheduleRender);
+  const observeBody = () =>
+    ovlObserver.observe(document.body, { childList: true, subtree: true });
+  observeBody();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") scheduleRender();
+  });
   scheduleRender();
 
-  // ---- opt-in full-stats fetch (drives the main-world detail fetcher) ----
-  // When enabled, periodically hand the MAIN world the surface-scoped pks that
-  // are still missing views or reposts; it fetches /media/{pk}/info/ (paced) and
-  // relays complete records back through the normal capture channel.
+  // ---- full-stats fetch (drives the main-world detail fetcher) ----
+  // Event-driven, no idle polling: when records arrive that are missing views or
+  // reposts, hand their pks to the MAIN world exactly once (it fetches
+  // /media/{pk}/info/ paced and relays complete records back through the normal
+  // capture channel). Goes quiet when there's nothing left to request.
   let fullStatsOn = false;
   let fullTimer = null;
+  const fullRequested = new Set(); // pks handed to MAIN already (once per page load)
   function fullTick() {
+    fullTimer = null;
     if (!fullStatsOn) return;
     const surface = surfaceKey();
     const pks = [];
     for (const r of byId.values()) {
       if (r.surface !== surface || !r.pk) continue;
       if (r.play_count != null && r.repost != null) continue; // already complete
-      pks.push(String(r.pk).split("_")[0]);
+      const p = String(r.pk).split("_")[0];
+      if (fullRequested.has(p)) continue;
+      fullRequested.add(p);
+      pks.push(p);
       if (pks.length >= 60) break;
     }
-    if (pks.length) window.postMessage({ __fbwIgFetch: pks }, location.origin);
-    fullTimer = setTimeout(fullTick, 2500);
+    if (!pks.length) return; // idle — the next record arrival re-kicks us
+    window.postMessage({ __fbwIgFetch: pks }, location.origin);
+    fullTimer = setTimeout(fullTick, 2500); // sweep records beyond the batch cap
+  }
+  function kickFullStats() {
+    if (fullStatsOn && !fullTimer) fullTimer = setTimeout(fullTick, 900);
   }
   function setFullStats(on) {
     fullStatsOn = on;
     window.postMessage({ __fbwIgFull: { on } }, location.origin);
-    clearTimeout(fullTimer);
-    if (on) fullTick();
+    if (on) kickFullStats();
+    else { clearTimeout(fullTimer); fullTimer = null; }
   }
   // Full stats always on — fetch IG detail so ER / views / reposts are exact.
   setFullStats(true);

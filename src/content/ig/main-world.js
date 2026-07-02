@@ -9,12 +9,14 @@
   if (window.__fbwIgMainInit) return;
   window.__fbwIgMainInit = true;
 
-  function* findMedia(o, seen) {
-    if (!o || typeof o !== "object" || seen.has(o)) return;
+  // Depth-capped: media objects sit well within 20 levels; the cap keeps a
+  // pathological payload from hanging the main thread mid-JSON.parse.
+  function* findMedia(o, seen, depth) {
+    if (!o || typeof o !== "object" || seen.has(o) || depth > 20) return;
     seen.add(o);
     if (o.video_versions || (o.code && o.image_versions2) || (o.media_type != null && (o.image_versions2 || o.carousel_media))) yield o;
-    if (Array.isArray(o)) { for (const v of o) yield* findMedia(v, seen); }
-    else { for (const k in o) yield* findMedia(o[k], seen); }
+    if (Array.isArray(o)) { for (const v of o) yield* findMedia(v, seen, depth + 1); }
+    else { for (const k in o) yield* findMedia(o[k], seen, depth + 1); }
   }
 
   function mediaTypeName(m) {
@@ -45,7 +47,7 @@
       username: u.username || null,
       full_name: u.full_name || null,
       verified: !!u.is_verified,
-      caption: (m.caption && m.caption.text) || null,
+      caption: (m.caption && m.caption.text && m.caption.text.slice(0, 500)) || null,
       like_count: m.like_count != null ? m.like_count : null,
       comment_count: m.comment_count != null ? m.comment_count : null,
       play_count: m.play_count != null ? m.play_count : (m.ig_play_count != null ? m.ig_play_count : (m.view_count != null ? m.view_count : null)),
@@ -67,7 +69,7 @@
     const out = [];
     try {
       const seen = new Set();
-      for (const m of findMedia(root, seen)) {
+      for (const m of findMedia(root, seen, 0)) {
         // Require a shortcode: skips carousel children (image objects with a pk
         // but no code) that would otherwise flood the list as empty-stat cards.
         if (!m.code) continue;
@@ -78,6 +80,10 @@
         const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}`;
         if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
       }
+      // Cap replay buffers for long SPA sessions (all holds ~2 keys per record:
+      // code and pk). Oldest entries evict first (Map keeps insertion order).
+      while (all.size > 1200) all.delete(all.keys().next().value);
+      while (sent.size > 700) sent.delete(sent.keys().next().value);
     } catch (_) {}
     send(out);
   }
@@ -132,9 +138,11 @@
   }
   function detailPump() {
     if (!detailOn || detailCount >= DETAIL_CAP) { detailTimer = null; return; }
+    // Queue drained → stop completely (no idle polling); the next __fbwIgFetch
+    // batch restarts the pump.
+    if (!detailQueue.length) { detailTimer = null; return; }
     if (document.visibilityState !== "visible") { detailTimer = setTimeout(detailPump, 1500); return; }
     const pk = detailQueue.shift();
-    if (pk == null) { detailTimer = setTimeout(detailPump, 1000); return; }
     if (detailed.has(pk)) { detailTimer = setTimeout(detailPump, 20); return; }
     detailed.add(pk);
     detailCount += 1;
