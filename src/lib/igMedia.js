@@ -1,11 +1,13 @@
 // Pure, DOM-free helpers for the IG Sort tool (panel side). Unit-tested.
 
-// Engagement rate by views: (likes + comments) / views × 100. Null when there's
-// no view count (photos / grid JSON without play_count) so ER-sorted lists and
-// ER labels degrade gracefully (null sorts last, label shows "—").
 // ER weights — matches IG Sorter's defaults (comments & reposts each count 4×,
 // likes 1×). Tweak to reweight. Mirrored in the DOM overlay
 // (OVL.erLike/erComment/erRepost at the top of src/content/ig/bridge.js).
+//
+// Passive-only data: counts come from JSON Instagram parses itself (we make no
+// API calls of our own). Reels-tab payloads carry views; posts-grid payloads
+// often don't. Missing reposts count as 0; missing views make ER null so
+// ER-sorted lists and labels degrade gracefully (null sorts last, shows "—").
 export const ER_WEIGHTS = { like: 1, comment: 4, repost: 4 };
 
 export function engagementRate(rec) {

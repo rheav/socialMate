@@ -80,7 +80,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (old?.code) delete igMedia[old.code];
       if (old?.pk) delete igMedia[old.pk];
     }
-    kickFullStats(); // new records may be missing views/reposts (hoisted fn)
     scheduleRender();
   });
 
@@ -461,6 +460,9 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (!code) continue;
       const rec = byId.get(code);
       if (!rec) continue;
+      // No stats captured (yet) → no rail. Prevents empty blur boxes on tiles
+      // whose record came from a stats-less payload.
+      if (rec.like_count == null && rec.comment_count == null && rec.play_count == null) continue;
       const sig = [
         rec.play_count, rec.like_count, rec.comment_count, rec.repost,
         rec.taken_at, savedSet.has(code) ? 1 : 0,
@@ -516,41 +518,4 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   });
   scheduleRender();
 
-  // ---- full-stats fetch (drives the main-world detail fetcher) ----
-  // Event-driven, no idle polling: when records arrive that are missing views or
-  // reposts, hand their pks to the MAIN world exactly once (it fetches
-  // /media/{pk}/info/ paced and relays complete records back through the normal
-  // capture channel). Goes quiet when there's nothing left to request.
-  let fullStatsOn = false;
-  let fullTimer = null;
-  const fullRequested = new Set(); // pks handed to MAIN already (once per page load)
-  function fullTick() {
-    fullTimer = null;
-    if (!fullStatsOn) return;
-    const surface = surfaceKey();
-    const pks = [];
-    for (const r of byId.values()) {
-      if (r.surface !== surface || !r.pk) continue;
-      if (r.play_count != null && r.repost != null) continue; // already complete
-      const p = String(r.pk).split("_")[0];
-      if (fullRequested.has(p)) continue;
-      fullRequested.add(p);
-      pks.push(p);
-      if (pks.length >= 60) break;
-    }
-    if (!pks.length) return; // idle — the next record arrival re-kicks us
-    window.postMessage({ __fbwIgFetch: pks }, location.origin);
-    fullTimer = setTimeout(fullTick, 2500); // sweep records beyond the batch cap
-  }
-  function kickFullStats() {
-    if (fullStatsOn && !fullTimer) fullTimer = setTimeout(fullTick, 900);
-  }
-  function setFullStats(on) {
-    fullStatsOn = on;
-    window.postMessage({ __fbwIgFull: { on } }, location.origin);
-    if (on) kickFullStats();
-    else { clearTimeout(fullTimer); fullTimer = null; }
-  }
-  // Full stats always on — fetch IG detail so ER / views / reposts are exact.
-  setFullStats(true);
 }
