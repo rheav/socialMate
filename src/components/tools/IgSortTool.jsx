@@ -14,6 +14,11 @@ import {
   Images,
   Image as ImageIcon,
   ImageDown,
+  FileText,
+  Loader2,
+  Copy,
+  Check,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -75,6 +80,33 @@ export default function IgSortTool() {
     setOverlay(v);
     chrome?.storage?.local?.set({ sw_ig_overlay: v });
   };
+
+  // Live mirrors of the shared stores: transcript status per post (spinner /
+  // green / red on the card button; green opens the transcript) and saved ids
+  // (yellow-filled bookmark). Both update via storage.onChanged.
+  const [txMap, setTxMap] = useState({});
+  const [savedIds, setSavedIds] = useState({});
+  const [txModal, setTxModal] = useState(null); // { id, username, text }
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!chrome?.storage?.local) return;
+    const load = () =>
+      chrome.storage.local.get(["fbw_transcripts", "fbw_saved"], (r) => {
+        const m = r.fbw_transcripts || {};
+        const out = {};
+        for (const k in m) out[k] = m[k].status;
+        setTxMap(out);
+        const s = {};
+        for (const k in r.fbw_saved || {}) s[k] = true;
+        setSavedIds(s);
+      });
+    load();
+    const onCh = (c, area) => {
+      if (area === "local" && (c.fbw_transcripts || c.fbw_saved)) load();
+    };
+    chrome.storage.onChanged.addListener(onCh);
+    return () => chrome.storage.onChanged.removeListener(onCh);
+  }, []);
 
   const listFromTab = useCallback(async () => {
     if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
@@ -173,11 +205,17 @@ export default function IgSortTool() {
     }
   }
 
+  // Toggle: first tap saves to the shared Library, second removes.
   async function saveToLibrary(rec) {
     try {
       const r = await chrome.storage.local.get("fbw_saved");
       const map = r.fbw_saved || {};
       const id = rec.code || rec.pk;
+      if (map[id]) {
+        delete map[id];
+        await chrome.storage.local.set({ fbw_saved: map });
+        return;
+      }
       map[id] = {
         videoId: id,
         platform: "instagram",
@@ -195,6 +233,53 @@ export default function IgSortTool() {
         updatedAt: Date.now(),
       };
       await chrome.storage.local.set({ fbw_saved: map });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Transcribe a reel: hand the background the direct MP4 URL (captured via the
+  // always-on full-stats fetch). It reuses the same Whisper pipeline as Facebook;
+  // the result streams into fbw_transcripts → Library → Transcripts.
+  function transcribe(rec) {
+    const id = rec.code || rec.pk;
+    if (!rec.video) return;
+    chrome.runtime.sendMessage({
+      type: "FBW_TRANSCRIBE",
+      videoId: id,
+      mediaUrl: rec.video,
+      platform: "instagram",
+      caption: rec.caption || null,
+      author: {
+        name: rec.username || rec.full_name || "unknown",
+        url: rec.username ? `/${rec.username}/` : null,
+      },
+      thumb: rec.thumb || rec.image || null,
+      counts: {
+        like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+        comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
+        views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+      },
+    });
+    setTxMap((m) => ({ ...m, [id]: "running" })); // optimistic; store listener corrects
+  }
+
+  // Green button → read the finished transcript from the shared store and show
+  // it in a small modal with one-tap copy.
+  async function openTranscript(rec) {
+    const id = rec.code || rec.pk;
+    const r = await chrome.storage.local.get("fbw_transcripts");
+    const t = (r.fbw_transcripts || {})[id];
+    if (!t?.text) return;
+    setCopied(false);
+    setTxModal({ id, username: rec.username || rec.full_name || "unknown", text: t.text });
+  }
+
+  async function copyTranscript() {
+    try {
+      await navigator.clipboard.writeText(txModal.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
     } catch {
       /* ignore */
     }
@@ -280,8 +365,15 @@ export default function IgSortTool() {
 
                 {/* actions — top-left */}
                 <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
-                  <IconBtn title="Save to Library" onClick={() => saveToLibrary(rec)}>
-                    <Bookmark className="size-3.5" />
+                  <IconBtn
+                    title={savedIds[c.id] ? "Saved — tap to remove" : "Save to Library"}
+                    onClick={() => saveToLibrary(rec)}
+                  >
+                    <Bookmark
+                      className={
+                        "size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")
+                      }
+                    />
                   </IconBtn>
                   <IconBtn
                     title="Download media"
@@ -298,6 +390,36 @@ export default function IgSortTool() {
                   <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)}>
                     <ImageDown className="size-3.5" />
                   </IconBtn>
+                  {(rec.video || txMap[c.id] === "done") && (
+                    <IconBtn
+                      title={
+                        txMap[c.id] === "done"
+                          ? "View transcript"
+                          : txMap[c.id] === "error"
+                            ? "Transcription failed — tap to retry"
+                            : "Transcribe"
+                      }
+                      onClick={() =>
+                        txMap[c.id] === "done" ? openTranscript(rec) : transcribe(rec)
+                      }
+                      disabled={txMap[c.id] === "running"}
+                    >
+                      {txMap[c.id] === "running" ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <FileText
+                          className={
+                            "size-3.5 " +
+                            (txMap[c.id] === "done"
+                              ? "text-emerald-400"
+                              : txMap[c.id] === "error"
+                                ? "text-red-400"
+                                : "")
+                          }
+                        />
+                      )}
+                    </IconBtn>
+                  )}
                 </div>
 
                 {/* media type — top-right, opens the post */}
@@ -366,6 +488,41 @@ export default function IgSortTool() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* transcript viewer — small modal with one-tap copy */}
+      {txModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+          onClick={() => setTxModal(null)}
+        >
+          <div
+            className="flex max-h-[75vh] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+              <FileText className="size-4 text-emerald-500" />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                @{txModal.username} · {txModal.id}
+              </span>
+              <button
+                onClick={() => setTxModal(null)}
+                className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto whitespace-pre-wrap px-3 py-2.5 text-[12px] leading-relaxed text-foreground">
+              {txModal.text}
+            </div>
+            <div className="border-t border-border p-2.5">
+              <Button className="w-full" variant={copied ? "secondary" : "default"} onClick={copyTranscript}>
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? "Copied" : "Copy transcript"}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

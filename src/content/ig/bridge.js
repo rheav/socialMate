@@ -299,6 +299,19 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   let ovlStyleAdded = false;
   let ovlTimer = null;
 
+  // Live mirrors of the shared stores, so tile buttons reflect state: transcript
+  // status per post (amber running / green done / red error — green opens the
+  // in-page transcript modal) and saved ids (yellow-filled bookmark).
+  let txStatus = {}; // videoId -> "running"|"done"|"error"
+  let savedSet = new Set();
+  function refreshTx(map) {
+    txStatus = {};
+    for (const k in map || {}) txStatus[k] = map[k].status;
+  }
+  function refreshSaved(map) {
+    savedSet = new Set(Object.keys(map || {}));
+  }
+
   const OVL_SVG = {
     eye: '<circle cx="12" cy="12" r="3"/><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/>',
     heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
@@ -309,6 +322,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
     dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+    filetext: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -331,7 +345,32 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       .sw-actbtn{display:grid;place-items:center;width:${OVL.btnSize}px;height:${OVL.btnSize}px;border-radius:8px;cursor:pointer;color:#fff;
         background:rgba(0,0,0,${OVL.bgOpacity});-webkit-backdrop-filter:blur(${OVL.blurPx}px);backdrop-filter:blur(${OVL.blurPx}px);
         border:1px solid ${OVL.borderColor};box-shadow:0 0 8px ${OVL.glow};transition:background .15s}
-      .sw-actbtn:hover{background:rgba(0,0,0,.66)}`;
+      .sw-actbtn:hover{background:rgba(0,0,0,.66)}
+      .sw-actbtn.sw-saved{color:#facc15;border-color:rgba(250,204,21,.55);box-shadow:0 0 8px rgba(250,204,21,.3)}
+      .sw-actbtn.sw-saved svg{fill:#facc15}
+      .sw-actbtn.sw-done{color:#34d399;border-color:rgba(52,211,153,.55);box-shadow:0 0 8px rgba(52,211,153,.3)}
+      .sw-actbtn.sw-run{color:#fbbf24;animation:sw-pulse 1.1s ease-in-out infinite}
+      .sw-actbtn.sw-err{color:#f87171;border-color:rgba(248,113,113,.55)}
+      @keyframes sw-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+      .sw-txwrap{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;
+        background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+      .sw-txcard{display:flex;flex-direction:column;width:min(480px,92vw);max-height:72vh;overflow:hidden;
+        border-radius:14px;background:rgba(17,19,27,.97);border:1px solid ${OVL.borderColor};
+        box-shadow:0 0 26px ${OVL.glow};color:#fff;
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+      .sw-txhead{display:flex;align-items:center;gap:8px;padding:11px 13px;font-size:13px;font-weight:700;
+        border-bottom:1px solid rgba(255,255,255,.08)}
+      .sw-txhead span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .sw-txhead svg{flex:none;color:#34d399}
+      .sw-txclose{flex:none;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#9aa3b2;
+        font-size:13px;cursor:pointer;line-height:1}
+      .sw-txclose:hover{background:rgba(255,255,255,.1);color:#fff}
+      .sw-txbody{flex:1;overflow-y:auto;padding:12px 13px;font-size:12.5px;line-height:1.55;white-space:pre-wrap}
+      .sw-txfoot{padding:10px 13px;border-top:1px solid rgba(255,255,255,.08)}
+      .sw-txbtn{display:flex;width:100%;align-items:center;justify-content:center;gap:6px;height:33px;
+        border-radius:9px;border:1px solid ${OVL.borderColor};background:rgba(70,130,255,.2);color:#fff;
+        font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s}
+      .sw-txbtn:hover{background:rgba(70,130,255,.34)}`;
     (document.head || document.documentElement).appendChild(s);
   }
   function tileCode(a) {
@@ -382,16 +421,96 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const ext = igExt(url, "image");
     chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: igName(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext) });
   }
+  // Transcribe a reel tile: hand the background the direct MP4 URL (kept fresh by
+  // the always-on full-stats fetch). Same Whisper pipeline as Facebook; the result
+  // lands in the shared fbw_transcripts store → panel's Library → Transcripts.
+  function ovlTranscribe(rec) {
+    const id = rec.code || rec.pk;
+    if (!rec.video) return;
+    chrome.runtime.sendMessage({
+      type: "FBW_TRANSCRIBE",
+      videoId: id,
+      mediaUrl: rec.video,
+      platform: "instagram",
+      caption: rec.caption || null,
+      author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
+      thumb: rec.thumb || rec.image || null,
+      counts: {
+        like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+        comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
+        views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+      },
+    }).catch(() => {});
+  }
+  // Toggle: first tap saves to the shared Library, second removes.
   async function ovlSave(rec) {
     try {
       const r = await chrome.storage.local.get("fbw_saved");
       const map = r.fbw_saved || {};
       const id = rec.code || rec.pk;
-      map[id] = igSavedShape(rec, id);
+      if (map[id]) delete map[id];
+      else map[id] = igSavedShape(rec, id);
       await chrome.storage.local.set({ fbw_saved: map });
     } catch {
       /* ignore */
     }
+  }
+  // Green transcribe button → show the finished transcript in an in-page modal.
+  function ovlShowTranscript(rec) {
+    const id = rec.code || rec.pk;
+    chrome.storage.local.get("fbw_transcripts").then((r) => {
+      const t = (r.fbw_transcripts || {})[id];
+      if (t && t.text) buildTxModal(rec, t.text);
+    });
+  }
+  function buildTxModal(rec, text) {
+    document.querySelectorAll(".sw-txwrap").forEach((e) => e.remove());
+    const wrap = document.createElement("div");
+    wrap.className = "sw-txwrap";
+    wrap.addEventListener("click", (ev) => { if (ev.target === wrap) wrap.remove(); });
+    const card = document.createElement("div");
+    card.className = "sw-txcard";
+    const head = document.createElement("div");
+    head.className = "sw-txhead";
+    head.innerHTML = `${ovlIcon("filetext", 15)}<span>@${rec.username || "unknown"} · ${rec.code || rec.pk}</span>`;
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "sw-txclose";
+    closeBtn.type = "button";
+    closeBtn.textContent = "✕";
+    closeBtn.addEventListener("click", () => wrap.remove());
+    head.appendChild(closeBtn);
+    const body = document.createElement("div");
+    body.className = "sw-txbody";
+    body.textContent = text;
+    const foot = document.createElement("div");
+    foot.className = "sw-txfoot";
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "sw-txbtn";
+    copyBtn.type = "button";
+    copyBtn.textContent = "Copy transcript";
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          copyBtn.textContent = "Copied ✓";
+          setTimeout(() => { copyBtn.textContent = "Copy transcript"; }, 1400);
+        })
+        .catch(() => {
+          // Clipboard API can be denied in content scripts → textarea fallback.
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          copyBtn.textContent = "Copied ✓";
+          setTimeout(() => { copyBtn.textContent = "Copy transcript"; }, 1400);
+        });
+    });
+    foot.appendChild(copyBtn);
+    card.append(head, body, foot);
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
   }
   function buildActs(rec) {
     const wrap = document.createElement("div");
@@ -405,9 +524,28 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(); });
       return b;
     };
-    wrap.appendChild(mk("save", "Save to Library", () => ovlSave(rec)));
+    const id = rec.code || rec.pk;
+    const saveBtn = mk(
+      "save",
+      savedSet.has(id) ? "Saved — tap to remove" : "Save to Library",
+      () => ovlSave(rec),
+    );
+    if (savedSet.has(id)) saveBtn.classList.add("sw-saved");
+    wrap.appendChild(saveBtn);
     wrap.appendChild(mk("dl", "Download media", () => ovlDownload(rec)));
     wrap.appendChild(mk("img", "Download thumbnail", () => ovlThumb(rec)));
+    const tx = txStatus[id];
+    if (rec.video || tx === "done") {
+      const txBtn = mk(
+        "filetext",
+        tx === "done" ? "View transcript" : tx === "running" ? "Transcribing…" : tx === "error" ? "Transcription failed — tap to retry" : "Transcribe",
+        () => (txStatus[id] === "done" ? ovlShowTranscript(rec) : ovlTranscribe(rec)),
+      );
+      if (tx === "done") txBtn.classList.add("sw-done");
+      else if (tx === "running") txBtn.classList.add("sw-run");
+      else if (tx === "error") txBtn.classList.add("sw-err");
+      wrap.appendChild(txBtn);
+    }
     return wrap;
   }
   function renderOverlays() {
@@ -425,9 +563,17 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (!code) continue;
       const rec = byId.get(code);
       if (!rec) continue;
-      if (a.dataset.swCode === code && a.querySelector(":scope > .sw-ovl")) continue;
+      // Rebuild when the tile's data changed, not just when the code changed —
+      // late-arriving fields (full-stats fills video/views/reposts) and
+      // transcript/saved state must show up on already-annotated tiles.
+      const sig = [
+        rec.play_count, rec.like_count, rec.comment_count, rec.repost,
+        rec.video ? 1 : 0, rec.taken_at, txStatus[code] || "", savedSet.has(code) ? 1 : 0,
+      ].join("|");
+      if (a.dataset.swCode === code && a.dataset.swSig === sig && a.querySelector(":scope > .sw-ovl")) continue;
       a.querySelectorAll(":scope > .sw-ovl, :scope > .sw-acts").forEach((e) => e.remove());
       a.dataset.swCode = code;
+      a.dataset.swSig = sig;
       if (getComputedStyle(a).position === "static") a.style.position = "relative";
       a.appendChild(buildOvl(rec, code));
       a.appendChild(buildActs(rec));
@@ -438,15 +584,20 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     ovlTimer = setTimeout(renderOverlays, 250);
   }
 
-  chrome.storage?.local?.get("sw_ig_overlay").then((r) => {
-    if (r?.sw_ig_overlay != null) overlayOn = !!r.sw_ig_overlay;
-    scheduleRender();
-  });
+  chrome.storage?.local
+    ?.get(["sw_ig_overlay", "fbw_transcripts", "fbw_saved"])
+    .then((r) => {
+      if (r?.sw_ig_overlay != null) overlayOn = !!r.sw_ig_overlay;
+      refreshTx(r?.fbw_transcripts);
+      refreshSaved(r?.fbw_saved);
+      scheduleRender();
+    });
   chrome.storage?.onChanged?.addListener((ch, area) => {
-    if (area === "local" && ch.sw_ig_overlay) {
-      overlayOn = !!ch.sw_ig_overlay.newValue;
-      renderOverlays();
-    }
+    if (area !== "local") return;
+    if (ch.sw_ig_overlay) overlayOn = !!ch.sw_ig_overlay.newValue;
+    if (ch.fbw_transcripts) refreshTx(ch.fbw_transcripts.newValue);
+    if (ch.fbw_saved) refreshSaved(ch.fbw_saved.newValue);
+    if (ch.sw_ig_overlay || ch.fbw_transcripts || ch.fbw_saved) renderOverlays();
   });
   new MutationObserver(scheduleRender).observe(document.body, { childList: true, subtree: true });
   scheduleRender();

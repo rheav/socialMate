@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Bookmark } from "lucide-react";
+import { ChevronRight, Library as LibraryIcon } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
-import { toolsForPlatform, globalTools, getTool } from "@/lib/tools";
+import { toolsForPlatform, getTool } from "@/lib/tools";
 import { detectActivePlatform } from "@/lib/tabs";
 import Launcher from "@/components/ui/Launcher";
 import ToolFrame from "@/components/ui/ToolFrame";
@@ -53,12 +53,14 @@ export default function Shell() {
   if (!ready) return null;
 
   const goHome = () => setNav({ screen: "home", platform: null, tool: null });
-  const goSaved = () => setNav({ screen: "tool", platform: null, tool: "library" });
+  const goLibrary = () => setNav({ screen: "tool", platform: null, tool: "library" });
+  const inLibrary = nav.screen === "tool" && nav.tool === "library";
+  const chromeProps = { onHome: goHome, onLibrary: goLibrary, libraryActive: inLibrary };
 
-  // HOME — brand-tinted platform rows + a distinct Library row
+  // HOME — brand-tinted platform rows (Library lives in the always-on header tab)
   if (nav.screen === "home") {
     return (
-      <Chrome onSaved={goSaved}>
+      <Chrome {...chromeProps}>
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Pick a platform
         </p>
@@ -91,30 +93,6 @@ export default function Shell() {
             );
           })}
         </div>
-
-        <div className="pt-1">
-          {globalTools().map((t) => {
-            const Icon = t.Icon;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setNav({ screen: "tool", platform: null, tool: t.id })}
-                className="flex w-full items-center gap-3 rounded-xl border border-border bg-muted/40 p-3 text-left transition-colors hover:bg-accent"
-              >
-                <span className="grid size-10 place-items-center rounded-xl bg-foreground text-background">
-                  <Icon size={18} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">{t.label}</span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    Saved · Transcripts · History
-                  </span>
-                </span>
-                <ChevronRight className="size-4 text-muted-foreground" />
-              </button>
-            );
-          })}
-        </div>
       </Chrome>
     );
   }
@@ -127,7 +105,7 @@ export default function Shell() {
       Icon: t.Icon,
     }));
     return (
-      <Chrome onSaved={goSaved}>
+      <Chrome {...chromeProps}>
         <ToolFrame title={PLATFORMS[nav.platform].name} onBack={goHome} platform={null}>
           <Launcher items={items} onPick={(tid) => setNav({ ...nav, screen: "tool", tool: tid })} />
         </ToolFrame>
@@ -152,7 +130,7 @@ export default function Shell() {
     else setNav({ screen: "hub", platform: p, tool: null });
   };
   return (
-    <Chrome>
+    <Chrome {...chromeProps}>
       <ToolFrame
         title={tool.label}
         onBack={backTo}
@@ -165,27 +143,32 @@ export default function Shell() {
   );
 }
 
-// Shared header chrome (logo squircle + wordmark).
-function Chrome({ children, onSaved }) {
+// Shared header chrome: wordmark (→ Home) + an always-visible Library tab, so
+// saved posts / transcripts / history are one tap away from any screen.
+function Chrome({ children, onHome, onLibrary, libraryActive }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="px-4 pt-4 pb-2.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <button onClick={onHome} title="Home" className="flex items-center gap-2.5">
             <div className="grad-identity size-7 rounded-[9px]" />
             <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
               socialWarmer
             </h1>
-          </div>
-          {onSaved && (
-            <button
-              onClick={onSaved}
-              title="Saved (all platforms)"
-              className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Bookmark className="size-4" />
-            </button>
-          )}
+          </button>
+          <button
+            onClick={onLibrary}
+            title="Library — saved · transcripts · history"
+            className={
+              "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors " +
+              (libraryActive
+                ? "border-transparent bg-foreground text-background"
+                : "border-border text-muted-foreground hover:bg-accent hover:text-foreground")
+            }
+          >
+            <LibraryIcon className="size-3.5" />
+            Library
+          </button>
         </div>
       </header>
       <main className="flex-1 px-4 py-3 space-y-3">{children}</main>
