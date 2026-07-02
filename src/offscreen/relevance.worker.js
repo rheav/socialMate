@@ -14,7 +14,9 @@ let MODEL = null;
 function configure(paths) {
   env.allowLocalModels = true;
   env.allowRemoteModels = false;
-  env.useBrowserCache = true;
+  // Local (chrome-extension://) models → the browser Cache API rejects that
+  // scheme, so caching only yields a noisy console error. Off.
+  env.useBrowserCache = false;
   env.localModelPath = paths.models;
   env.backends.onnx.wasm.wasmPaths = paths.assets;
   env.backends.onnx.wasm.numThreads = 1;

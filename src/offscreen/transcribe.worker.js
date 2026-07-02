@@ -15,7 +15,10 @@ let MODEL = null;
 function configure(paths) {
   env.allowLocalModels = true;
   env.allowRemoteModels = false;
-  env.useBrowserCache = true;
+  // Models are bundled in the extension (loaded from chrome-extension:// URLs).
+  // The browser Cache API rejects that scheme ("Request scheme 'chrome-extension'
+  // is unsupported"), so caching adds nothing but a noisy console error — off.
+  env.useBrowserCache = false;
   env.localModelPath = paths.models;
   env.backends.onnx.wasm.wasmPaths = paths.assets;
   env.backends.onnx.wasm.numThreads = 1; // no nested pthread workers
@@ -34,7 +37,7 @@ async function getPipeline() {
 }
 
 self.onmessage = async (e) => {
-  const { id, type, paths, audio } = e.data || {};
+  const { id, type, paths, audio, language } = e.data || {};
   if (type === "config") {
     try { configure(paths); self.postMessage({ id, ok: true }); }
     catch (err) { self.postMessage({ id, ok: false, error: err.message }); }
@@ -43,13 +46,17 @@ self.onmessage = async (e) => {
   if (type === "transcribe") {
     try {
       const p = await getPipeline();
-      const result = await p(audio, {
+      const opts = {
         task: "transcribe",
         return_timestamps: true,
         chunk_length_s: 30,
         stride_length_s: 5,
         repetition_penalty: 1.1,
-      });
+      };
+      // Only the quick relevance path passes a language (skips auto-detect for
+      // speed). Full transcripts pass none → Whisper auto-detects = best quality.
+      if (language) opts.language = language;
+      const result = await p(audio, opts);
       self.postMessage({ id, ok: true, result });
     } catch (err) {
       self.postMessage({ id, ok: false, error: err.message });
