@@ -40,13 +40,20 @@ export function parseFbcdnTrack(url) {
     efg = m ? m[1] : null;
   }
   const meta = decodeEfg(efg);
-  const videoId = meta && (meta.video_id != null ? String(meta.video_id) : null);
-  if (!videoId) return null;
+  if (!meta) return null;
+  // FB usually stamps video_id, but some audio formats (e.g. dash_audio_aacp)
+  // ship video_id:null and carry the id only in xpv_asset_id. Keep both ids so
+  // the background can alias such an orphan to its sibling tracks' real video_id.
+  const videoId = meta.video_id != null ? String(meta.video_id) : null;
+  const xpvId = meta.xpv_asset_id != null ? String(meta.xpv_asset_id) : null;
+  if (!videoId && !xpvId) return null;
   const vencodeTag = String(meta.vencode_tag || "");
   return {
     videoId,
+    xpvId,
     isAudio: /audio/i.test(vencodeTag),
     bitrate: Number(meta.bitrate) || 0,
+    durationS: Number(meta.duration_s) || 0,
     vencodeTag,
     url: stripByteRange(url),
   };
@@ -60,7 +67,19 @@ export function parseFbcdnTrack(url) {
  * @param {number} now timestamp
  */
 export function foldTrack(prev, track, now = Date.now()) {
-  const rec = prev || { videoId: track.videoId, audioUrl: null, videoUrl: null, videoBitrate: 0, lastSeen: 0 };
+  const rec = prev || {
+    videoId: track.videoId,
+    xpvId: track.xpvId || null,
+    durationS: 0,
+    audioUrl: null,
+    videoUrl: null,
+    videoBitrate: 0,
+    lastSeen: 0,
+  };
+  // A later track may carry an id (or duration) the first one lacked — fill in.
+  if (track.videoId && !rec.videoId) rec.videoId = track.videoId;
+  if (track.xpvId && !rec.xpvId) rec.xpvId = track.xpvId;
+  if (track.durationS && !rec.durationS) rec.durationS = track.durationS;
   if (track.isAudio) {
     rec.audioUrl = track.url;
   } else if (track.bitrate >= rec.videoBitrate) {

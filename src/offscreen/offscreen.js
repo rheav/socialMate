@@ -35,24 +35,43 @@ function getTxWorker() {
   return txWorker;
 }
 
-function workerTranscribe(audio) {
+// language (optional) skips Whisper's auto-detect pass — used ONLY on the quick
+// relevance path. The full transcript passes no language (auto-detect = best quality).
+function workerTranscribe(audio, language) {
   const w = getTxWorker();
   const id = ++txMsgId;
   return new Promise((resolve) => {
     txPending.set(id, resolve);
-    w.postMessage({ id, type: "transcribe", audio }, [audio.buffer]); // transfer the PCM
+    w.postMessage({ id, type: "transcribe", audio, language }, [audio.buffer]); // transfer the PCM
   });
 }
 
 /** Fetch a media URL and decode to 16 kHz mono Float32 PCM. maxSeconds caps the
- *  rendered length (used by the quick-transcript relevance signal). */
-async function fetchAudioPCM(url, maxSeconds) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`Fetch audio failed: ${resp.status}`);
-  const arrayBuffer = await resp.arrayBuffer();
+ *  rendered length; maxBytes (quick path) fetches only a prefix via HTTP Range so
+ *  a 12 s relevance transcript doesn't pull a whole multi-minute audio file. A
+ *  truncated prefix that won't decode transparently falls back to the full file. */
+async function fetchAudioPCM(url, maxSeconds, maxBytes) {
+  let arrayBuffer;
+  if (maxBytes) {
+    const r = await fetch(url, { headers: { Range: `bytes=0-${maxBytes - 1}` } });
+    if (!r.ok && r.status !== 206) throw new Error(`Fetch audio failed: ${r.status}`);
+    arrayBuffer = await r.arrayBuffer();
+  } else {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Fetch audio failed: ${r.status}`);
+    arrayBuffer = await r.arrayBuffer();
+  }
   const ctx = new AudioContext();
   try {
-    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    let decoded;
+    try {
+      decoded = await ctx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+      if (!maxBytes) throw e; // a full fetch that won't decode is a real error
+      const full = await fetch(url); // partial prefix truncated mid-fragment → full
+      if (!full.ok) throw e;
+      decoded = await ctx.decodeAudioData(await full.arrayBuffer());
+    }
     const sampleRate = 16000;
     const fullLen = Math.ceil(decoded.duration * sampleRate);
     const len = maxSeconds ? Math.min(fullLen, Math.ceil(maxSeconds * sampleRate)) : fullLen;
@@ -199,13 +218,15 @@ async function spamScore(text) {
 
 // ---- quick partial transcript (relevance signal for video posts) ----
 const quickTxCache = new Map(); // videoId -> text (in-memory)
-async function quickTranscribe(audioUrl, maxSeconds, videoId) {
+async function quickTranscribe(audioUrl, maxSeconds, videoId, lang) {
   if (videoId && quickTxCache.has(videoId)) return quickTxCache.get(videoId);
   const idbKey = "qtx:" + (videoId || hashText(audioUrl));
   const cached = await idbGet(idbKey).catch(() => null);
   if (cached != null) { if (videoId) quickTxCache.set(videoId, cached); return cached; }
-  let pcm = await fetchAudioPCM(audioUrl, maxSeconds); // capped decode
-  const res = await workerTranscribe(pcm);
+  // Range-fetch a ~512 KB prefix (covers 12 s even at high audio bitrates) instead
+  // of the whole file; fetchAudioPCM falls back to the full file if it won't decode.
+  let pcm = await fetchAudioPCM(audioUrl, maxSeconds, 512 * 1024);
+  const res = await workerTranscribe(pcm, lang);
   const text = res.ok ? cleanChunks(res.result).text : "";
   if (text) { idbSet(idbKey, text).catch(() => {}); if (videoId) quickTxCache.set(videoId, text); }
   return text;
@@ -232,16 +253,22 @@ async function muxDownload(videoUrl, audioUrl, videoId) {
   const fm = await getFfmpeg();
   await fm.writeFile("v.mp4", new Uint8Array(vBuf));
   await fm.writeFile("a.mp4", new Uint8Array(aBuf));
-  await fm.exec(["-i", "v.mp4", "-i", "a.mp4", "-c", "copy", "out.mkv"]);
-  const out = await fm.readFile("out.mkv");
+  // H.264 + AAC → MP4 by stream copy (no re-encode). +faststart moves the moov
+  // atom to the front so the file plays/streams before it's fully loaded.
+  await fm.exec([
+    "-i", "v.mp4", "-i", "a.mp4",
+    "-c", "copy", "-movflags", "+faststart", "out.mp4",
+  ]);
+  const out = await fm.readFile("out.mp4");
   await fm.deleteFile("v.mp4").catch(() => {});
   await fm.deleteFile("a.mp4").catch(() => {});
-  await fm.deleteFile("out.mkv").catch(() => {});
-  // SW can't receive a Blob; return a data URL.
-  const bytes = new Uint8Array(out);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.slice(i, i + 8192));
-  return { dataUrl: `data:video/x-matroska;base64,${btoa(binary)}`, filename: `fb-${videoId}.mkv` };
+  await fm.deleteFile("out.mp4").catch(() => {});
+  // Hand the SW a blob URL (not a base64 data URL — that inflates ~33% and builds
+  // a huge string in memory). The SW can't mint object URLs, so we do it here; it
+  // stays valid for chrome.downloads as long as this offscreen doc is alive.
+  const blobUrl = URL.createObjectURL(new Blob([out], { type: "video/mp4" }));
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 5 * 60 * 1000);
+  return { blobUrl, filename: `fb-${videoId}.mp4` };
 }
 
 // ---- message handler ----
@@ -276,7 +303,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "quickTranscribe") {
     (async () => {
       try {
-        const text = await quickTranscribe(msg.audioUrl, msg.maxSeconds || 12, msg.videoId);
+        const text = await quickTranscribe(msg.audioUrl, msg.maxSeconds || 12, msg.videoId, msg.lang);
         sendResponse({ success: true, text });
       } catch (e) {
         sendResponse({ success: false, error: e.message });
@@ -288,8 +315,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "muxDownload") {
     (async () => {
       try {
-        const { dataUrl, filename } = await muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId);
-        sendResponse({ success: true, dataUrl, filename });
+        const { blobUrl, filename } = await muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId);
+        sendResponse({ success: true, blobUrl, filename });
       } catch (e) {
         sendResponse({ success: false, error: e.message });
       }

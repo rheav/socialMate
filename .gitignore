@@ -8,3 +8,5 @@ dist/
 .superpowers/
 *.login-bak
 *.paywall-bak
+dist-slim/
+*.zip
