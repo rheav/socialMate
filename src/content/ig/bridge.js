@@ -36,6 +36,24 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   const igMedia = {};
   const byId = new Map(); // code||pk -> record; insertion order preserved for the list
 
+  // Stories & highlights (passive): reel_id -> { meta, items: Map<pk,item> }.
+  // Kept separate from byId so stories never leak into the Sort grid. Owner-
+  // scoped for display, not surface-scoped (the /stories/ URL has no surface).
+  const reels = new Map();
+  function ingestReel(r) {
+    if (!r.reel_id) return;
+    let R = reels.get(r.reel_id);
+    if (!R) { R = { meta: { reel_id: r.reel_id }, items: new Map() }; reels.set(r.reel_id, R); }
+    if (r.__kind === "reel") {
+      for (const k in r) if (r[k] != null) R.meta[k] = r[k]; // coalesce meta
+    } else { // story item
+      const prev = R.items.get(r.pk) || {};
+      for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
+      R.items.set(r.pk, prev);
+    }
+    while (reels.size > 60) reels.delete(reels.keys().next().value); // cap
+  }
+
   // The IG surface the current records belong to — scopes the Sort list to the
   // hashtag/profile you're viewing (IG is an SPA, so records accumulate across surfaces).
   function surfaceKey() {
@@ -55,6 +73,8 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     if (e.source !== window || !e.data || !e.data.__fbwIg) return;
     const surface = surfaceKey();
     for (const r of e.data.records || []) {
+      // Stories/highlights route to their own store (no surface, no overlay).
+      if (r.__kind === "reel" || r.__kind === "story") { ingestReel(r); continue; }
       r.surface = surface;
       // The profile's own Reels-tab items omit the username → label them with the
       // profile owner (from the surface) so the panel shows @name, not @unknown.
@@ -217,6 +237,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type === "FBW_IG_LIST") {
       sendResponse({ records: Array.from(byId.values()), surface: surfaceKey() });
+      return;
+    }
+    if (msg?.type === "FBW_IG_REELS") {
+      const out = [];
+      for (const R of reels.values()) out.push({ ...R.meta, items: Array.from(R.items.values()) });
+      sendResponse({ reels: out });
       return;
     }
     if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");

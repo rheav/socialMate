@@ -1,6 +1,7 @@
-import { Flame, ArrowDownUp, Download, Library as LibraryIcon } from "lucide-react";
+import { Flame, ArrowDownUp, Download, Clapperboard, Library as LibraryIcon } from "lucide-react";
 import WarmTool from "@/components/tools/WarmTool";
 import IgSortTool from "@/components/tools/IgSortTool";
+import IgStoriesTool from "@/components/tools/IgStoriesTool";
 import LibraryTool from "@/components/tools/LibraryTool";
 import DownloadPanel from "@/components/DownloadPanel";
 import { filterToolsForPlatform } from "@/lib/toolsFilter";
@@ -10,6 +11,7 @@ import { filterToolsForPlatform } from "@/lib/toolsFilter";
 export const TOOLS = [
   { id: "warm", label: "Warm", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool, requiresTab: true },
   { id: "ig-sort", label: "Sort + Download", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool, requiresTab: true },
+  { id: "ig-stories", label: "Stories", Icon: Clapperboard, platforms: ["instagram"], Panel: IgStoriesTool, requiresTab: true },
   { id: "download", label: "Download", Icon: Download, platforms: ["facebook"], Panel: DownloadPanel, requiresTab: true },
   { id: "library", label: "Library", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool, requiresTab: false },
 ];
