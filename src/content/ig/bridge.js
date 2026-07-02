@@ -351,6 +351,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
     dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+    layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -375,7 +376,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         border:1px solid ${OVL.borderColor};box-shadow:0 0 8px ${OVL.glow};transition:background .15s}
       .sw-actbtn:hover{background:rgba(0,0,0,.66)}
       .sw-actbtn.sw-saved{color:#facc15;border-color:rgba(250,204,21,.55);box-shadow:0 0 8px rgba(250,204,21,.3)}
-      .sw-actbtn.sw-saved svg{fill:#facc15}`;
+      .sw-actbtn.sw-saved svg{fill:#facc15}
+      .sw-stdl{position:fixed;z-index:2147483000;display:flex;flex-direction:column;gap:8px}
+      .sw-stbtn{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;cursor:pointer;color:#fff;
+        border:1px solid ${OVL.borderColor};background:rgba(0,0,0,.55);
+        -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:0 0 10px ${OVL.glow};transition:background .15s,color .15s}
+      .sw-stbtn:hover{background:rgba(0,0,0,.78)}
+      .sw-stbtn.ok{color:#34d399;border-color:rgba(52,211,153,.6)}`;
     (document.head || document.documentElement).appendChild(s);
   }
   function tileCode(a) {
@@ -543,5 +550,121 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     if (document.visibilityState === "visible") scheduleRender();
   });
   scheduleRender();
+
+  // ============================================================
+  // In-viewer download buttons for stories & highlights.
+  // The fullscreen viewer shows ONE item at a time and its <video> src is a
+  // blob: (MSE), so we download from the passively-captured reel record
+  // (real CDN URL). We map the on-screen item via its <time datetime> ==
+  // taken_at. One floating stack (not per-tile) → cheap.
+  // ============================================================
+  function storyName(item, ext, idx) {
+    const base = `ig-story-${sanit(item.owner_username || "unknown")}-${item.pk || Date.now()}`;
+    return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+  }
+  function dlStoryItem(item) {
+    if (!item) return;
+    if (item.media_type === "carousel" && Array.isArray(item.carousel)) {
+      let i = 0;
+      for (const ch of item.carousel) {
+        i += 1;
+        const vid = ch.media_type === "video" && ch.video;
+        const url = vid ? ch.video : ch.image;
+        if (!url) continue;
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: vid ? "video" : "image", url, filename: storyName(item, igExt(url, vid ? "video" : "image"), i) });
+      }
+    } else if (item.video) {
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "video", url: item.video, filename: storyName(item, igExt(item.video, "video")) });
+    } else if (item.image) {
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: item.image, filename: storyName(item, igExt(item.image, "image")) });
+    }
+  }
+  // Most-centered large media in the viewer.
+  function activeStoryMedia() {
+    let media = null, best = -1;
+    for (const el of document.querySelectorAll("video, img")) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 200 || r.height < 300) continue;
+      const s = -Math.abs(r.left + r.width / 2 - innerWidth / 2) - Math.abs(r.top + r.height / 2 - innerHeight / 2) + (r.width * r.height) / 5000;
+      if (s > best) { best = s; media = el; }
+    }
+    return media;
+  }
+  // Resolve the currently-shown reel + item from the URL (highlight id) and the
+  // visible timestamp. Returns { reel, item } (item may be null → still allows
+  // "download all").
+  // Current item's timestamp: prefer a <time> inside the active media's own
+  // viewer container (IG can preload a neighbor's <time> elsewhere in the DOM).
+  function currentStoryTime() {
+    let scope = activeStoryMedia();
+    for (let i = 0; i < 6 && scope; i++) {
+      const el = scope.querySelector && scope.querySelector("time[datetime]");
+      if (el) { const s = Math.round(Date.parse(el.getAttribute("datetime")) / 1000); if (s) return s; }
+      scope = scope.parentElement;
+    }
+    for (const el of document.querySelectorAll("time[datetime]")) {
+      const s = Math.round(Date.parse(el.getAttribute("datetime")) / 1000);
+      if (s) return s;
+    }
+    return null;
+  }
+  function currentStory() {
+    const m = location.pathname.match(/\/stories\/highlights\/(\d+)/);
+    const urlReel = m ? reels.get("highlight:" + m[1]) : null;
+    const t = currentStoryTime();
+    if (urlReel && t != null)
+      for (const it of urlReel.items.values()) if (Math.abs((it.taken_at || 0) - t) <= 2) return { reel: urlReel, item: it };
+    if (t != null)
+      for (const R of reels.values()) for (const it of R.items.values()) if (Math.abs((it.taken_at || 0) - t) <= 2) return { reel: R, item: it };
+    if (urlReel) return { reel: urlReel, item: null };
+    return null;
+  }
+  function flash(btn) { btn.classList.add("ok"); setTimeout(() => btn.classList.remove("ok"), 1200); }
+  function buildStoryDl() {
+    const wrap = document.createElement("div");
+    wrap.className = "sw-stdl";
+    wrap.id = "sw-stdl";
+    const mk = (icon, title, fn) => {
+      const b = document.createElement("button");
+      b.className = "sw-stbtn";
+      b.type = "button";
+      b.title = title;
+      b.innerHTML = ovlIcon(icon, 19);
+      b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(b); });
+      return b;
+    };
+    wrap.appendChild(mk("dl", "Download this story", (b) => {
+      const cur = currentStory();
+      if (cur && cur.item) { dlStoryItem(cur.item); flash(b); return; }
+      const media = activeStoryMedia(); // fallback: photo story with a real src
+      if (media && media.tagName === "IMG" && /^https/.test(media.src)) {
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: media.src, filename: `ig-story-${Date.now()}.jpg` });
+        flash(b);
+      }
+    }));
+    wrap.appendChild(mk("layers", "Download all in this reel", (b) => {
+      const cur = currentStory();
+      if (!cur || !cur.reel) return;
+      for (const it of cur.reel.items.values()) dlStoryItem(it);
+      flash(b);
+    }));
+    return wrap;
+  }
+  // Maintain the floating stack: present only while the story viewer is open,
+  // pinned to the media's top-right (offset down to clear IG's header).
+  function maintainStoryDl() {
+    const open = location.pathname.startsWith("/stories/");
+    let wrap = document.getElementById("sw-stdl");
+    if (!open || document.visibilityState !== "visible") { if (wrap) wrap.remove(); return; }
+    const media = activeStoryMedia();
+    if (!media) { if (wrap) wrap.remove(); return; }
+    ensureOvlStyle();
+    if (!wrap) { wrap = buildStoryDl(); (document.body || document.documentElement).appendChild(wrap); }
+    const r = media.getBoundingClientRect();
+    wrap.style.top = Math.max(8, r.top + 56) + "px";
+    wrap.style.left = Math.round(r.right - 46) + "px";
+  }
+  setInterval(maintainStoryDl, 800);
+  window.addEventListener("resize", maintainStoryDl, { passive: true });
 
 }
