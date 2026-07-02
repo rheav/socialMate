@@ -99,6 +99,7 @@
       video: vid ? vid.url : null,
       thumb: img ? img.url : null,
       carousel: carouselOf(item),
+      caption: (item.caption && item.caption.text && item.caption.text.slice(0, 500)) || null,
       taken_at: item.taken_at != null ? item.taken_at : null,
       expiring_at: item.expiring_at != null ? item.expiring_at : null,
       duration: item.video_duration != null ? Math.round(item.video_duration) : null,

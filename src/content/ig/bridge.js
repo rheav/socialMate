@@ -352,6 +352,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
     layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
+    filetext: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   };
   function ovlIcon(name, size) {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${OVL_SVG[name]}</svg>`;
@@ -579,6 +580,21 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: item.image, filename: storyName(item, igExt(item.image, "image")) });
     }
   }
+  // Transcribe a story/highlight item: hand the background the captured direct
+  // MP4 URL (same Whisper path as reels). Result → Library → Transcripts.
+  function txStoryItem(item) {
+    if (!item || !item.video) return false;
+    chrome.runtime.sendMessage({
+      type: "FBW_TRANSCRIBE",
+      videoId: item.pk,
+      mediaUrl: item.video,
+      platform: "instagram",
+      caption: item.caption || null,
+      author: { name: item.owner_username || "unknown", url: item.owner_username ? `/${item.owner_username}/` : null },
+      thumb: item.thumb || item.image || null,
+    }).catch(() => {});
+    return true;
+  }
   // Most-centered large media in the viewer.
   function activeStoryMedia() {
     let media = null, best = -1;
@@ -648,6 +664,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       for (const it of cur.reel.items.values()) dlStoryItem(it);
       flash(b);
     }));
+    const txBtn = mk("filetext", "Transcribe this story", (b) => {
+      const cur = currentStory();
+      if (cur && txStoryItem(cur.item)) flash(b);
+    });
+    txBtn.dataset.sw = "tx"; // toggled to video-only items in maintainStoryDl
+    wrap.appendChild(txBtn);
     return wrap;
   }
   // Maintain the floating stack: present only while the story viewer is open,
@@ -663,6 +685,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const r = media.getBoundingClientRect();
     wrap.style.top = Math.max(8, r.top + 56) + "px";
     wrap.style.left = Math.round(r.right - 46) + "px";
+    // Transcribe only makes sense for a video item — hide it on photos.
+    const txBtn = wrap.querySelector('[data-sw="tx"]');
+    if (txBtn) {
+      const cur = currentStory();
+      const isVideo = cur && cur.item && (cur.item.media_type === "video" || !!cur.item.video);
+      txBtn.style.display = isVideo ? "" : "none";
+    }
   }
   setInterval(maintainStoryDl, 800);
   window.addEventListener("resize", maintainStoryDl, { passive: true });
