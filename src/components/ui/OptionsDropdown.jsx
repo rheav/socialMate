@@ -14,8 +14,8 @@ export default function OptionsDropdown({
   setThresholds,
   autoCapture,
   setAutoCapture,
-  sessionCap,
-  setSessionCap,
+  maxItems,
+  setMaxItems,
   disabled,
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -172,15 +172,15 @@ export default function OptionsDropdown({
 
             <Section
               title="Session"
-              tooltip="Hard time cap for a run, in minutes. The run stops when it's reached even if the post target isn't. 0 = no cap."
+              tooltip="Hard cap on how many posts get processed in a run. The run stops when it's reached even if the duration timer hasn't run out. 0 = no cap."
               noBorder
             >
               <Field
                 id="opt-cap"
-                label="Session cap (min)"
-                value={sessionCap}
+                label="Max items (0 = no cap)"
+                value={maxItems}
                 disabled={disabled}
-                onChange={setSessionCap}
+                onChange={setMaxItems}
               />
             </Section>
           </div>

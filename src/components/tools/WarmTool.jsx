@@ -17,6 +17,7 @@ import Segmented from "@/components/ui/Segmented";
 import OptionsDropdown from "@/components/ui/OptionsDropdown";
 import { PLATFORMS } from "@/lib/platforms";
 import { resolvePlatformTab } from "@/lib/tabs";
+import { isStaleSession } from "@/lib/sessionMath";
 
 const MODE_NAME = { A: "Keyword", B: "Feed", C: "Reels" };
 const fmtMs = (ms) => {
@@ -33,7 +34,7 @@ export default function WarmTool({ platform }) {
   const platformCfg = PLATFORMS[platform];
   const [mode, setMode] = useState(platformCfg.defaultMode);
   const [keyword, setKeyword] = useState("");
-  const [targetN, setTargetN] = useState(10);
+  const [duration, setDuration] = useState(15); // session length, minutes
   const [personality, setPersonality] = useState("random");
   const [actions, setActions] = useState({
     save: true,
@@ -50,7 +51,7 @@ export default function WarmTool({ platform }) {
     reelMin: 6,
     reelMax: 15,
   });
-  const [sessionCap, setSessionCap] = useState(0);
+  const [maxItems, setMaxItems] = useState(0); // 0 = no item cap
   const [thresholds, setThresholds] = useState({ minLikes: 0, minComments: 0 });
   const [autoCapture, setAutoCapture] = useState({
     enabled: false,
@@ -73,7 +74,8 @@ export default function WarmTool({ platform }) {
       if (o?.pacing) setPacing(o.pacing);
       if (o?.thresholds) setThresholds(o.thresholds);
       if (o?.autoCapture) setAutoCapture((a) => ({ ...a, ...o.autoCapture }));
-      if (o?.sessionCap != null) setSessionCap(o.sessionCap);
+      if (o?.duration != null) setDuration(o.duration);
+      if (o?.maxItems != null) setMaxItems(o.maxItems);
       if (o?.relevanceMin != null) setRelevanceMin(o.relevanceMin);
       if (o?.spamGuard != null) setSpamGuard(o.spamGuard);
       if (o?.deepRelevance != null) setDeepRelevance(o.deepRelevance);
@@ -92,7 +94,8 @@ export default function WarmTool({ platform }) {
         pacing,
         thresholds,
         autoCapture,
-        sessionCap,
+        duration,
+        maxItems,
         relevanceMin,
         spamGuard,
         deepRelevance,
@@ -102,7 +105,8 @@ export default function WarmTool({ platform }) {
     pacing,
     thresholds,
     autoCapture,
-    sessionCap,
+    duration,
+    maxItems,
     relevanceMin,
     spamGuard,
     deepRelevance,
@@ -112,6 +116,58 @@ export default function WarmTool({ platform }) {
   const [noTab, setNoTab] = useState(false);
   const tabId = useRef(null);
   const logRef = useRef(null);
+
+  const [summary, setSummary] = useState(null);
+
+  // Load last-run summary when idle; reconcile abandoned runs on mount.
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    (async () => {
+      const r = await chrome.storage.local.get(["fbw_session", "fbw_history", "fbw_last_summary"]);
+      const s = r?.fbw_session;
+      if (isStaleSession(s)) {
+        // Run died without an end path (browser/tab killed) → abandoned.
+        const entry = {
+          at: Date.now(),
+          startedAt: s.startedAt || 0,
+          durationMs: (s.savedAt || Date.now()) - (s.startedAt || s.savedAt || Date.now()),
+          platform: s.platform,
+          mode: s.mode,
+          keyword: s.keyword || "",
+          processed: s.processed || 0,
+          liked: s.liked || 0,
+          loved: s.loved || 0,
+          skipped: s.skipped || 0,
+          outcome: "abandoned",
+        };
+        const hist = Array.isArray(r.fbw_history) ? r.fbw_history : [];
+        const sum = {
+          outcome: "abandoned",
+          platform: s.platform,
+          mode: s.mode,
+          keyword: s.keyword || "",
+          startedAt: s.startedAt || 0,
+          endedAt: s.savedAt || Date.now(),
+          durationMs: entry.durationMs,
+          processed: entry.processed,
+          saved: s.saved || 0,
+          liked: entry.liked,
+          loved: entry.loved,
+          followed: s.followed || 0,
+          skipped: entry.skipped,
+          personality: null,
+        };
+        await chrome.storage.local.set({
+          fbw_history: [...hist, entry].slice(-50),
+          fbw_last_summary: sum,
+          fbw_session: { isRunning: false },
+        });
+        setSummary(sum);
+      } else if (r?.fbw_last_summary) {
+        setSummary(r.fbw_last_summary);
+      }
+    })().catch(() => {});
+  }, []);
 
   const send = useCallback(async (type, payload = {}) => {
     if (tabId.current == null) return null;
@@ -163,8 +219,22 @@ export default function WarmTool({ platform }) {
   }, [status?.log]);
 
   const running = !!status?.isRunning;
-  const paused = !!(status && (status.isPaused || status.isAutoBreak));
+  const paused = !!status?.isPaused;
   const halted = !!status?.haltReason;
+
+  // Refresh the card when a run ends while the panel is open.
+  useEffect(() => {
+    if (running || typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    chrome.storage.local
+      .get("fbw_last_summary")
+      .then((r) => r?.fbw_last_summary && setSummary(r.fbw_last_summary))
+      .catch(() => {});
+  }, [running]);
+
+  const dismissSummary = () => {
+    chrome?.storage?.local?.remove("fbw_last_summary");
+    setSummary(null);
+  };
 
   const start = async () => {
     if (mode === "A" && !keyword.trim()) return;
@@ -172,7 +242,8 @@ export default function WarmTool({ platform }) {
       platform,
       mode,
       keyword: keyword.trim(),
-      targetN: Number(targetN) || 10,
+      durationMinutes: Math.max(3, Number(duration) || 15),
+      maxItems: Math.max(0, Number(maxItems) || 0),
       ...actions,
       englishOnly,
       relevanceMin: Number(relevanceMin) || 0,
@@ -191,7 +262,6 @@ export default function WarmTool({ platform }) {
         transcribe: autoCapture.transcribe !== false,
         favorite: autoCapture.favorite !== false,
       },
-      sessionCapMinutes: Number(sessionCap) || 0,
       pacing: {
         minDelay: (Number(pacing.minDelay) || 4) * 1000,
         maxDelay: (Number(pacing.maxDelay) || 9) * 1000,
@@ -255,11 +325,16 @@ export default function WarmTool({ platform }) {
           setThresholds={setThresholds}
           autoCapture={autoCapture}
           setAutoCapture={setAutoCapture}
-          sessionCap={sessionCap}
-          setSessionCap={setSessionCap}
+          maxItems={maxItems}
+          setMaxItems={setMaxItems}
           disabled={running}
         />
-        <StatusChip running={running} paused={paused} halted={halted} />
+        <StatusChip
+          running={running}
+          paused={paused}
+          halted={halted}
+          onBreak={!!status?.isAutoBreak}
+        />
       </div>
       {running && !paused && !halted ? <div className="heat-bar" /> : null}
 
@@ -272,6 +347,10 @@ export default function WarmTool({ platform }) {
         <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
           Open {platformCfg.name} in a tab, then reopen this panel.
         </div>
+      )}
+
+      {!running && summary && (
+        <SummaryCard summary={summary} onDismiss={dismissSummary} />
       )}
 
       {!running && !halted && (
@@ -298,14 +377,14 @@ export default function WarmTool({ platform }) {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div className="space-y-1.5">
-              <Label htmlFor="targetN">Target (N)</Label>
+              <Label htmlFor="duration">Duration (min)</Label>
               <Input
-                id="targetN"
+                id="duration"
                 type="number"
-                min={1}
-                max={500}
-                value={targetN}
-                onChange={(e) => setTargetN(e.target.value)}
+                min={3}
+                max={180}
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
@@ -447,7 +526,11 @@ export default function WarmTool({ platform }) {
           <div className="grid grid-cols-4 gap-2">
             <Counter
               label="done"
-              value={`${status.processed}/${status.targetN}`}
+              value={
+                status.maxItems > 0
+                  ? `${status.processed}/${status.maxItems}`
+                  : `${status.processed}`
+              }
             />
             {platform === "facebook" ? (
               <>
@@ -522,7 +605,7 @@ export default function WarmTool({ platform }) {
   );
 }
 
-function StatusChip({ running, paused, halted }) {
+function StatusChip({ running, paused, halted, onBreak }) {
   if (halted)
     return (
       <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive">
@@ -533,6 +616,12 @@ function StatusChip({ running, paused, halted }) {
     return (
       <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
         idle
+      </span>
+    );
+  if (onBreak)
+    return (
+      <span className="rounded-full bg-sky-400/15 px-2.5 py-1 text-[11px] font-medium text-sky-600">
+        on break
       </span>
     );
   if (paused)
@@ -555,6 +644,44 @@ function StatusChip({ running, paused, halted }) {
       />
       running
     </span>
+  );
+}
+
+function SummaryCard({ summary, onDismiss }) {
+  const ok = summary.outcome === "complete";
+  const badge = ok
+    ? "bg-emerald-500/10 text-emerald-600"
+    : summary.outcome === "abandoned"
+      ? "bg-amber-400/15 text-amber-600"
+      : (summary.outcome || "").startsWith("halt")
+        ? "bg-destructive/10 text-destructive"
+        : "bg-muted text-muted-foreground";
+  return (
+    <Card>
+      <CardContent className="p-3.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Last session</span>
+          <span className={`text-[10px] rounded-full px-2 py-0.5 ${badge}`}>
+            {summary.outcome}
+          </span>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {summary.platform} · {summary.keyword || summary.mode}
+          {summary.personality ? ` · ${summary.personality}` : ""} ·{" "}
+          {fmtMs(summary.durationMs)}
+        </div>
+        <div className="flex gap-3 text-[11px] text-muted-foreground">
+          <span>seen {summary.processed}</span>
+          <span>👍 {summary.liked}</span>
+          <span>❤️ {summary.loved ?? 0}</span>
+          <span>➕ {summary.followed ?? 0}</span>
+          <span>skip {summary.skipped}</span>
+        </div>
+        <Button variant="ghost" size="sm" className="h-7 text-xs w-full" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

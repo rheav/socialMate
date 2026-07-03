@@ -227,7 +227,6 @@ import {
       mode: S.mode,
       keyword: S.keyword,
       maxItems: S.maxItems,
-      targetN: S.maxItems, // legacy alias — WarmTool switches to maxItems in the UI task
       etaMs: S.willEndAt ? Math.max(0, S.willEndAt - now) : 0,
       processed: S.processed,
       saved: S.saved,
