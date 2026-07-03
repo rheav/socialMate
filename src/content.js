@@ -1,4 +1,10 @@
 import { franc } from "franc-min";
+import {
+  shouldContinue,
+  scheduleNextBreak,
+  breakLengthMs,
+  commitmentDwellMs,
+} from "./lib/sessionMath.js";
 
 // socialWarmer — multi-platform content engine (Facebook / Instagram / TikTok).
 // One content script injected on all three hosts. A shared core (state, pacing,
@@ -73,7 +79,7 @@ import { franc } from "franc-min";
       platform: "facebook",
       mode: "C",
       keyword: "",
-      targetN: 10,
+      maxItems: 0,
       actions: { save: true, like: true, follow: false },
       englishOnly: false,
       relevanceMin: 0, // niche-relevance cosine gate for likes (0 = off)
@@ -161,7 +167,7 @@ import { franc } from "franc-min";
           willEndAt: S.willEndAt,
           mode: S.mode,
           keyword: S.keyword,
-          targetN: S.targetN,
+          maxItems: S.maxItems,
           actions: S.actions,
           englishOnly: S.englishOnly,
           relevanceMin: S.relevanceMin,
@@ -197,7 +203,8 @@ import { franc } from "franc-min";
       platform: S.platform,
       mode: S.mode,
       keyword: S.keyword,
-      targetN: S.targetN,
+      maxItems: S.maxItems,
+      targetN: S.maxItems, // legacy alias — WarmTool switches to maxItems in the UI task
       etaMs: S.willEndAt ? Math.max(0, S.willEndAt - now) : 0,
       processed: S.processed,
       saved: S.saved,
@@ -1158,7 +1165,7 @@ import { franc } from "franc-min";
     if (S.loopActive) return;
     S.loopActive = true;
     logLine(
-      `📜 ${label} run started (target ${S.targetN}, warm-up ${S.warmupPosts})`,
+      `📜 ${label} run started (until ${new Date(S.willEndAt).toTimeString().slice(0, 5)}, warm-up ${S.warmupPosts})`,
     );
     await loadSeen(); // merge cross-session dedup set
     // Preload the relevance model so the first scored post doesn't stall mid-run.
@@ -1168,7 +1175,7 @@ import { franc } from "franc-min";
       );
     let emptyScrolls = 0;
     try {
-      while (S.isRunning && S.processed < S.targetN) {
+      while (shouldContinue(S)) {
         await waitWhilePaused();
         if (!S.isRunning) break;
         if (detectStop()) return halt(detectStop());
@@ -1202,7 +1209,7 @@ import { franc } from "franc-min";
         fbMaybeAutoCapture(p);
         await fbDoPostActions(p);
         S.processed++;
-        logLine(`✓ post ${S.processed}/${S.targetN}`);
+        logLine(`✓ post ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
         persist();
         await actionGap();
         await scrollBurst(1, 3);
@@ -1592,12 +1599,14 @@ import { franc } from "franc-min";
   async function videoLoop(A) {
     if (S.loopActive) return;
     S.loopActive = true;
-    logLine(`${A.emoji || "🎞️"} ${A.label} run started (target ${S.targetN})`);
+    logLine(
+      `${A.emoji || "🎞️"} ${A.label} run started (until ${new Date(S.willEndAt).toTimeString().slice(0, 5)})`,
+    );
     let emptyScrolls = 0,
       endStreak = 0;
     try {
       if (A.preLoop) await A.preLoop();
-      while (S.isRunning && S.processed < S.targetN) {
+      while (shouldContinue(S)) {
         await waitWhilePaused();
         if (!S.isRunning) break;
         if (detectStop()) return halt(detectStop());
@@ -1640,9 +1649,9 @@ import { franc } from "franc-min";
         if (!S.isRunning || S.isPaused) continue;
         await doVideoActions(A, c);
         S.processed++;
-        logLine(`✓ ${A.noun} ${S.processed}/${S.targetN}`);
+        logLine(`✓ ${A.noun} ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
         persist();
-        if (S.processed >= S.targetN) break;
+        if (!shouldContinue(S)) break;
 
         if ((A.isEnd && A.isEnd()) || !A.advance()) {
           if (A.onEnd && endStreak < 2) {
@@ -1851,7 +1860,7 @@ import { franc } from "franc-min";
     S.platform = platformForHost() || settings.platform || "facebook";
     S.mode = settings.mode || "C";
     S.keyword = settings.keyword || "";
-    S.targetN = Math.max(1, settings.targetN || 10);
+    S.maxItems = Math.max(0, Number(settings.maxItems) || 0);
     S.actions = {
       save: !!settings.save,
       like: !!settings.like,
@@ -1877,9 +1886,8 @@ import { franc } from "franc-min";
         favorite: settings.autoCapture.favorite !== false,
       };
     if (settings.pacing) S.pacing = { ...S.pacing, ...settings.pacing };
-    S.willEndAt = settings.sessionCapMinutes
-      ? now + 60000 * settings.sessionCapMinutes
-      : 0;
+    const durationMin = Math.max(3, Number(settings.durationMinutes) || 15);
+    S.willEndAt = now + 60000 * durationMin;
     const map = {
       binge: "BINGE",
       casual: "CASUAL",
@@ -1892,7 +1900,7 @@ import { franc } from "franc-min";
     } else pickPersonality();
 
     logLine(
-      `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · N=${S.targetN} · ${
+      `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}m${S.maxItems ? ` · cap ${S.maxItems}` : ""} · ${
         Object.entries(S.actions)
           .filter(([, v]) => v)
           .map(([k]) => k)
@@ -1994,7 +2002,7 @@ import { franc } from "franc-min";
         platform: saved.platform || here,
         mode: saved.mode || "C",
         keyword: saved.keyword || "",
-        targetN: saved.targetN || 10,
+        maxItems: saved.maxItems || 0,
         actions: saved.actions || { save: true, like: true, follow: false },
         englishOnly: !!saved.englishOnly,
         relevanceMin: saved.relevanceMin || 0,
