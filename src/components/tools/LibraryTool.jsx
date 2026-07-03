@@ -67,6 +67,7 @@ function HistoryPanel() {
       {hist.map((h, i) => {
         const ok = h.outcome === "complete";
         const halted = (h.outcome || "").startsWith("halt");
+        const abandoned = h.outcome === "abandoned";
         return (
           <Card key={i}>
             <CardContent className="p-3 space-y-1.5">
@@ -75,9 +76,17 @@ function HistoryPanel() {
                   {h.platform} · {h.keyword || h.mode}
                 </span>
                 <span
-                  className={`text-[10px] rounded-full px-2 py-0.5 ${ok ? "bg-emerald-500/10 text-emerald-600" : halted ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+                  className={`text-[10px] rounded-full px-2 py-0.5 ${
+                    ok
+                      ? "bg-emerald-500/10 text-emerald-600"
+                      : halted
+                        ? "bg-destructive/10 text-destructive"
+                        : abandoned
+                          ? "bg-amber-400/15 text-amber-600"
+                          : "bg-muted text-muted-foreground"
+                  }`}
                 >
-                  {ok ? "complete" : halted ? "halted" : "stopped"}
+                  {ok ? "complete" : halted ? "halted" : abandoned ? "abandoned" : "stopped"}
                 </span>
               </div>
               {halted && (
@@ -93,6 +102,9 @@ function HistoryPanel() {
               </div>
               <div className="text-[10px] text-muted-foreground">
                 {new Date(h.at).toLocaleString()}
+                {h.durationMs
+                  ? ` · ${Math.round(h.durationMs / 60000)}m`
+                  : ""}
               </div>
             </CardContent>
           </Card>
