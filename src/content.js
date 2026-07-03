@@ -82,6 +82,7 @@ import {
   const SEEN_KEY = "fbw_seen"; // cross-session post-id dedup (chrome.storage.local)
   const SEEN_CAP = 5000;
   const HISTORY_KEY = "fbw_history"; // per-run summaries for the History tab
+  const SUMMARY_KEY = "fbw_last_summary"; // last run recap for the WarmTool summary card
   const LOG_CAP = 120;
 
   function freshState() {
@@ -336,6 +337,7 @@ import {
     logLine(`🛑 HALTED: ${reason}`);
     clearInterval(S.tickTimer);
     logHistory("halt: " + reason);
+    writeSummary("halt: " + reason);
     persist();
   }
 
@@ -966,6 +968,7 @@ import {
         hist.push({
           at: Date.now(),
           startedAt: S.startedAt,
+          durationMs: Date.now() - (S.startedAt || Date.now()),
           platform: S.platform,
           mode: S.mode,
           keyword: S.keyword,
@@ -976,6 +979,31 @@ import {
           outcome,
         });
         chrome.storage.local.set({ [HISTORY_KEY]: hist.slice(-50) });
+      });
+    } catch {
+      /* noop */
+    }
+  }
+
+  function writeSummary(outcome) {
+    try {
+      chrome.storage.local.set({
+        [SUMMARY_KEY]: {
+          outcome,
+          platform: S.platform,
+          mode: S.mode,
+          keyword: S.keyword,
+          startedAt: S.startedAt,
+          endedAt: Date.now(),
+          durationMs: Date.now() - (S.startedAt || Date.now()),
+          processed: S.processed,
+          saved: S.saved,
+          liked: S.liked,
+          loved: S.loved,
+          followed: S.followed,
+          skipped: S.skipped,
+          personality: S.personalityMode ? PERSONALITIES[S.personalityMode].name : null,
+        },
       });
     } catch {
       /* noop */
@@ -1749,6 +1777,7 @@ import {
     S.isRunning = false;
     clearInterval(S.tickTimer);
     logHistory("complete");
+    writeSummary("complete");
     persist();
   }
 
@@ -1997,6 +2026,7 @@ import {
     S.isPaused = false;
     clearInterval(S.tickTimer);
     logHistory("stopped");
+    writeSummary("stopped");
     persist();
   }
   function togglePause() {
@@ -2063,6 +2093,23 @@ import {
       )
         return;
       if (saved.willEndAt && Date.now() >= saved.willEndAt) {
+        // Clock ran out while the page was navigating — record it as complete
+        // from the persisted counters instead of dropping it.
+        Object.assign(S, freshState(), {
+          platform: saved.platform || here,
+          mode: saved.mode || "C",
+          keyword: saved.keyword || "",
+          startedAt: saved.startedAt || 0,
+          processed: saved.processed || 0,
+          saved: saved.saved || 0,
+          liked: saved.liked || 0,
+          loved: saved.loved || 0,
+          followed: saved.followed || 0,
+          skipped: saved.skipped || 0,
+          personalityMode: saved.personalityMode || null,
+        });
+        logHistory("complete");
+        writeSummary("complete");
         chrome.storage.local.set({ [STORAGE_KEY]: { isRunning: false } });
         return;
       }
