@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialWarmer",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
-  version: "0.33.0",
-  version_name: "0.33.0 — faster quick-transcript (Range prefetch + lang hint), MP4+faststart download, blob URL (no base64)",
+  version: "0.34.0",
+  version_name: "0.34.0 — time-based sessions: duration target, personality breaks, watch-commitment, run summary",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

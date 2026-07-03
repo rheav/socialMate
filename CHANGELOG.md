@@ -18,6 +18,30 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.34.0] — 2026-07-02
+
+### Added
+- **Time-based sessions** — Duration (min) is now the primary target (default 15,
+  min 3); item count demoted to an optional "Max items" ceiling in Pacing.
+- **Personality-driven breaks** — the engine idles between items on a randomized
+  cadence per personality (Binge 12–20m/20–60s, Casual 5–9m/1–3m, Engaged
+  8–14m/45–120s); panel shows an "on break" chip.
+- **Watch-commitment** — dwell is a personality-driven fraction of each video's
+  length (Binge 70–100%, Casual 15–50%, Engaged 40–80%), clamped to
+  [reelDwellMin, 4×reelDwellMax]; falls back to the old dwell range when no
+  duration is readable.
+- **Session lifecycle + summary** — new `abandoned` outcome reconciled on panel
+  mount from stale `fbw_session`; every end path writes `fbw_last_summary`;
+  WarmTool shows a dismissible last-session recap card; history rows show
+  outcome badge + runtime.
+- `src/lib/sessionMath.js` — pure, vitest-covered session helpers.
+
+### Changed
+- `FBW_START` settings: `durationMinutes` + `maxItems` replace `targetN` +
+  `sessionCapMinutes`.
+
+---
+
 ## [0.8.2] — 2026-06-07
 
 ### Fixed
