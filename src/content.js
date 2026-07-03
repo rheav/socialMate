@@ -39,18 +39,24 @@ import {
       likeChance: 0.15,
       followChance: 0.04,
       engageChance: 0.25,
+      watchMin: 0.7,
+      watchMax: 1.0,
     },
     CASUAL: {
       name: "Casual Scroller",
       likeChance: 0.35,
       followChance: 0.08,
       engageChance: 0.4,
+      watchMin: 0.15,
+      watchMax: 0.5,
     },
     ENGAGED: {
       name: "Engaged User",
       likeChance: 0.6,
       followChance: 0.15,
       engageChance: 0.65,
+      watchMin: 0.4,
+      watchMax: 0.8,
     },
   };
 
@@ -391,8 +397,27 @@ import {
   }
   const actionGap = () =>
     sleep(Math.round(rand(S.pacing.minDelay, S.pacing.maxDelay) * circadian()));
-  const reelDwell = () =>
-    sleep(rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax));
+  const watchFraction = () => {
+    const p = persona();
+    return p.watchMin + Math.random() * (p.watchMax - p.watchMin);
+  };
+  // Dwell on the active video for a personality-driven fraction of its length;
+  // fall back to the plain random dwell range when no duration is readable.
+  async function reelDwell() {
+    const vid = igActiveVideo(); // generic: nearest playing/centered <video>
+    let dwell = null;
+    let frac = null;
+    if (vid && isFinite(vid.duration) && vid.duration > 0) {
+      frac = watchFraction();
+      dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+    }
+    if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+    logLine(
+      `👀 dwell ~${Math.round(dwell / 1000)}s${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
+    );
+    const t0 = Date.now();
+    while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) await sleep(400);
+  }
   async function waitWhilePaused() {
     while (S.isRunning && S.isPaused) await sleep(500);
   }
@@ -977,12 +1002,18 @@ import {
       }
       await sleep(300);
     }
-    let dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+    let dwell = null;
+    let frac = null;
     if (isFinite(vid.duration) && vid.duration > 0) {
+      frac = watchFraction();
+      dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
       const remaining = Math.max(2000, (vid.duration - vid.currentTime) * 1000);
       dwell = Math.min(dwell, remaining);
     }
-    logLine(`▶ watching video ~${Math.round(dwell / 1000)}s`);
+    if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+    logLine(
+      `▶ watching video ~${Math.round(dwell / 1000)}s${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
+    );
     const t0 = Date.now();
     while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused)
       await sleep(400);
