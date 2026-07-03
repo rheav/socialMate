@@ -2022,6 +2022,7 @@ import {
   }
 
   function stop() {
+    if (!S.isRunning) return;
     logLine("⏹ stopped by user");
     S.isRunning = false;
     S.isPaused = false;
@@ -2118,7 +2119,9 @@ import {
         isRunning: true,
         isPaused: !!saved.isPaused,
         startedAt: saved.startedAt || Date.now(),
-        willEndAt: saved.willEndAt || 0,
+        // Pre-0.34 sessions persisted willEndAt: 0 (no time cap) — never resume
+        // unbounded; give them the default 15-minute clock from now.
+        willEndAt: saved.willEndAt || Date.now() + 15 * 60000,
         breakUntil: saved.breakUntil > Date.now() ? saved.breakUntil : 0,
         nextBreakAt: saved.nextBreakAt || 0,
         platform: saved.platform || here,
