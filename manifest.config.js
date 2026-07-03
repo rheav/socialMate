@@ -2,8 +2,8 @@ import { defineManifest } from "@crxjs/vite-plugin";
 
 export default defineManifest({
   manifest_version: 3,
-  name: "socialWarmer",
-  short_name: "socialWarmer",
+  name: "socialMate",
+  short_name: "socialMate",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
   version: "0.34.0",
@@ -15,7 +15,7 @@ export default defineManifest({
     128: "icons/icon-128.png",
   },
   action: {
-    default_title: "socialWarmer (open side panel)",
+    default_title: "socialMate (open side panel)",
     default_icon: {
       16: "icons/icon-16.png",
       32: "icons/icon-32.png",

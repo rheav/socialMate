@@ -45,7 +45,7 @@ const MODE = {
 //   --primary / --ring  : shadcn HSL tokens (cascade to focus rings, tabs, etc.)
 // STANDARDIZED white/black UI for all platforms. The ONLY per-platform difference is
 // the brand identity gradient (--sw-from/--sw-to/--sw-grad + --sw-glow) — used by the
-// logo squircle, the "socialWarmer" wordmark, and the active switcher icon (+ glow).
+// logo squircle, the "socialMate" wordmark, and the active switcher icon (+ glow).
 // Everything else (Start/badge/toggles/tabs/rings/wash/radius) is neutral black-on-white.
 const NEUTRAL = {
   "--sw-action": "linear-gradient(0deg, #18181b, #18181b)",

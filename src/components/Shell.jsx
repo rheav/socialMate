@@ -153,7 +153,7 @@ function Chrome({ children, onHome, onLibrary, libraryActive }) {
           <button onClick={onHome} title="Home" className="flex items-center gap-2.5">
             <div className="grad-identity size-7 rounded-[9px]" />
             <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
-              socialWarmer
+              socialMate
             </h1>
           </button>
           <button

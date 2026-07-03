@@ -59,7 +59,7 @@ export default function DownloadPanel() {
       if (!res?.ok) { setMsg(res?.error || "Collection failed — reload the tab and retry."); return; }
       if (!res.thumbs?.length) { setMsg("No reel thumbnails found — open the profile's Reels tab."); return; }
       setMsg(`Downloading ${res.thumbs.length} thumbnails…`);
-      const folder = `socialWarmer-thumbs/${slug(info?.name)}`;
+      const folder = `socialMate-thumbs/${slug(info?.name)}`;
       let done = 0;
       for (const t of res.thumbs) {
         try {
@@ -117,7 +117,7 @@ export default function DownloadPanel() {
 
       <p className="text-xs text-muted-foreground leading-relaxed">
         Open a profile's Reels tab on Facebook, check the card above shows the right page,
-        then download. Files land in Downloads/socialWarmer-thumbs/&lt;page-name&gt;/reel_&lt;id&gt;.jpg.
+        then download. Files land in Downloads/socialMate-thumbs/&lt;page-name&gt;/reel_&lt;id&gt;.jpg.
       </p>
     </div>
   );

@@ -6,7 +6,7 @@ import {
   commitmentDwellMs,
 } from "./lib/sessionMath.js";
 
-// socialWarmer — multi-platform content engine (Facebook / Instagram / TikTok).
+// socialMate — multi-platform content engine (Facebook / Instagram / TikTok).
 // One content script injected on all three hosts. A shared core (state, pacing,
 // safety, counters, persistence, run loops) drives per-platform ADAPTERS that
 // carry the selectors + navigation for each site. Selectors target ARIA roles +

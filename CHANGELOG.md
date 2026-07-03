@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to socialWarmer.
+All notable changes to socialMate.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH`.
@@ -37,6 +37,8 @@ then `npm run build` so `dist/manifest.json` reflects it.
 - `src/lib/sessionMath.js` — pure, vitest-covered session helpers.
 
 ### Changed
+- **Renamed** the extension `socialWarmer` → **socialMate** (display name, wordmark,
+  and the `socialMate-thumbs/` download folder). Internal storage keys unchanged.
 - `FBW_START` settings: `durationMinutes` + `maxItems` replace `targetN` +
   `sessionCapMinutes`.
 

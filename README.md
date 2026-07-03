@@ -1,4 +1,4 @@
-# socialWarmer
+# socialMate
 
 Manifest V3 Chrome extension that semi-automates **research + warming on Facebook**
 from a side panel. Built with **CRXJS + React + Tailwind + shadcn-style components**
