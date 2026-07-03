@@ -54,6 +54,15 @@ import {
     },
   };
 
+  // Break cadence per personality (ms). Breaks land BETWEEN items, count toward
+  // the wall-clock session duration, and are skipped when the session would end
+  // first. Tunable.
+  const BREAKS = {
+    BINGE: { everyMin: 12 * 60e3, everyMax: 20 * 60e3, lenMin: 20e3, lenMax: 60e3 },
+    CASUAL: { everyMin: 5 * 60e3, everyMax: 9 * 60e3, lenMin: 60e3, lenMax: 180e3 },
+    ENGAGED: { everyMin: 8 * 60e3, everyMax: 14 * 60e3, lenMin: 45e3, lenMax: 120e3 },
+  };
+
   const STORAGE_KEY = "fbw_session";
   const MISS_LIMIT = 6; // consecutive selector misses → halt
   const EMPTY_SCROLL_LIMIT = 14; // feed scrolls with no actionable video → halt
@@ -75,6 +84,9 @@ import {
       isPaused: false,
       startedAt: 0,
       willEndAt: 0,
+      nextBreakAt: 0,
+      breakUntil: 0,
+      lastPersistAt: 0,
       // run config (persisted so a navigation/reload can resume the run)
       platform: "facebook",
       mode: "C",
@@ -156,6 +168,7 @@ import {
 
   // ---------- persistence ----------
   function persist() {
+    S.lastPersistAt = Date.now();
     try {
       chrome.storage?.local?.set({
         [STORAGE_KEY]: {
@@ -165,6 +178,8 @@ import {
           isPaused: S.isPaused,
           startedAt: S.startedAt,
           willEndAt: S.willEndAt,
+          nextBreakAt: S.nextBreakAt,
+          breakUntil: S.breakUntil,
           mode: S.mode,
           keyword: S.keyword,
           maxItems: S.maxItems,
@@ -200,6 +215,7 @@ import {
     return {
       isRunning: S.isRunning,
       isPaused: S.isPaused,
+      isAutoBreak: S.breakUntil > now,
       platform: S.platform,
       mode: S.mode,
       keyword: S.keyword,
@@ -379,6 +395,27 @@ import {
     sleep(rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax));
   async function waitWhilePaused() {
     while (S.isRunning && S.isPaused) await sleep(500);
+  }
+  // Personality-driven break: fires between items when nextBreakAt is due.
+  // Ignores pause (a break IS an idle pause); stop exits immediately.
+  async function maybeBreak() {
+    const prof = BREAKS[S.personalityMode];
+    if (!prof || !S.nextBreakAt) return;
+    const now = Date.now();
+    if (now < S.nextBreakAt) return;
+    const len = breakLengthMs(prof);
+    if (S.willEndAt && now + len >= S.willEndAt) {
+      S.nextBreakAt = S.willEndAt; // session ends first — skip the break
+      return;
+    }
+    S.breakUntil = now + len;
+    logLine(`☕ break ~${Math.round(len / 1000)}s`);
+    persist();
+    while (Date.now() < S.breakUntil && S.isRunning) await sleep(400);
+    S.breakUntil = 0;
+    S.nextBreakAt = scheduleNextBreak(prof, Date.now());
+    if (S.isRunning) logLine("▶ back from break");
+    persist();
   }
   // Variable-velocity scroll with occasional scroll-up re-reads (human skim, not metronome).
   function humanScroll() {
@@ -1177,6 +1214,7 @@ import {
     try {
       while (shouldContinue(S)) {
         await waitWhilePaused();
+        await maybeBreak();
         if (!S.isRunning) break;
         if (detectStop()) return halt(detectStop());
 
@@ -1608,6 +1646,7 @@ import {
       if (A.preLoop) await A.preLoop();
       while (shouldContinue(S)) {
         await waitWhilePaused();
+        await maybeBreak();
         if (!S.isRunning) break;
         if (detectStop()) return halt(detectStop());
 
@@ -1841,6 +1880,7 @@ import {
 
   function tick() {
     if (!S.isRunning || S.isPaused) return;
+    if (Date.now() - S.lastPersistAt > 30000) persist();
     if (detectStop()) {
       halt(detectStop());
       return;
@@ -1898,6 +1938,7 @@ import {
       S.userSelectedPersonality = map[settings.personality];
       S.personalityMode = map[settings.personality];
     } else pickPersonality();
+    S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], now);
 
     logLine(
       `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}m${S.maxItems ? ` · cap ${S.maxItems}` : ""} · ${
@@ -1999,6 +2040,8 @@ import {
         isPaused: !!saved.isPaused,
         startedAt: saved.startedAt || Date.now(),
         willEndAt: saved.willEndAt || 0,
+        breakUntil: saved.breakUntil > Date.now() ? saved.breakUntil : 0,
+        nextBreakAt: saved.nextBreakAt || 0,
         platform: saved.platform || here,
         mode: saved.mode || "C",
         keyword: saved.keyword || "",
@@ -2024,6 +2067,8 @@ import {
         log: Array.isArray(saved.log) ? saved.log.slice(-LOG_CAP) : [],
       });
       if (!S.personalityMode) pickPersonality();
+      if (!S.nextBreakAt || S.nextBreakAt < Date.now())
+        S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], Date.now());
 
       const target = targetUrlForMode();
       if (target) {
