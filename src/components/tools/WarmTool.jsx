@@ -336,7 +336,9 @@ export default function WarmTool({ platform }) {
           onBreak={!!status?.isAutoBreak}
         />
       </div>
-      {running && !paused && !halted ? <div className="heat-bar" /> : null}
+      {running && !paused && !halted && !status?.isAutoBreak ? (
+        <div className="heat-bar" />
+      ) : null}
 
       {halted && (
         <div className="rounded-md bg-destructive/10 text-destructive text-sm font-medium px-3 py-2">

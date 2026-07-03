@@ -1938,8 +1938,10 @@ import {
   }
 
   function tick() {
+    // Heartbeat runs even while paused — keeps savedAt fresh so the panel's
+    // stale-session reconciler never misreads a long pause as an abandoned run.
+    if (S.isRunning && Date.now() - S.lastPersistAt > 30000) persist();
     if (!S.isRunning || S.isPaused) return;
-    if (Date.now() - S.lastPersistAt > 30000) persist();
     if (detectStop()) {
       halt(detectStop());
       return;
