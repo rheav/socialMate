@@ -86,6 +86,14 @@ import {
   const HISTORY_KEY = "fbw_history"; // per-run summaries for the History tab
   const SUMMARY_KEY = "fbw_last_summary"; // last run recap for the WarmTool summary card
   const LOG_CAP = 120;
+  // ---- run telemetry ----
+  // Structured, machine-readable events for the whole run. The human `S.log` is
+  // for the panel; this is the record we dump to disk and analyse afterwards.
+  // Mirrored into storage during the run so a closed tab / dead content script
+  // can't take the run down with it — the next start flushes the orphan.
+  const EVENTS_KEY = "fbw_run_events"; // in-flight run buffer (survives tab death)
+  const EVENT_CAP = 6000; // hard ceiling per run (a 60m run is ~1–2k events)
+  const EVENT_FLUSH_MS = 5000; // don't re-serialise the buffer on every log line
 
   function freshState() {
     return {
@@ -161,6 +169,11 @@ import {
       lastCursor: null, // last synthetic cursor {x,y} — curved moves start here
       // log ring buffer
       log: [],
+      // run telemetry (structured; dumped to disk at run end)
+      runId: "",
+      events: [],
+      eventsFlushedAt: 0,
+      itemSeq: 0, // per-item index within the run
       // runtime-only
       tickTimer: null,
       loopActive: false,
@@ -210,6 +223,138 @@ import {
     entry.msg = `✅ ${entry.label} ${s}s`;
     console.log("[SW]", entry.msg);
     persist();
+  }
+
+  // ============================================================
+  // RUN TELEMETRY — structured events → JSON file on disk at run end
+  // ============================================================
+  // emit() is the only way events enter the record. Every call is one fact about
+  // the run ("dwelled 7.2s on reel X and watched it fully", "wanted wow, got like").
+  // Keep the payloads flat and machine-readable — this file is meant to be read
+  // back and analysed, not skimmed.
+  function emit(type, data) {
+    if (!S.runId) return; // no run in flight → nothing to record
+    if (S.events.length >= EVENT_CAP) return; // hard ceiling; run keeps going
+    S.events.push({ t: Date.now() - S.startedAt, type, ...(data || {}) });
+    // Flush to storage on a timer, not per-event: re-serialising a few thousand
+    // events on every log line would be the most expensive thing in the loop.
+    if (Date.now() - S.eventsFlushedAt >= EVENT_FLUSH_MS) flushEvents();
+  }
+
+  function runMeta() {
+    return {
+      runId: S.runId,
+      startedAt: S.startedAt,
+      willEndAt: S.willEndAt,
+      platform: S.platform,
+      mode: S.mode,
+      keyword: S.keyword,
+      maxItems: S.maxItems,
+      quickMode: !!S.quickMode,
+      actions: { ...S.actions },
+      reactionsEnabled: { ...S.reactions },
+      commentSettings: S.commentSettings ? { ...S.commentSettings } : null,
+      personality: S.personalityMode,
+      sessionIntensity: S.sessionIntensity,
+      browseOnly: !!S.browseOnly,
+      warmupPosts: S.warmupPosts,
+      pacing: { ...S.pacing },
+      englishOnly: !!S.englishOnly,
+      relevanceMin: S.relevanceMin,
+      spamGuard: !!S.spamGuard,
+      userAgent: navigator.userAgent,
+      appVersion: chrome.runtime?.getManifest?.().version || null,
+    };
+  }
+
+  function runCounters() {
+    return {
+      processed: S.processed,
+      saved: S.saved,
+      liked: S.liked,
+      loved: S.loved,
+      followed: S.followed,
+      skipped: S.skipped,
+      commented: S.commented,
+      reactionCounts: { ...S.reactionCounts },
+      softFailStreak: S.softFailStreak,
+      missStreak: S.missStreak,
+      haltReason: S.haltReason,
+    };
+  }
+
+  // Mirror the in-flight run to storage. If the tab dies mid-run (navigation,
+  // close, crash) this is what survives — the next start() flushes it to disk as
+  // an "abandoned" run, which is exactly the run you most want to look at.
+  function flushEvents() {
+    if (!S.runId) return;
+    S.eventsFlushedAt = Date.now();
+    try {
+      chrome.storage?.local?.set({
+        [EVENTS_KEY]: {
+          meta: runMeta(),
+          counters: runCounters(),
+          events: S.events,
+          flushedAt: Date.now(),
+        },
+      });
+    } catch {
+      /* context invalidated */
+    }
+  }
+
+  // Hand a finished run to the background worker, which owns chrome.downloads and
+  // writes it to ~/Downloads/socialmate-runs/. Clears the in-flight buffer after.
+  function writeRunLog(outcome) {
+    const doc = {
+      schema: 1,
+      outcome,
+      endedAt: Date.now(),
+      durationMs: Date.now() - (S.startedAt || Date.now()),
+      meta: runMeta(),
+      counters: runCounters(),
+      log: S.log.map((e) => ({ t: e.t, msg: e.msg })), // human log, for context
+      events: S.events,
+    };
+    try {
+      chrome.runtime?.sendMessage?.({ type: "FBW_WRITE_RUN_LOG", doc }, () => {
+        void chrome.runtime.lastError; // fire-and-forget
+      });
+      chrome.storage?.local?.remove(EVENTS_KEY); // written → drop the buffer
+    } catch {
+      /* context invalidated — the storage buffer stays and gets flushed next run */
+    }
+  }
+
+  // A previous run that never reached finishRun/halt (tab closed mid-run) left its
+  // buffer behind. Ship it as "abandoned" so the data isn't lost.
+  async function flushOrphanRun() {
+    try {
+      const prev = (await chrome.storage.local.get(EVENTS_KEY))[EVENTS_KEY];
+      if (!prev?.events?.length) return;
+      chrome.runtime?.sendMessage?.(
+        {
+          type: "FBW_WRITE_RUN_LOG",
+          doc: {
+            schema: 1,
+            outcome: "abandoned",
+            endedAt: prev.flushedAt || Date.now(),
+            durationMs:
+              (prev.flushedAt || Date.now()) - (prev.meta?.startedAt || 0),
+            meta: prev.meta || {},
+            counters: prev.counters || {},
+            log: [],
+            events: prev.events,
+          },
+        },
+        () => {
+          void chrome.runtime.lastError;
+        },
+      );
+      await chrome.storage.local.remove(EVENTS_KEY);
+    } catch {
+      /* noop */
+    }
   }
 
   function pickPersonality() {
@@ -392,8 +537,10 @@ import {
     S.isRunning = false;
     logLine(`🛑 HALTED: ${reason}`);
     clearInterval(S.tickTimer);
+    emit("halt", { reason, counters: runCounters() });
     logHistory("halt: " + reason);
     writeSummary("halt: " + reason);
+    writeRunLog("halt: " + reason);
     persist();
   }
 
@@ -483,6 +630,13 @@ import {
         await sleep(400);
       }
       endProgress(prog);
+      emit("dwell", {
+        item: S.itemSeq,
+        plannedMs: dwell,
+        actualMs: Date.now() - t0,
+        watchedFull: false,
+        quick: true,
+      });
       return false;
     }
     const vid =
@@ -510,6 +664,17 @@ import {
       await sleep(400);
     }
     endProgress(prog); // ✅ + final elapsed
+    emit("dwell", {
+      item: S.itemSeq,
+      plannedMs: dwell,
+      actualMs: Date.now() - t0,
+      videoDurationSec:
+        vid && isFinite(vid.duration) ? Math.round(vid.duration) : null,
+      watchFraction: frac,
+      watchedFull: full,
+      cappedAtMax: dwell >= MAX_DWELL_MS,
+      quick: false,
+    });
     return full;
   }
   async function waitWhilePaused() {
@@ -528,9 +693,14 @@ import {
       return;
     }
     S.breakUntil = now + len;
-    logLine(`☕ break ~${Math.round(len / 1000)}s`);
+    emit("break", { plannedMs: len, afterItems: S.processed });
+    const prog = startProgress("☕", "break", len); // counts up in place like dwell
     persist();
-    while (Date.now() < S.breakUntil && S.isRunning) await sleep(400);
+    while (Date.now() < S.breakUntil && S.isRunning) {
+      tickProgress(prog);
+      await sleep(400);
+    }
+    endProgress(prog);
     S.breakUntil = 0;
     S.nextBreakAt = scheduleNextBreak(prof, Date.now());
     if (S.isRunning) logLine("▶ back from break");
@@ -707,6 +877,7 @@ import {
       await sleep(500);
     }
     endProgress(prog);
+    emit("idle", { plannedMs: ms, actualMs: Date.now() - t0 });
   }
 
   // "Almost acted" feint — hover the like control, consider, then drift away
@@ -720,6 +891,7 @@ import {
     likeBtn.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     likeBtn.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerId: 1 }));
     logLine("· hovered, didn't react");
+    emit("feint", { item: S.itemSeq });
     return true;
   }
 
@@ -1376,12 +1548,34 @@ import {
   // Type into the Lexical editor with a human cadence, then post. Confirms by the
   // editor clearing (the rail count doesn't update live). Closes the composer on
   // its way out. Returns true only when the comment posted.
+  // Returns { ok, reason } — the reason is the whole point. Four different things
+  // can go wrong here and they need different fixes, so never collapse them into
+  // a bare false: the run log has to say WHICH step lost the comment.
+  // Enter is how a person actually sends a reel comment — Lexical submits on a
+  // plain Enter (Shift+Enter newlines). It's also the fallback when the send
+  // button can't be matched: FB only renders one on some surfaces, and its
+  // accessible name is localised, so an aria-label list will always be partial.
+  function fbPressEnter(box) {
+    const opts = {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+      cancelable: true,
+    };
+    box.dispatchEvent(new KeyboardEvent("keydown", opts));
+    box.dispatchEvent(new KeyboardEvent("keypress", opts));
+    box.dispatchEvent(new KeyboardEvent("keyup", opts));
+  }
+
   async function fbCommentReel(text) {
     const openBtn = fbReelCommentBtn();
-    if (!openBtn) return false;
+    if (!openBtn) return { ok: false, reason: "no_comment_button" };
     await humanClick(openBtn); // toggles the inline composer open
-    const box = await waitFor(fbCommentBox, 3500);
-    if (!box) return false;
+    // The rail loads the comment drawer lazily; 3.5s was tight on a slow feed.
+    const box = await waitFor(fbCommentBox, 6000);
+    if (!box) return { ok: false, reason: "composer_never_opened" };
     box.focus();
     await sleep(rand(250, 500));
     // Type it out — execCommand('insertText') is the reliable Lexical path;
@@ -1390,23 +1584,37 @@ import {
       document.execCommand("insertText", false, ch);
       await sleep(rand(35, 90));
     }
+    const typed = (fbCommentBox()?.innerText || "").trim();
+    if (!typed) return { ok: false, reason: "typing_failed", typed };
     await sleep(rand(400, 900)); // a beat before sending
-    const post = await waitFor(fbPostCommentBtn, 2500);
-    if (!post) {
-      // couldn't find Send — close the composer (toggle) and bail
-      const c = fbReelCommentBtn();
-      if (c) await humanClick(c);
-      return false;
-    }
-    await humanClick(post);
-    // Success = the editor clears. Then collapse the composer to return to the flow.
-    const ok = await waitFor(() => {
+
+    const cleared = () => {
       const b = fbCommentBox();
       return !b || !(b.innerText || "").trim();
-    }, 3500);
+    };
+    // Prefer the explicit send button; fall back to Enter when it isn't there.
+    const post = await waitFor(fbPostCommentBtn, 2500);
+    let via = "post_button";
+    if (post) await humanClick(post);
+    else {
+      via = "enter";
+      fbPressEnter(fbCommentBox() || box);
+    }
+    let ok = await waitFor(cleared, 3500);
+    // Button was there but nothing happened → still try Enter before giving up.
+    if (!ok && via === "post_button") {
+      via = "post_button+enter";
+      fbPressEnter(fbCommentBox() || box);
+      ok = await waitFor(cleared, 3000);
+    }
     const closeBtn = fbReelCommentBtn();
     if (closeBtn) await humanClick(closeBtn);
-    return !!ok;
+    // NB: "editor didn't clear" is not proof the comment failed — it may have
+    // posted and the box kept its content. Flagged distinctly so it can't be
+    // read as a hard failure without checking.
+    return ok
+      ? { ok: true, reason: "posted", via, typed }
+      : { ok: false, reason: "editor_not_cleared", via, typed };
   }
 
   // Mode A on Facebook is LIKE-ONLY (scroll + watch + like/love). Organic pacing:
@@ -1995,18 +2203,38 @@ import {
     const likeChance = engageScale(per.likeChance); // × session mood × curve
     if (S.actions.like && Math.random() >= likeChance) {
       // dice said don't react — occasionally hover-and-bail instead of nothing
-      await maybeFeint(fbReact ? fbBarLikeBtn(c) : A.likeBtn && A.likeBtn(c));
+      const feinted = await maybeFeint(
+        fbReact ? fbBarLikeBtn(c) : A.likeBtn && A.likeBtn(c),
+      );
+      emit("no_react", {
+        item: S.itemSeq,
+        chance: +likeChance.toFixed(3),
+        feinted,
+        watchedFull,
+      });
     } else if (S.actions.like) {
       if (S.consecLikes >= MAX_CONSEC_LIKES) {
         S.consecLikes = 0;
         logLine("· like cooldown");
+        emit("like_cooldown", { item: S.itemSeq });
         await sleep(rand(2000, 4000));
       } else if (!A.isLiked(c)) {
         // Facebook reels share the posts' reaction picker — pick a weighted
         // reaction (Like dominant). IG/TikTok have no picker → plain like.
         if (A.reactable && platformForHost() === "facebook") {
           const want = pickReaction();
+          const t0 = Date.now();
           const got = await fbReactWith({ root: c }, want);
+          emit("react", {
+            item: S.itemSeq,
+            want,
+            got: got || null,
+            landed: !!got,
+            degraded: !!got && got !== want, // picker missed → fell back to Like
+            ms: Date.now() - t0,
+            chance: +likeChance.toFixed(3),
+            watchedFull,
+          });
           if (got) {
             S.liked += got === "like" ? 1 : 0;
             if (got === "love") S.loved++;
@@ -2021,7 +2249,16 @@ import {
           if (btn) {
             await humanClick(btn);
             await sleep(rand(250, 500));
-            if (A.isLiked(c)) {
+            const ok = A.isLiked(c);
+            emit("react", {
+              item: S.itemSeq,
+              want: "like",
+              got: ok ? "like" : null,
+              landed: ok,
+              degraded: false,
+              watchedFull,
+            });
+            if (ok) {
               S.liked++;
               S.consecLikes++;
               logLine(`❤️ liked ${A.noun}`);
@@ -2049,34 +2286,55 @@ import {
   // simple. Reels/FB only; skips silently unless every gate passes.
   async function maybeComment(A, c, watchedFull) {
     const cs = S.commentSettings;
+    // Every gate records why it declined — a run where comments never fire is a
+    // question ("which gate ate them?"), and this is the answer.
+    const decline = (reason) => {
+      emit("comment_skip", { item: S.itemSeq, reason, watchedFull });
+    };
     if (
       !A.commentable ||
       platformForHost() !== "facebook" ||
       !cs.enabled ||
       !(cs.phrases || []).length
     )
-      return;
-    if (cs.onlyFullyWatched && !watchedFull) return; // full-watch bias
-    if (S.processed < S.warmupPosts) return; // warm-up: lurk only
-    if (S.consecComments >= 1) { S.consecComments = 0; return; } // never back-to-back
-    if (Math.random() >= cs.chance) return;
+      return; // not applicable at all — not worth an event per item
+    if (cs.onlyFullyWatched && !watchedFull) return decline("not_fully_watched");
+    if (S.processed < S.warmupPosts) return decline("warmup");
+    if (S.consecComments >= 1) {
+      S.consecComments = 0;
+      return decline("back_to_back");
+    }
+    if (Math.random() >= cs.chance) return decline("dice");
 
     const reelId = (location.pathname.match(/\/reel\/(\d+)/) || [])[1] || null;
-    if (reelId && S.commentedIds.has(reelId)) return; // once per reel / run
+    if (reelId && S.commentedIds.has(reelId)) return decline("already_commented");
     const authorKey = fbAuthorKey(c) || fbReelAuthorName(c);
     const nowT = Date.now();
     S.commentTimes = S.commentTimes.filter((t) => nowT - t < 3600000);
     if (S.commentTimes.length >= MAX_COMMENTS_PER_HOUR) {
       logLine("· hourly comment cap — skip");
-      return;
+      return decline("hourly_cap");
     }
     if (authorKey && (S.authorComments[authorKey] || 0) >= MAX_COMMENTS_PER_AUTHOR)
-      return;
+      return decline("author_cap");
 
     const text = pickPhrase();
-    if (!text) return;
+    if (!text) return decline("no_phrase");
     await sleep(rand(800, 2200)); // read-before-comment beat
-    const ok = await fbCommentReel(text);
+    const t0 = Date.now();
+    const { ok, reason, typed, via } = await fbCommentReel(text);
+    emit("comment", {
+      item: S.itemSeq,
+      reelId,
+      author: authorKey || null,
+      text,
+      posted: ok,
+      reason, // posted | no_comment_button | composer_never_opened | typing_failed | editor_not_cleared
+      via: via ?? null, // post_button | enter | post_button+enter — which submit path fired
+      typed: typed ?? null, // what actually made it into the box (typing bugs show here)
+      ms: Date.now() - t0,
+      watchedFull,
+    });
     if (ok) {
       S.commented++;
       S.consecComments++;
@@ -2089,9 +2347,11 @@ import {
       logLine(`💬 commented "${text.slice(0, 28)}"`);
     } else {
       S.softFailStreak++;
-      logLine(`· comment did not post (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`);
+      logLine(
+        `· comment did not post: ${reason} (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`,
+      );
       if (S.softFailStreak >= SOFT_FAIL_LIMIT)
-        halt("possible soft-block — comments not posting");
+        halt(`possible soft-block — comments not posting (${reason})`);
     }
   }
 
@@ -2132,6 +2392,7 @@ import {
         if (A.shouldSkip && A.shouldSkip(c)) {
           S.skipped++;
           logLine(`· skip (${A.skipReason || "non-standard"})`);
+          emit("skip", { item: S.itemSeq, reason: A.skipReason || "non-standard" });
           persist();
           if (!A.advance()) {
             if (A.onEnd && endStreak < 2) {
@@ -2144,6 +2405,17 @@ import {
           await actionGap();
           continue;
         }
+
+        // open the item record — everything below (dwell/react/comment) tags to it
+        S.itemSeq++;
+        emit("item", {
+          item: S.itemSeq,
+          kind: A.noun,
+          id: (location.pathname.match(/\/reel\/(\d+)/) || [])[1] || null,
+          url: location.href,
+          author:
+            (platformForHost() === "facebook" && fbReelAuthorName(c)) || null,
+        });
 
         const watchedFull = await reelDwell(A, c);
         if (!S.isRunning || S.isPaused) continue;
@@ -2179,8 +2451,10 @@ import {
     );
     S.isRunning = false;
     clearInterval(S.tickTimer);
+    emit("run_end", { outcome: "complete", counters: runCounters() });
     logHistory("complete");
     writeSummary("complete");
+    writeRunLog("complete");
     persist();
   }
 
@@ -2430,6 +2704,12 @@ import {
     S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], now);
     rollSessionMood(); // per-session engagement intensity + browse-only chance
 
+    // telemetry: open the record, and ship any run the last tab took down with it
+    S.runId = `${new Date(now).toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
+    flushOrphanRun();
+    emit("run_start", { meta: runMeta() });
+    flushEvents();
+
     logLine(
       `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}m${S.maxItems ? ` · cap ${S.maxItems}` : ""} · ${
         Object.entries(S.actions)
@@ -2456,13 +2736,16 @@ import {
     S.isRunning = false;
     S.isPaused = false;
     clearInterval(S.tickTimer);
+    emit("run_end", { outcome: "stopped", counters: runCounters() });
     logHistory("stopped");
     writeSummary("stopped");
+    writeRunLog("stopped");
     persist();
   }
   function togglePause() {
     S.isPaused = !S.isPaused;
     logLine(S.isPaused ? "⏸ paused" : "▶️ resumed");
+    emit(S.isPaused ? "pause" : "resume", {});
     persist();
   }
 

@@ -441,6 +441,40 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     .catch(() => chrome.storage.local.set({ [NEED_RELOAD_KEY]: true }));
 });
 
+// ---- run logs ----
+// A finished run lands in ~/Downloads/socialmate-runs/ as one JSON file: config +
+// counters + the full structured event stream. That's the artifact you hand back
+// for analysis ("here's last night's run, what's tuning badly?").
+//
+// Service workers have no URL.createObjectURL, so the file goes out as a data:
+// URL. It must be built through TextEncoder — btoa() alone throws on the emoji in
+// comment text, which would silently lose exactly the runs worth reading.
+function jsonDataUrl(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 2));
+  let bin = "";
+  const CHUNK = 0x8000; // keep String.fromCharCode off the arg-count limit
+  for (let i = 0; i < bytes.length; i += CHUNK)
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return "data:application/json;base64," + btoa(bin);
+}
+
+async function writeRunLogFile(doc) {
+  if (!doc || !Array.isArray(doc.events)) return;
+  try {
+    const started = doc.meta?.startedAt || Date.now();
+    const stamp = new Date(started).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const outcome = String(doc.outcome || "run").split(":")[0].trim();
+    await chrome.downloads.download({
+      url: jsonDataUrl(doc),
+      filename: `socialmate-runs/run-${stamp}-${outcome}.json`,
+      saveAs: false,
+      conflictAction: "uniquify",
+    });
+  } catch (e) {
+    console.warn("[SW] run log write failed", e);
+  }
+}
+
 // ---- message router (content + panel) ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ignore messages addressed to the offscreen document
@@ -511,6 +545,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "FBW_LIST_TRANSCRIPTS": {
       getTranscripts().then((all) => sendResponse({ transcripts: all }));
       return true; // async
+    }
+    // content → bg: a finished run's structured log → JSON file on disk.
+    case "FBW_WRITE_RUN_LOG": {
+      writeRunLogFile(msg.doc);
+      sendResponse({ ok: true });
+      return false;
     }
     // content → bg → offscreen: niche-relevance (+ spam) cosine for a post.
     // Fails open (score 1, spam 0) so a model hiccup never blocks the warmer.

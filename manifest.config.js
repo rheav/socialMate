@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
-  version: "0.50.0",
-  version_name: "0.50.0 — human realism: session mood + idle gaps, engagement ramp/taper curve, hover-and-bail feints, curved cursor travel",
+  version: "0.51.0",
+  version_name: "0.51.0 — structured run telemetry → JSON on disk; comment failure reasons; break counter",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

@@ -18,6 +18,32 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.51.0] — 2026-07-13
+
+### Added — run telemetry
+- **Every run is now recorded as structured events** and written to disk on
+  finish: `~/Downloads/socialmate-runs/run-<timestamp>-<outcome>.json`. One file
+  holds the run config (personality, mood, caps, pacing), the final counters, the
+  human log, and the full event stream: `item`, `dwell` (planned vs actual ms,
+  video length, watch fraction, watchedFull), `react` (**want vs got** — so a
+  picker miss is visible), `no_react`, `feint`, `comment`, `comment_skip` (with
+  the gate that declined), `skip`, `idle`, `break`, `pause`/`resume`, `halt`.
+- The in-flight run is mirrored to `chrome.storage.local`, so a tab closed
+  mid-run isn't lost — the next run flushes it as an `abandoned` file.
+
+### Fixed
+- **Comments were silently failing.** `fbCommentReel` had four distinct failure
+  exits that all returned a bare `false`, so the log only ever said "did not
+  post" — you couldn't tell whether the composer never opened, the send button
+  wasn't found, or it actually posted and we misread it. It now reports *which*
+  step failed, and the run log records it.
+- Comment submit falls back to **Enter** (how a person actually sends a reel
+  comment) when the send button can't be matched — its accessible name is
+  localised, so a fixed aria-label list was always going to be partial. Also
+  raised the composer wait 3.5s → 6s (the rail loads the drawer lazily).
+- Breaks now show the **live seconds counter** like dwell and idle, instead of a
+  static `☕ break ~166s`.
+
 ## [0.50.0] — 2026-07-13
 
 ### Added — human realism pass
