@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Bookmark, BookmarkCheck, Trash2, FileText, Download, Loader2 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "lucide-react";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
-const CKEY = "fbw_current";
 
 const hasStorage = () => typeof chrome !== "undefined" && !!chrome?.storage?.local;
 
@@ -19,10 +17,13 @@ function srt(chunks) {
     .join("\n");
 }
 function dl(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.href = url;
   a.download = name;
   a.click();
+  // Free the blob once the download has been handed off.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ---- storage hooks ----
@@ -49,20 +50,6 @@ async function patchMap(key, id, value) {
   if (value === null) delete map[id];
   else map[id] = { ...value, updatedAt: Date.now() };
   await chrome.storage.local.set({ [key]: map });
-}
-
-// ---- current in-view video (published by the content script) ----
-function useCurrent() {
-  const [cur, setCur] = useState(null);
-  useEffect(() => {
-    if (!hasStorage()) return;
-    const load = () => chrome.storage.local.get(CKEY, (r) => setCur(r[CKEY] || null));
-    load();
-    const onChange = (c, area) => { if (area === "local" && c[CKEY]) setCur(c[CKEY].newValue || null); };
-    chrome.storage.onChanged.addListener(onChange);
-    return () => chrome.storage.onChanged.removeListener(onChange);
-  }, []);
-  return cur;
 }
 
 function useFlag(key) {
@@ -94,156 +81,134 @@ function ReloadHint() {
   );
 }
 
-function CurrentVideoCard() {
-  const cur = useCurrent();
-  const [busy, setBusy] = useState(null); // "tx" | "dl" | null
-  const run = (type, tag) => {
-    if (!hasStorage()) return;
-    setBusy(tag);
-    chrome.runtime.sendMessage({ type });
-    setTimeout(() => setBusy(null), 3000);
-  };
-
-  if (!cur) {
-    return (
-      <Card className="border-dashed">
-        <CardContent className="p-3 text-center text-[11px] text-muted-foreground leading-relaxed">
-          Open a Facebook video and it shows up here —<br />then transcribe or download it.
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const c = cur.counts || {};
-  const hasCounts = c.like || c.comment || c.share || c.views;
-  return (
-    <Card style={{ borderColor: "var(--sw-from)" }} className="border">
-      <CardContent className="p-2.5 space-y-2.5">
-        <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--sw-from)" }}>
-          Current video
-        </div>
-        <div className="flex gap-2.5">
-          <div className="w-[52px] h-[78px] flex-none rounded-md overflow-hidden bg-zinc-800">
-            {cur.thumb ? <img src={cur.thumb} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : null}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-semibold text-foreground truncate">{cur.author?.name || "unknown"}</div>
-            {cur.caption && <p className="text-[11px] text-foreground/70 mt-0.5 line-clamp-3 whitespace-pre-wrap">{cur.caption}</p>}
-            {hasCounts && (
-              <div className="flex gap-3 mt-1 text-[11px] text-muted-foreground">
-                <span>👍 {c.like || "–"}</span><span>💬 {c.comment || "–"}</span><span>↗ {c.share || "–"}</span>
-                {c.views && <span>👁 {c.views}</span>}
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => run("FBW_DO_TRANSCRIBE", "tx")}
-            disabled={!!busy}
-            className="flex-1 grad-blue text-white rounded-md py-1.5 text-[12px] font-medium flex items-center justify-center gap-1.5 disabled:opacity-70"
-          >
-            {busy === "tx" ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Transcribe
-          </button>
-          <button
-            onClick={() => run("FBW_DO_DOWNLOAD", "dl")}
-            disabled={!!busy}
-            className="flex-1 rounded-md border border-border py-1.5 text-[12px] font-medium text-foreground hover:bg-muted flex items-center justify-center gap-1.5 disabled:opacity-70"
-          >
-            {busy === "dl" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Download
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---- card ----
+// ---- grid tile: a big thumbnail on top, meta + transcript below ----
 function VideoCard({ it, saved, onToggleSave, onDelete }) {
   const [open, setOpen] = useState(false);
   const c = it.counts || {};
   const hasCounts = c.like || c.comment || c.share || c.views;
   const base = it.platform === "instagram" ? "https://www.instagram.com" : "https://www.facebook.com";
   const profUrl = it.author?.url ? `${base}${it.author.url.startsWith("/") ? "" : "/"}${it.author.url}` : null;
-  const postUrl = it.platform === "instagram" ? `https://www.instagram.com/p/${it.videoId}/` : `https://www.facebook.com/${it.videoId}`;
+  // Link back to the original reel/video: the stored sourceUrl, or reconstruct
+  // one from the id for older records (FB reels key by their reel id).
+  const srcUrl =
+    it.sourceUrl ||
+    (it.videoId
+      ? it.platform === "instagram"
+        ? `https://www.instagram.com/p/${it.videoId}/`
+        : `https://www.facebook.com/reel/${it.videoId}`
+      : null);
 
   return (
-    <Card>
-      <CardContent className="p-2.5 space-y-2">
-        <div className="flex gap-2.5">
-          <div className="w-[56px] h-[84px] flex-none rounded-md overflow-hidden bg-zinc-800">
-            {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : null}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              {it.author?.name ? (
-                <a href={profUrl || "#"} target="_blank" rel="noreferrer" className="text-[12px] font-semibold text-foreground hover:underline truncate">
-                  {it.author.name}
-                </a>
-              ) : (
-                <span className="text-[12px] text-muted-foreground">unknown</span>
-              )}
-              <div className="flex-none flex flex-col items-center gap-1.5">
-                <button
-                  onClick={onToggleSave}
-                  title={saved ? "Remove from Saved" : "Save"}
-                  className="text-muted-foreground hover:text-primary"
-                >
-                  {saved ? <BookmarkCheck size={15} className="text-primary" /> : <Bookmark size={15} />}
-                </button>
-                {onDelete && (
-                  <button onClick={onDelete} title="Delete this transcript" className="text-muted-foreground hover:text-destructive">
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <a href={postUrl} target="_blank" rel="noreferrer" className="text-[10px] font-mono text-blue-500 hover:underline">
-              #{it.videoId}
+    <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="relative aspect-[3/4] bg-zinc-900">
+        {srcUrl ? (
+          <a href={srcUrl} target="_blank" rel="noreferrer" title="Open the original reel" className="block h-full w-full">
+            {it.thumb ? (
+              <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">open reel</div>
+            )}
+          </a>
+        ) : it.thumb ? (
+          <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">no preview</div>
+        )}
+        {/* actions on the thumbnail */}
+        <div className="absolute right-1.5 top-1.5 flex gap-1">
+          {srcUrl && (
+            <a
+              href={srcUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the original reel"
+              className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+            >
+              <ExternalLink size={12} />
             </a>
-
-            {it.caption && <p className="text-[11px] text-foreground/75 mt-1 line-clamp-3 whitespace-pre-wrap">{it.caption}</p>}
-
-            {hasCounts && (
-              <div className="flex gap-3 mt-1 text-[11px] text-muted-foreground">
-                <span title="Likes">👍 {c.like || "–"}</span>
-                <span title="Comments">💬 {c.comment || "–"}</span>
-                <span title="Shares">↗ {c.share || "–"}</span>
-                {c.views && <span title="Views">👁 {c.views}</span>}
-              </div>
-            )}
-
-            {it.status === "error" && <p className="text-[11px] text-destructive mt-1">{it.error}</p>}
-
-            {it.text && (
-              <div className="flex gap-2 mt-1.5">
-                <button className="text-[11px] text-blue-500 hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copy</button>
-                <button className="text-[11px] text-blue-500 hover:underline" onClick={() => dl(`fb-${it.videoId}.txt`, it.text)}>.txt</button>
-                {it.chunks?.length ? <button className="text-[11px] text-blue-500 hover:underline" onClick={() => dl(`fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button> : null}
-              </div>
-            )}
-          </div>
+          )}
+          <button
+            onClick={onToggleSave}
+            title={saved ? "Remove from Saved" : "Save"}
+            className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+          >
+            {saved ? <BookmarkCheck size={13} className="text-amber-400" /> : <Bookmark size={13} />}
+          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              title="Delete this transcript"
+              className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
         </div>
+        {/* counts strip */}
+        {hasCounts && (
+          <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-x-2 gap-y-0.5 bg-gradient-to-t from-black/75 to-transparent px-2 pb-1.5 pt-4 text-[10px] font-medium text-white">
+            {c.like && <span>👍 {c.like}</span>}
+            {c.comment && <span>💬 {c.comment}</span>}
+            {c.views && <span>👁 {c.views}</span>}
+            {c.share && <span>↗ {c.share}</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-1 p-2">
+        {it.author?.name ? (
+          <a
+            href={profUrl || "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="truncate text-[12px] font-semibold text-foreground hover:underline"
+          >
+            {it.author.name}
+          </a>
+        ) : (
+          <span className="text-[12px] text-muted-foreground">unknown</span>
+        )}
+
+        {it.caption && (
+          <p className="line-clamp-2 text-[11px] leading-snug text-foreground/70 whitespace-pre-wrap">
+            {it.caption}
+          </p>
+        )}
+
+        {it.status === "error" && <p className="text-[11px] text-destructive">{it.error}</p>}
 
         {it.text ? (
-          <div>
-            <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-1 w-full text-left text-[11px] font-medium text-foreground/80 hover:text-foreground">
-              <ChevronRight size={13} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+          <>
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className="mt-0.5 flex items-center gap-1 text-left text-[11px] font-medium text-foreground/80 hover:text-foreground"
+            >
+              <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
               Transcript
             </button>
             {open && (
-              <div className="mt-1.5 max-h-56 overflow-y-auto rounded-md bg-zinc-900 text-zinc-200 p-2.5 text-[12px] leading-relaxed whitespace-pre-wrap">
+              <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 whitespace-pre-wrap">
                 {it.text}
               </div>
             )}
-          </div>
+            <div className="mt-auto flex gap-2 pt-1 text-[11px]">
+              <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copy</button>
+              <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.txt`, it.text)}>.txt</button>
+              {it.chunks?.length ? (
+                <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
+              ) : null}
+            </div>
+          </>
         ) : it.status !== "error" ? (
           <div className="text-[11px] text-muted-foreground">transcribing…</div>
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
+}
+
+function Grid({ children }) {
+  return <div className="grid grid-cols-2 gap-2.5">{children}</div>;
 }
 
 // ---- Transcripts tab ----
@@ -260,29 +225,36 @@ export default function TranscriptsPanel() {
   return (
     <div className="space-y-2.5">
       <ReloadHint />
-      <CurrentVideoCard />
-      {items.length > 0 && (
+      {items.length === 0 ? (
+        <p className="py-10 text-center text-xs text-muted-foreground leading-relaxed">
+          No transcripts yet.<br />
+          Hit <span className="font-medium text-foreground">Transcribe</span> on a video in
+          Facebook — it shows up here.
+        </p>
+      ) : (
         <>
           <div className="flex items-center justify-between pt-1">
             <span className="text-xs font-medium text-foreground">{items.length} transcript{items.length > 1 ? "s" : ""}</span>
             <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>clear all</button>
           </div>
-          {items.map((it) => (
-            <VideoCard
-              key={it.videoId}
-              it={it}
-              saved={savedIds.has(it.videoId)}
-              onToggleSave={() => toggleSave(it)}
-              onDelete={() => patchMap(TKEY, it.videoId, null)}
-            />
-          ))}
+          <Grid>
+            {items.map((it) => (
+              <VideoCard
+                key={it.videoId}
+                it={it}
+                saved={savedIds.has(it.videoId)}
+                onToggleSave={() => toggleSave(it)}
+                onDelete={() => patchMap(TKEY, it.videoId, null)}
+              />
+            ))}
+          </Grid>
         </>
       )}
     </div>
   );
 }
 
-// ---- Saved tab (grouped: platform → page) ----
+// ---- Saved tab (grouped: platform → page, each a 2-col grid) ----
 const PLATFORM_META = {
   facebook: { label: "Facebook", color: "#1877F2" },
   instagram: { label: "Instagram", color: "#E1306C" },
@@ -291,8 +263,7 @@ const PLATFORM_META = {
 
 export function SavedPanel() {
   const saved = useStore(SKEY);
-  const [collapsed, setCollapsed] = useState({}); // platform
-  const [collapsedPages, setCollapsedPages] = useState({}); // "platform|page"
+  const [collapsed, setCollapsed] = useState({});
 
   if (!saved.length) {
     return (
@@ -302,13 +273,10 @@ export function SavedPanel() {
     );
   }
 
-  // group: platform → page name → items
   const groups = {};
   for (const it of saved) {
     const p = it.platform || "facebook";
-    const page = it.author?.name || "Unknown";
-    (groups[p] ||= {});
-    (groups[p][page] ||= []).push(it);
+    (groups[p] ||= []).push(it);
   }
   const platforms = Object.keys(groups).sort();
 
@@ -323,8 +291,7 @@ export function SavedPanel() {
 
       {platforms.map((p) => {
         const meta = PLATFORM_META[p] || { label: p, color: "#888" };
-        const pages = groups[p];
-        const count = Object.values(pages).reduce((n, a) => n + a.length, 0);
+        const items = groups[p];
         const open = !collapsed[p];
         return (
           <div key={p} className="space-y-2">
@@ -332,35 +299,18 @@ export function SavedPanel() {
               onClick={() => setCollapsed((c) => ({ ...c, [p]: !c[p] }))}
               className="flex w-full items-center gap-2 text-left"
             >
-              <ChevronRight size={14} className={`transition-transform ${open ? "rotate-90" : ""}`} />
+              <ChevronDown size={14} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
               <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
               <span className="text-sm font-semibold text-foreground">{meta.label}</span>
-              <span className="text-[11px] text-muted-foreground">{count}</span>
+              <span className="text-[11px] text-muted-foreground">{items.length}</span>
             </button>
-
-            {open &&
-              Object.entries(pages)
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .map(([page, items]) => {
-                  const pkey = `${p}|${page}`;
-                  const pageOpen = !collapsedPages[pkey];
-                  return (
-                    <div key={page} className="ml-1.5 space-y-2 border-l border-border pl-2.5">
-                      <button
-                        onClick={() => setCollapsedPages((c) => ({ ...c, [pkey]: !c[pkey] }))}
-                        className="flex w-full items-center gap-1.5 text-left"
-                      >
-                        <ChevronRight size={12} className={`transition-transform ${pageOpen ? "rotate-90" : ""}`} />
-                        <span className="text-[11px] font-medium text-foreground/80">{page}</span>
-                        <span className="text-[11px] text-muted-foreground opacity-70">({items.length})</span>
-                      </button>
-                      {pageOpen &&
-                        items.map((it) => (
-                          <VideoCard key={it.videoId} it={it} saved onToggleSave={() => patchMap(SKEY, it.videoId, null)} />
-                        ))}
-                    </div>
-                  );
-                })}
+            {open && (
+              <Grid>
+                {items.map((it) => (
+                  <VideoCard key={it.videoId} it={it} saved onToggleSave={() => patchMap(SKEY, it.videoId, null)} />
+                ))}
+              </Grid>
+            )}
           </div>
         );
       })}

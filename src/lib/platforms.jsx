@@ -87,10 +87,10 @@ export const PLATFORMS = {
     id: "facebook",
     name: "Facebook",
     Glyph: FacebookGlyph,
-    // FB warmer is hashtag-only for now: scroll the tag feed and like posts.
-    // (Reels / Feed tabs removed — see platforms catalog history.)
-    defaultMode: "A",
-    modes: [{ ...MODE.A, label: "Hashtag" }],
+    // FB warmer: Reels (watch-full + random like, localized selectors) and
+    // Hashtag (scroll the tag feed and like posts). Feed tab still removed.
+    defaultMode: "C",
+    modes: [MODE.C, { ...MODE.A, label: "Hashtag" }],
     keywordPlaceholder: "e.g. tarotreading",
     theme: THEMES.facebook,
   },

@@ -76,7 +76,9 @@ import {
   const MAX_CONSEC_FOLLOWS = 5;
   const MAX_LIKES_PER_AUTHOR = 2; // per session — don't concentrate likes on one actor
   const MAX_LIKES_PER_HOUR = 60; // rolling rate ceiling (hard anti-runaway cap)
-  const LOVE_REACTION_CHANCE = 0.18; // of likes, send Love (❤️) instead of plain Like
+  // Commenting is far higher-risk than reacting — keep it rare and hard-capped.
+  const MAX_COMMENTS_PER_HOUR = 10; // rolling hard ceiling
+  const MAX_COMMENTS_PER_AUTHOR = 1; // never comment the same creator twice / session
   const SOFT_FAIL_LIMIT = 3; // reactions that click but don't register → soft-block backoff
   const SPAM_MIN = 0.34; // cosine to spam anchors above which a post is skipped
   const SEEN_KEY = "fbw_seen"; // cross-session post-id dedup (chrome.storage.local)
@@ -100,10 +102,16 @@ import {
       keyword: "",
       maxItems: 0,
       actions: { save: true, like: true, follow: false },
+      // Which of FB's reactions the warmer may send (weighted mix, Like dominant).
+      reactions: { like: true, love: true, haha: false, wow: false, care: false, sad: false, angry: false },
+      reactionCounts: {},
+      // Commenting (FB reels only, fully-watched only). phrases = plain strings,
+      // the whole list is the random pool; a comment lands rarely + capped.
+      commentSettings: { enabled: false, chance: 0.08, onlyFullyWatched: true, phrases: [] },
       englishOnly: false,
       relevanceMin: 0, // niche-relevance cosine gate for likes (0 = off)
       spamGuard: true, // skip scam/giveaway/spam posts (MiniLM anchor cosine)
-      deepRelevance: false, // transcribe video audio and fold into the relevance text
+      quickMode: false, // test mode: 3–10s dwell + short gaps, overrides watch pacing
       thresholds: { minLikes: 0, minComments: 0 },
       // Auto-capture: while warming, queue videos that clear these thresholds for
       // download/transcription and stash them in the Saved (favorites) tab.
@@ -132,15 +140,25 @@ import {
       loved: 0,
       followed: 0,
       skipped: 0,
+      commented: 0,
       // safety
       haltReason: null,
       missStreak: 0,
       consecLikes: 0,
       consecFollows: 0,
+      consecComments: 0,
       warmupPosts: 0, // first N posts of a session = lurk only, no actions
       likeTimes: [], // rolling like timestamps for the per-hour rate cap
       authorLikes: {}, // authorKey -> likes this session (per-author throttle)
+      commentTimes: [], // rolling comment timestamps for the per-hour comment cap
+      authorComments: {}, // authorKey -> comments this session (per-author cap)
+      commentedIds: new Set(), // reels commented this run (dedup)
+      lastPhrase: null, // never post the same phrase back-to-back
       softFailStreak: 0, // consecutive reactions that clicked but didn't register
+      // human realism (rolled once per session in start())
+      sessionIntensity: 1, // per-session engagement mood multiplier
+      browseOnly: false, // this whole session barely engages (just scrolls)
+      lastCursor: null, // last synthetic cursor {x,y} — curved moves start here
       // log ring buffer
       log: [],
       // runtime-only
@@ -159,6 +177,38 @@ import {
     S.log.push(entry);
     if (S.log.length > LOG_CAP) S.log.shift();
     console.log("[SW]", msg);
+    persist();
+  }
+
+  // ---- live progress log line ----
+  // A single log entry that counts up in place while a timed action runs (the
+  // panel polls the snapshot every 1s, so mutating the entry animates it), then
+  // gets a ✅ + final elapsed. Used for dwell so you can see how long is left.
+  function startProgress(icon, label, targetMs) {
+    const entry = {
+      t: Date.now(),
+      startedAt: Date.now(),
+      icon,
+      label,
+      targetMs: targetMs || 0,
+      live: true,
+      msg: `${icon} ${label} 0s${targetMs ? ` / ${Math.round(targetMs / 1000)}s` : ""}`,
+    };
+    S.log.push(entry);
+    if (S.log.length > LOG_CAP) S.log.shift();
+    return entry;
+  }
+  function tickProgress(entry) {
+    if (!entry || !entry.live) return;
+    const s = Math.floor((Date.now() - entry.startedAt) / 1000);
+    entry.msg = `${entry.icon} ${entry.label} ${s}s${entry.targetMs ? ` / ${Math.round(entry.targetMs / 1000)}s` : ""}`;
+  }
+  function endProgress(entry) {
+    if (!entry) return;
+    const s = Math.max(1, Math.round((Date.now() - entry.startedAt) / 1000));
+    entry.live = false;
+    entry.msg = `✅ ${entry.label} ${s}s`;
+    console.log("[SW]", entry.msg);
     persist();
   }
 
@@ -191,10 +241,14 @@ import {
           keyword: S.keyword,
           maxItems: S.maxItems,
           actions: S.actions,
+          reactions: S.reactions,
+          reactionCounts: S.reactionCounts,
+          commentSettings: S.commentSettings,
+          commented: S.commented,
           englishOnly: S.englishOnly,
           relevanceMin: S.relevanceMin,
           spamGuard: S.spamGuard,
-          deepRelevance: S.deepRelevance,
+          quickMode: S.quickMode,
           warmupPosts: S.warmupPosts,
           pacing: S.pacing,
           thresholds: S.thresholds,
@@ -207,6 +261,7 @@ import {
           loved: S.loved,
           followed: S.followed,
           skipped: S.skipped,
+          commented: S.commented,
           haltReason: S.haltReason,
           log: S.log.slice(-LOG_CAP),
           savedAt: Date.now(),
@@ -232,6 +287,8 @@ import {
       saved: S.saved,
       liked: S.liked,
       loved: S.loved,
+      reactionCounts: S.reactionCounts,
+      commented: S.commented,
       followed: S.followed,
       skipped: S.skipped,
       personality: S.personalityMode
@@ -397,27 +454,63 @@ import {
     return 1.0;
   }
   const actionGap = () =>
-    sleep(Math.round(rand(S.pacing.minDelay, S.pacing.maxDelay) * circadian()));
+    S.quickMode
+      ? sleep(rand(1000, 2500)) // test mode: keep the loop moving
+      : sleep(Math.round(rand(S.pacing.minDelay, S.pacing.maxDelay) * circadian()));
   const watchFraction = () => {
     const p = persona();
     return p.watchMin + Math.random() * (p.watchMax - p.watchMin);
   };
-  // Dwell on the active video for a personality-driven fraction of its length;
-  // fall back to the plain random dwell range when no duration is readable.
-  async function reelDwell() {
-    const vid = igActiveVideo(); // generic: nearest playing/centered <video>
+  // Reels rails mix long-form video in (a 60s+ clip, even 20-min "reels") — a
+  // human doesn't sit through those. Watch-full ("stay to the end") only applies
+  // to genuinely short reels; longer items fall back to the fraction dwell. And
+  // no single item ever dwells past MAX_DWELL_MS — that was the 60–100s stall.
+  const WATCH_FULL_MAX_SEC = 40;
+  const MAX_DWELL_MS = 30000;
+  // Dwell on the active video: watch-full adapters stay for the whole remaining
+  // runtime; otherwise a personality-driven fraction of its length. Falls back
+  // to the plain random dwell range when no duration is readable. Prefers the
+  // active container's <video> — document-order lookups hit stale reel cards.
+  // Returns true when the item was watched (near-)fully — the signal that gates
+  // commenting. Quick mode + fraction/long-form watches return false.
+  async function reelDwell(A, c) {
+    if (S.quickMode) {
+      const dwell = rand(3000, 10000);
+      const prog = startProgress("⚡", "quick dwell", dwell);
+      const t0 = Date.now();
+      while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) {
+        tickProgress(prog);
+        await sleep(400);
+      }
+      endProgress(prog);
+      return false;
+    }
+    const vid =
+      (c && c.querySelector && c.querySelector("video")) || igActiveVideo();
     let dwell = null;
     let frac = null;
+    let full = false;
     if (vid && isFinite(vid.duration) && vid.duration > 0) {
-      frac = watchFraction();
-      dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+      if (A?.watchFull && vid.duration <= WATCH_FULL_MAX_SEC) {
+        const remaining = Math.max(0, vid.duration - vid.currentTime) * 1000;
+        dwell = Math.max(2000, Math.round(remaining + rand(400, 1200)));
+        full = dwell <= MAX_DWELL_MS; // a genuine full watch (short reel, not capped)
+      } else {
+        frac = watchFraction();
+        dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
+      }
     }
     if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
-    logLine(
-      `👀 dwell ~${Math.round(dwell / 1000)}s${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
-    );
+    if (dwell > MAX_DWELL_MS) { dwell = MAX_DWELL_MS; full = false; }
+    const label = `dwell${frac != null ? ` (${Math.round(frac * 100)}%)` : full ? " (full)" : ""}`;
+    const prog = startProgress("👀", label, dwell);
     const t0 = Date.now();
-    while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) await sleep(400);
+    while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) {
+      tickProgress(prog); // count up in place (panel poll animates it)
+      await sleep(400);
+    }
+    endProgress(prog); // ✅ + final elapsed
+    return full;
   }
   async function waitWhilePaused() {
     while (S.isRunning && S.isPaused) await sleep(500);
@@ -473,6 +566,50 @@ import {
   }
 
   // ---- synthetic pointer realism (avoid bare el.click(), the #1 bot tell) ----
+  // Curved cursor travel — dispatch a trail of mousemove events along a quadratic
+  // bezier from the last cursor position to the target, with ease-in-out timing,
+  // jitter, and a slight overshoot-and-correct. People don't teleport the pointer
+  // in a straight line. Movement events go to `document` (bubbling) so passing the
+  // cursor over intermediate elements can't accidentally trip their hover handlers
+  // (e.g. reopen a reaction picker mid-flight).
+  async function moveCursorTo(el) {
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    const tx = r.left + r.width * (0.3 + Math.random() * 0.4);
+    const ty = r.top + r.height * (0.3 + Math.random() * 0.4);
+    const from = S.lastCursor || {
+      x: tx + rand(-320, 320),
+      y: ty + rand(-260, 260),
+    };
+    const dist = Math.hypot(tx - from.x, ty - from.y);
+    if (dist < 6) { S.lastCursor = { x: tx, y: ty }; return; }
+    // control point offset perpendicular-ish to the path → a visible arc
+    const cx = (from.x + tx) / 2 + rand(-90, 90);
+    const cy = (from.y + ty) / 2 + rand(-90, 90);
+    const steps = Math.min(22, Math.max(6, Math.round(dist / 28)));
+    const fire = (x, y) => {
+      const o = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, pointerType: "mouse" };
+      document.dispatchEvent(new PointerEvent("pointermove", { ...o, pointerId: 1 }));
+      document.dispatchEvent(new MouseEvent("mousemove", o));
+    };
+    for (let i = 1; i <= steps; i++) {
+      const u = i / steps;
+      const e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; // ease-in-out
+      const mt = 1 - e;
+      const x = mt * mt * from.x + 2 * mt * e * cx + e * e * tx + rand(-2, 2);
+      const y = mt * mt * from.y + 2 * mt * e * cy + e * e * ty + rand(-2, 2);
+      fire(x, y);
+      await sleep(rand(6, 22));
+    }
+    // occasional overshoot then settle back onto the target
+    if (Math.random() < 0.35) {
+      fire(tx + rand(4, 14), ty + rand(-6, 6));
+      await sleep(rand(30, 80));
+      fire(tx, ty);
+    }
+    S.lastCursor = { x: tx, y: ty };
+  }
+
   function pointAt(el) {
     const r = el.getBoundingClientRect();
     const x = r.left + r.width * (0.32 + Math.random() * 0.36);
@@ -485,12 +622,31 @@ import {
       view: window,
     };
   }
-  async function humanHover(el) {
-    const o = pointAt(el);
+  // Fire a full hover-in sequence WITHOUT the dwell — enter events included, so
+  // React/FB register the element as hovered (the reaction picker highlights the
+  // chip under the pointer, which is what its click commits).
+  function hoverEvents(el) {
+    const o = { ...pointAt(el), pointerType: "mouse" };
     el.dispatchEvent(new PointerEvent("pointerover", { ...o, pointerId: 1 }));
+    el.dispatchEvent(new PointerEvent("pointerenter", { ...o, pointerId: 1 }));
     el.dispatchEvent(new MouseEvent("mouseover", o));
+    el.dispatchEvent(new MouseEvent("mouseenter", o));
     el.dispatchEvent(new MouseEvent("mousemove", o));
+  }
+  async function humanHover(el) {
+    await moveCursorTo(el); // travel the cursor over before settling on the target
+    hoverEvents(el);
     await sleep(rand(500, 1100));
+  }
+  // Press + release on an element that's already hovered — no extra dwell. Used
+  // for reaction chips, where a slow hover lets FB's picker close before the click.
+  function pressRelease(el) {
+    const o = pointAt(el);
+    el.dispatchEvent(new PointerEvent("pointerdown", { ...o, pointerId: 1, button: 0 }));
+    el.dispatchEvent(new MouseEvent("mousedown", { ...o, button: 0 }));
+    el.dispatchEvent(new PointerEvent("pointerup", { ...o, pointerId: 1, button: 0 }));
+    el.dispatchEvent(new MouseEvent("mouseup", { ...o, button: 0 }));
+    el.click();
   }
   async function humanClick(el) {
     await humanHover(el);
@@ -508,9 +664,74 @@ import {
   }
 
   // ============================================================
+  // HUMAN REALISM — session mood, engagement curve, idle, feints
+  // ============================================================
+  // Roll the session's "mood" once at start. ~1 in 6 sessions is browse-only
+  // (barely engages — a person just scrolling); the rest get an intensity
+  // multiplier so no two sessions have the same like-rate.
+  function rollSessionMood() {
+    S.browseOnly = Math.random() < 0.16;
+    S.sessionIntensity = S.browseOnly
+      ? rand(15, 25) / 100 // 0.15–0.25
+      : rand(60, 135) / 100; // 0.60–1.35
+    S.lastCursor = null;
+  }
+
+  // 0..1 curve over the session: low at the edges, peaks mid-session — people
+  // warm up, then wind down; engagement isn't a flat rate. Falls back to 1 with
+  // no clock. Raised half-sine: 0.35 at the ends → 1.0 at the midpoint.
+  function engageCurve() {
+    if (!S.startedAt || !S.willEndAt) return 1;
+    const total = S.willEndAt - S.startedAt;
+    if (total <= 0) return 1;
+    const t = Math.min(1, Math.max(0, (Date.now() - S.startedAt) / total));
+    return 0.35 + 0.65 * Math.sin(Math.PI * t);
+  }
+
+  // Scale any base engagement probability by the session mood × curve.
+  function engageScale(base) {
+    return Math.max(0, Math.min(1, base * S.sessionIntensity * engageCurve()));
+  }
+
+  // Rarely go idle between items — "got distracted / phone rang". Reuses the live
+  // progress line so the log shows the countdown. Respects stop/pause; skipped if
+  // the session would end during the idle.
+  async function maybeIdle() {
+    if (Math.random() >= 0.045) return;
+    const ms = rand(18000, 85000);
+    if (S.willEndAt && Date.now() + ms >= S.willEndAt) return;
+    const prog = startProgress("💤", "idle", ms);
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms && S.isRunning && !S.isPaused) {
+      tickProgress(prog);
+      await sleep(500);
+    }
+    endProgress(prog);
+  }
+
+  // "Almost acted" feint — hover the like control, consider, then drift away
+  // without clicking. A person who looked but didn't react. Returns true if it
+  // ran (so the caller can count it as a browse, not a miss).
+  async function maybeFeint(likeBtn) {
+    if (!likeBtn || Math.random() >= 0.09) return false;
+    await moveCursorTo(likeBtn);
+    hoverEvents(likeBtn);
+    await sleep(rand(500, 1500));
+    likeBtn.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    likeBtn.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerId: 1 }));
+    logLine("· hovered, didn't react");
+    return true;
+  }
+
+  // ============================================================
   // FACEBOOK adapters — all [VERIFIED] live
   // ============================================================
-  // -- reels (Mode C) --
+  // -- reels (Mode C) -- [VERIFIED live: pt-br, 2026-07-11]
+  // Reel action-bar labels are LOCALIZED ("Curtir"/"Like") — matched with the
+  // same exact-membership sets as posts (FB_LIKE_WORDS & co below; runtime-only
+  // references, so the later declaration is fine). The "Change Position" slider
+  // aria-label is NOT localized and anchors the ACTIVE card: FB keeps previous
+  // cards in the DOM above the viewport, so document-order queries hit stale reels.
   function fbActiveReelContainer() {
     const slider = document.querySelector(
       'div[role="slider"][aria-label="Change Position"]',
@@ -518,28 +739,16 @@ import {
     if (!slider) return null;
     let n = slider;
     while (n && n !== document.body) {
-      if (
-        n.querySelector(
-          'div[role="button"][aria-label="Like"], div[role="button"][aria-label="Remove Like"]',
-        )
-      )
-        return n;
+      if (fbBarLikeBtn(n)) return n;
       n = n.parentElement;
     }
     return null;
   }
-  function fbReelLikeButton(c) {
-    return (c || document).querySelector(
-      'div[role="button"][aria-label="Like"], div[role="button"][aria-label="Remove Like"]',
-    );
-  }
-  const fbReelIsLiked = (c) => {
-    const b = fbReelLikeButton(c);
-    return !!b && /remove like/i.test(b.getAttribute("aria-label") || "");
-  };
-  async function fbSaveReel() {
+  const fbReelLikeButton = (c) => fbBarLikeBtn(c || document);
+  const fbReelIsLiked = (c) => fbIsLikedBtn(fbReelLikeButton(c));
+  async function fbSaveReel(c) {
     const kebab = Array.from(
-      document.querySelectorAll(
+      (c || document).querySelectorAll(
         '[role="button"][aria-label="Menu"][aria-haspopup="menu"]',
       ),
     ).find(visible);
@@ -551,7 +760,11 @@ import {
     );
     if (!menu) return false;
     await sleep(rand(200, 500));
-    const item = byRoleName("menuitem", /^save reel/i, menu);
+    const item = byRoleName(
+      "menuitem",
+      /^(save|salvar|guardar|salva)\s+reel/i,
+      menu,
+    );
     if (!item) {
       document.body.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -566,16 +779,28 @@ import {
     return true;
   }
   async function fbFollowAuthor(root) {
-    const btn = byRoleName("button", /^follow\b/i, root || document);
+    const btn = byRoleName(
+      "button",
+      /^(follow|seguir|suivre|segui)\b/i,
+      root || document,
+    );
     if (!btn || !visible(btn)) return false;
     btn.click();
     await sleep(rand(300, 700));
     return true;
   }
+  // Advance = SPA soft-nav to the next /reel/<id>; the URL changes, scrollY stays 0.
+  const FB_NEXT_CARD = [
+    "next card",
+    "próximo cartão",
+    "siguiente tarjeta",
+    "carte suivante",
+    "scheda successiva",
+  ];
   function fbNextReel() {
-    const btn = document.querySelector(
-      'div[role="button"][aria-label="Next Card"]',
-    );
+    const btn = Array.from(
+      document.querySelectorAll('div[role="button"][aria-label]'),
+    ).find((b) => FB_NEXT_CARD.includes(fbAria(b)) && visible(b));
     if (btn) {
       btn.click();
       return true;
@@ -590,9 +815,12 @@ import {
     getContainer: fbActiveReelContainer,
     likeBtn: fbReelLikeButton,
     isLiked: fbReelIsLiked,
-    save: () => fbSaveReel(),
+    save: (c) => fbSaveReel(c),
     follow: (c) => fbFollowAuthor(c),
     advance: fbNextReel,
+    watchFull: true, // dwell the reel's whole runtime (long-form falls back to fraction)
+    reactable: true, // FB reels support the full reaction picker (not just Like)
+    commentable: true, // FB reels have an inline comment composer
   };
 
   // -- hashtag / search posts (Mode A) -- [VERIFIED live: pt-br + en, 2026-06-20]
@@ -612,6 +840,8 @@ import {
   const FB_UNLIKE_WORDS = [
     "remove like",
     "remover curtir",
+    "descurtir", // reels use the shorter unlike label
+    "unlike",
     "ya no me gusta",
     "je n’aime plus",
     "non mi piace più",
@@ -655,14 +885,24 @@ import {
       ) || null
     );
   }
-  const FB_LOVE_WORDS = [
-    "amei",
-    "love",
-    "me encanta",
-    "j’adore",
-    "j'adore",
-    "adoro",
-  ];
+  // FB's 7 reactions. [VERIFIED live pt-br 2026-07-12]: hovering the like control
+  // opens a picker of 39×39 chips whose accessible names are LOCALIZED —
+  // Curtir · Amei · Força · Haha · Uau · Triste · Grr. Synthetic pointer events
+  // (which is all a content script can send) DO open it, so the warmer can pick
+  // any reaction, not just Like.
+  //
+  // `weight` = how often a human reaches for it, used to mix the reactions the
+  // user enabled (Like dominates; anger/sadness are rare on a warming account).
+  const FB_REACTIONS = {
+    like:  { emoji: "👍", weight: 60, words: ["like", "curtir", "me gusta", "j’aime", "j'aime", "mi piace", "gefällt mir"] },
+    love:  { emoji: "❤️", weight: 20, words: ["love", "amei", "me encanta", "j’adore", "j'adore", "adoro"] },
+    haha:  { emoji: "😆", weight: 8,  words: ["haha", "ahah"] },
+    wow:   { emoji: "😮", weight: 6,  words: ["wow", "uau", "me asombra", "waouh"] },
+    care:  { emoji: "🤗", weight: 4,  words: ["care", "força", "me importa", "solidaire", "abbraccio"] },
+    sad:   { emoji: "😢", weight: 1,  words: ["sad", "triste", "me entristece"] },
+    angry: { emoji: "😡", weight: 1,  words: ["angry", "grr", "grrr", "me enoja"] },
+  };
+  const REACTION_KEYS = Object.keys(FB_REACTIONS);
   // Stable per-author key (profile id or slug) for the per-author like throttle.
   function fbAuthorKey(root) {
     const a = root.querySelector(
@@ -694,32 +934,22 @@ import {
       hsh = ((hsh << 5) + hsh + s.charCodeAt(i)) | 0;
     return "h:" + (hsh >>> 0).toString(36);
   }
-  // Posts are the direct children of [role="feed"] that carry a like control.
-  function fbEnumeratePosts() {
-    const feed = document.querySelector('[role="feed"]');
-    if (!feed) return [];
-    const posts = [];
-    for (const child of feed.children) {
-      const likeBtn = fbBarLikeBtn(child);
-      if (!likeBtn) continue;
-      const menuBtn =
-        Array.from(child.querySelectorAll('[role="button"][aria-label]')).find(
-          (b) => FB_MENU_PREFIX.some((w) => fbAria(b).startsWith(w)),
-        ) || null;
-      posts.push({
-        bar: child,
-        root: child,
-        likeBtn,
-        menuBtn,
-        authorKey: fbAuthorKey(child),
-        postKey: fbPostKey(child),
-      });
-    }
-    return posts;
-  }
+  const FB_SPONSORED_WORDS = [
+    "sponsored",
+    "patrocinado",
+    "publicidad",
+    "sponsorisé",
+    "sponsorizzato",
+    "gesponsert",
+  ];
   function fbIsSponsored(root) {
     for (const e of root.querySelectorAll("a, span"))
-      if ((e.textContent || "").trim() === "Sponsored") return true;
+      if (
+        FB_SPONSORED_WORDS.includes(
+          (e.textContent || "").trim().toLowerCase(),
+        )
+      )
+        return true;
     return false;
   }
   // FB scrambles a post's real text with decoy nodes — most often the word
@@ -789,24 +1019,49 @@ import {
     "commenta",
   ];
   function fbPostStats(p) {
+    // Re-query the like control — FB's windowed hydration can swap a post's
+    // inner nodes between enumeration and use, leaving p.likeBtn detached.
+    const likeBtn = fbBarLikeBtn(p.root) || p.likeBtn;
     const cb = Array.from(
       p.root.querySelectorAll('[role="button"][aria-label]'),
     ).find((b) => FB_COMMENT_WORDS.includes(fbAria(b)));
     return {
-      likes: parseCount(p.likeBtn && p.likeBtn.innerText),
+      likes: parseCount(likeBtn && likeBtn.innerText),
       comments: parseCount(cb && cb.innerText),
     };
   }
+  // Posts are the direct children of [role="feed"] carrying a like control. FB's
+  // feed only grows (children are never removed), so this gates on the CHEAP
+  // checks first — has-like-control, then in-viewport — and only computes the
+  // expensive keys (post/author id, menu) for the one in-view candidate it
+  // returns. Enumerating + hashing every accumulated child each pick was O(N)
+  // on a feed that keeps growing.
   function fbPickPost() {
-    for (const p of fbEnumeratePosts()) {
-      if (p.postKey && S.seenIds.has(p.postKey)) continue;
-      if (!inViewport(p.likeBtn)) continue;
-      if (fbIsSponsored(p.root)) {
-        if (p.postKey) S.seenIds.add(p.postKey);
+    const feed = document.querySelector('[role="feed"]');
+    if (!feed) return null;
+    for (const child of feed.children) {
+      const likeBtn = fbBarLikeBtn(child);
+      if (!likeBtn) continue; // not a post
+      if (!inViewport(likeBtn)) continue; // off-screen — skip before any hashing
+      const postKey = fbPostKey(child);
+      if (postKey && S.seenIds.has(postKey)) continue;
+      if (fbIsSponsored(child)) {
+        if (postKey) S.seenIds.add(postKey);
         S.skipped++;
         continue;
       }
-      return p;
+      const menuBtn =
+        Array.from(child.querySelectorAll('[role="button"][aria-label]')).find(
+          (b) => FB_MENU_PREFIX.some((w) => fbAria(b).startsWith(w)),
+        ) || null;
+      return {
+        bar: child,
+        root: child,
+        likeBtn,
+        menuBtn,
+        authorKey: fbAuthorKey(child),
+        postKey,
+      };
     }
     return null;
   }
@@ -878,64 +1133,6 @@ import {
       }
     });
   }
-  // Quick partial transcript of the in-view video (background resolves the captured
-  // fbcdn audio track → offscreen Whisper, ~12s cap). Empty string on any failure.
-  // franc (ISO 639-3) → Whisper language name, for the quick-transcript speed hint.
-  // Unknown / undetermined → null (let Whisper auto-detect).
-  const WHISPER_LANG = {
-    por: "portuguese",
-    eng: "english",
-    spa: "spanish",
-    fra: "french",
-    ita: "italian",
-    deu: "german",
-    nld: "dutch",
-    rus: "russian",
-    jpn: "japanese",
-    kor: "korean",
-    cmn: "chinese",
-    arb: "arabic",
-    hin: "hindi",
-    ind: "indonesian",
-    tur: "turkish",
-  };
-  function whisperLangFor(text) {
-    const t = (text || "").trim();
-    if (t.length < 12) return null;
-    return WHISPER_LANG[franc(t, { minLength: 12 })] || null;
-  }
-  function getQuickTranscript(candidates, lang) {
-    return new Promise((resolve) => {
-      try {
-        chrome.runtime.sendMessage(
-          { type: "FBW_QUICK_TRANSCRIBE", candidates, lang },
-          (res) => {
-            if (chrome.runtime.lastError) return resolve("");
-            resolve(res?.text || "");
-          },
-        );
-      } catch {
-        resolve("");
-      }
-    });
-  }
-  // Numeric media-id candidates from a post — the background intersects them with
-  // the fbcdn tracks it captured to target THIS video's audio, not a prefetched
-  // neighbour's. Mirrors grabVideoIdCandidates in the transcription content script.
-  function fbVideoIdCandidates(root) {
-    if (!root) return [];
-    const ids = new Set();
-    for (const a of root.querySelectorAll("a[href]")) {
-      const m = (a.getAttribute("href") || "").match(
-        /[?&]v=(\d+)|\/videos\/(\d+)|\/reel\/(\d+)/,
-      );
-      if (m) ids.add(m[1] || m[2] || m[3]);
-    }
-    const big = (root.outerHTML || "").match(/\d{15,19}/g);
-    if (big) for (const n of big.slice(0, 40)) ids.add(n);
-    return Array.from(ids);
-  }
-
   // ---- cross-session dedup (chrome.storage.local — NOT the page's IndexedDB) ----
   let seenSaveTimer = null;
   function persistSeen() {
@@ -1031,58 +1228,185 @@ import {
     }
     let dwell = null;
     let frac = null;
-    if (isFinite(vid.duration) && vid.duration > 0) {
+    if (S.quickMode) {
+      dwell = rand(3000, 10000);
+    } else if (isFinite(vid.duration) && vid.duration > 0) {
       frac = watchFraction();
       dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
       const remaining = Math.max(2000, (vid.duration - vid.currentTime) * 1000);
       dwell = Math.min(dwell, remaining);
     }
     if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
-    logLine(
-      `▶ watching video ~${Math.round(dwell / 1000)}s${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
+    dwell = Math.min(dwell, MAX_DWELL_MS);
+    const prog = startProgress(
+      "▶",
+      `watching${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
+      dwell,
     );
     const t0 = Date.now();
-    while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused)
+    while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) {
+      tickProgress(prog);
       await sleep(400);
+    }
+    endProgress(prog);
   }
 
-  // Plain Like via a synthetic pointer sequence (not bare el.click()).
-  async function fbReactLike(p) {
-    const btn = fbBarLikeBtn(p.root);
-    if (!btn) return false;
-    await humanClick(btn);
-    await sleep(rand(300, 600));
-    return fbIsLikedBtn(fbBarLikeBtn(p.root));
+  // A reaction chip inside the open picker: a small square (≈39px) whose
+  // accessible name matches the reaction's localized words. The size gate keeps
+  // us off the action-bar button and the reaction-count tooltips, which share
+  // the same words.
+  function fbPickerChip(key) {
+    const words = FB_REACTIONS[key].words;
+    return Array.from(
+      document.querySelectorAll('[role="button"][aria-label]'),
+    ).find((b) => {
+      if (!words.includes(fbAria(b))) return false;
+      const r = b.getBoundingClientRect();
+      return r.width >= 24 && r.width <= 70 && r.height >= 24 && r.height <= 70;
+    });
   }
-  // Love (❤️): hover the like control to open the reaction picker, click "Amei".
-  // Falls back to a plain Like if the picker doesn't surface.
-  async function fbReactLove(p) {
+  // React with ANY of FB's reactions. "like" is the plain action-bar click;
+  // everything else hovers the like control to open the picker (synthetic hover
+  // is enough — verified live) and clicks the chip. Falls back to a plain Like
+  // if the picker never surfaces, so a run never stalls on a missing picker.
+  // Returns the reaction key that actually landed, or false. (A picker miss
+  // degrades to "like", so the caller counts what really happened.)
+  async function fbReactWith(p, key) {
     const btn = fbBarLikeBtn(p.root);
     if (!btn) return false;
-    await humanHover(btn);
-    const love = await waitFor(
-      () =>
-        Array.from(
-          document.querySelectorAll('[role="button"][aria-label]'),
-        ).find((b) => {
-          const r = b.getBoundingClientRect();
-          return (
-            FB_LOVE_WORDS.includes(fbAria(b)) &&
-            r.width > 0 &&
-            r.width < 80 &&
-            r.height > 0
-          );
-        }),
-      2500,
-    );
-    if (!love) {
+    if (key === "like") {
       await humanClick(btn);
       await sleep(rand(300, 600));
-      return fbIsLikedBtn(fbBarLikeBtn(p.root));
+      return fbIsLikedBtn(fbBarLikeBtn(p.root)) ? "like" : false;
     }
-    await humanClick(love);
-    await sleep(rand(400, 800));
-    return fbIsLikedBtn(fbBarLikeBtn(p.root));
+    // Open the picker by hovering the like control, then move onto the chip and
+    // click it QUICKLY — a slow hover (humanClick's built-in dwell) let FB's
+    // picker close/deselect, so the click committed a plain Like instead.
+    await humanHover(btn);
+    const chip = await waitFor(() => fbPickerChip(key), 2500);
+    if (chip) {
+      hoverEvents(chip); // highlight the chip (enter events)
+      await sleep(rand(120, 280)); // brief — keep the picker alive
+      hoverEvents(chip); // a second move so FB keeps it under the pointer
+      pressRelease(chip); // immediate click, no extra dwell
+      await sleep(rand(500, 900));
+      if (fbIsLikedBtn(fbBarLikeBtn(p.root))) return key; // reaction landed
+    }
+    // Picker never opened, or the chip didn't register → degrade to a plain Like
+    // (which reliably works) so the engagement still lands and we never mistake a
+    // reaction-picker hiccup for a soft-block.
+    const like = fbBarLikeBtn(p.root);
+    if (like && !fbIsLikedBtn(like)) {
+      await humanClick(like);
+      await sleep(rand(300, 600));
+    }
+    return fbIsLikedBtn(fbBarLikeBtn(p.root)) ? "like" : false;
+  }
+  // Weighted pick among the reactions the user enabled (falls back to Like).
+  function pickReaction() {
+    const enabled = REACTION_KEYS.filter((k) => S.reactions?.[k]);
+    if (!enabled.length) return "like";
+    const total = enabled.reduce((n, k) => n + FB_REACTIONS[k].weight, 0);
+    let roll = Math.random() * total;
+    for (const k of enabled) {
+      roll -= FB_REACTIONS[k].weight;
+      if (roll <= 0) return k;
+    }
+    return enabled[enabled.length - 1];
+  }
+
+  // ---------- commenting (FB reels) ----------
+  // Random phrase from the user's pool; avoid repeating the immediately-previous one.
+  function pickPhrase() {
+    const pool = (S.commentSettings.phrases || []).filter((t) => t && t.trim());
+    if (!pool.length) return null;
+    if (pool.length === 1) return pool[0];
+    let t = pool[Math.floor(Math.random() * pool.length)];
+    if (t === S.lastPhrase) t = pool[Math.floor(Math.random() * pool.length)];
+    return t;
+  }
+  // The reel's comment button (right rail). aria-label is localized; its innerText
+  // is the comment count. [VERIFIED live pt-br 2026-07-12]
+  const FB_COMMENT_BTN = [
+    "comment",
+    "comentar",
+    "comentario",
+    "comentário",
+    "commenter",
+    "commenta",
+    "kommentieren",
+  ];
+  function fbReelCommentBtn() {
+    return Array.from(
+      document.querySelectorAll('[role="button"][aria-label]'),
+    ).find((b) => FB_COMMENT_BTN.includes(fbAria(b)) && visible(b));
+  }
+  // Reel author from the "Seguir/Follow <name>" button — the per-author comment key.
+  function fbReelAuthorName(root) {
+    for (const b of (root || document).querySelectorAll(
+      '[role="button"][aria-label]',
+    )) {
+      const m = fbAria(b).match(/^(?:follow|seguir|suivre|segui|following|seguindo)\s+(.+)$/);
+      if (m) return "name:" + m[1].slice(0, 40);
+    }
+    return null;
+  }
+  // The Lexical composer that opens under the reel when the comment button is
+  // toggled on. contenteditable + data-lexical-editor. [VERIFIED live]
+  function fbCommentBox() {
+    return Array.from(
+      document.querySelectorAll(
+        '[role="textbox"][contenteditable="true"][data-lexical-editor="true"]',
+      ),
+    ).find(visible);
+  }
+  const FB_POST_COMMENT = [
+    "post comment",
+    "postar comentário",
+    "publicar comentario",
+    "publicar comentário",
+    "publier le commentaire",
+    "pubblica commento",
+  ];
+  function fbPostCommentBtn() {
+    return Array.from(
+      document.querySelectorAll('[role="button"][aria-label]'),
+    ).find((b) => FB_POST_COMMENT.includes(fbAria(b)) && visible(b));
+  }
+  // Type into the Lexical editor with a human cadence, then post. Confirms by the
+  // editor clearing (the rail count doesn't update live). Closes the composer on
+  // its way out. Returns true only when the comment posted.
+  async function fbCommentReel(text) {
+    const openBtn = fbReelCommentBtn();
+    if (!openBtn) return false;
+    await humanClick(openBtn); // toggles the inline composer open
+    const box = await waitFor(fbCommentBox, 3500);
+    if (!box) return false;
+    box.focus();
+    await sleep(rand(250, 500));
+    // Type it out — execCommand('insertText') is the reliable Lexical path;
+    // chunked with small gaps so it reads as typed, not pasted.
+    for (const ch of text) {
+      document.execCommand("insertText", false, ch);
+      await sleep(rand(35, 90));
+    }
+    await sleep(rand(400, 900)); // a beat before sending
+    const post = await waitFor(fbPostCommentBtn, 2500);
+    if (!post) {
+      // couldn't find Send — close the composer (toggle) and bail
+      const c = fbReelCommentBtn();
+      if (c) await humanClick(c);
+      return false;
+    }
+    await humanClick(post);
+    // Success = the editor clears. Then collapse the composer to return to the flow.
+    const ok = await waitFor(() => {
+      const b = fbCommentBox();
+      return !b || !(b.innerText || "").trim();
+    }, 3500);
+    const closeBtn = fbReelCommentBtn();
+    if (closeBtn) await humanClick(closeBtn);
+    return !!ok;
   }
 
   // Mode A on Facebook is LIKE-ONLY (scroll + watch + like/love). Organic pacing:
@@ -1111,25 +1435,14 @@ import {
     }
 
     const per = persona();
-    if (Math.random() >= per.engageChance) {
-      logLine(
-        `· browsed only (engage dice ${Math.round(per.engageChance * 100)}%)`,
-      );
+    const engage = engageScale(per.engageChance); // × session mood × curve
+    if (Math.random() >= engage) {
+      if (!(await maybeFeint(fbBarLikeBtn(p.root))))
+        logLine(`· browsed only (engage ${Math.round(engage * 100)}%)`);
       return;
     }
 
-    // Build the relevance text: caption, optionally + a quick video transcript.
-    let relText = fbGetPostText(p.root);
-    if (S.deepRelevance && p.root.querySelector("video")) {
-      const tx = await getQuickTranscript(
-        fbVideoIdCandidates(p.root),
-        whisperLangFor(relText),
-      );
-      if (tx) {
-        relText = (relText + " " + tx).trim();
-        logLine(`· +transcript (${tx.length}c)`);
-      }
-    }
+    const relText = fbGetPostText(p.root);
 
     // One round-trip: niche cosine (+ spam cosine when guarding).
     let likeChance = per.likeChance;
@@ -1167,7 +1480,8 @@ import {
       logLine(`· no react (dice ${Math.round(likeChance * 100)}%)`);
       return;
     }
-    if (fbIsLikedBtn(p.likeBtn)) {
+    // Fresh query — the enumerated node may have been swapped by re-hydration.
+    if (fbIsLikedBtn(fbBarLikeBtn(p.root))) {
       logLine("· already reacted");
       return;
     }
@@ -1196,17 +1510,21 @@ import {
     // Read-before-react: a human watches, then decides.
     await sleep(rand(900, 2500));
 
-    const useLove = Math.random() < LOVE_REACTION_CHANCE;
-    const ok = await (useLove ? fbReactLove(p) : fbReactLike(p));
-    if (ok) {
+    // Pick a reaction from the ones the user enabled (weighted; Like dominates).
+    const want = pickReaction();
+    const got = await fbReactWith(p, want);
+    if (got) {
       S.consecLikes++;
       S.likeTimes.push(Date.now());
       S.softFailStreak = 0;
-      if (useLove) S.loved++;
-      else S.liked++;
+      S.reactionCounts[got] = (S.reactionCounts[got] || 0) + 1;
+      if (got === "like") S.liked++;
+      else if (got === "love") S.loved++;
       if (p.authorKey)
         S.authorLikes[p.authorKey] = (S.authorLikes[p.authorKey] || 0) + 1;
-      logLine(useLove ? "❤️ loved post" : "👍 liked post");
+      logLine(
+        `${FB_REACTIONS[got].emoji} reacted ${got}${got !== want ? ` (picker missed ${want})` : ""}`,
+      );
     } else {
       S.softFailStreak++;
       logLine(
@@ -1269,6 +1587,11 @@ import {
         () => {},
       );
     let emptyScrolls = 0;
+    // Feed children only ever grow (batches of ~8 per pagination fetch); posts
+    // hydrate lazily near the viewport. A growing child count during an empty
+    // stretch means pagination/hydration is in flight — progress, not selector
+    // loss — so it resets the empty-scroll counter instead of accruing misses.
+    let lastFeedCount = 0;
     try {
       while (shouldContinue(S)) {
         await waitWhilePaused();
@@ -1278,6 +1601,12 @@ import {
 
         const p = fbPickPost();
         if (!p) {
+          const feedCount =
+            document.querySelector('[role="feed"]')?.children.length || 0;
+          if (feedCount > lastFeedCount) {
+            lastFeedCount = feedCount;
+            emptyScrolls = 0;
+          }
           humanScroll();
           await sleep(rand(1200, 2600));
           if (++emptyScrolls > 10) {
@@ -1308,6 +1637,7 @@ import {
         logLine(`✓ post ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
         persist();
         await actionGap();
+        await maybeIdle(); // rare "got distracted" pause
         await scrollBurst(1, 3);
       }
       if (S.isRunning) finishRun();
@@ -1651,7 +1981,7 @@ import {
   // ============================================================
   // generic video/reel loop (used by FB reels, IG, TikTok)
   // ============================================================
-  async function doVideoActions(A, c) {
+  async function doVideoActions(A, c, watchedFull) {
     const per = persona();
     if (S.actions.save) {
       const ok = await A.save(c);
@@ -1661,20 +1991,41 @@ import {
       } else logLine(`· save ${A.noun}: already saved / unavailable`);
       await sleep(rand(500, 1200));
     }
-    if (S.actions.like && Math.random() < per.likeChance) {
+    const fbReact = A.reactable && platformForHost() === "facebook";
+    const likeChance = engageScale(per.likeChance); // × session mood × curve
+    if (S.actions.like && Math.random() >= likeChance) {
+      // dice said don't react — occasionally hover-and-bail instead of nothing
+      await maybeFeint(fbReact ? fbBarLikeBtn(c) : A.likeBtn && A.likeBtn(c));
+    } else if (S.actions.like) {
       if (S.consecLikes >= MAX_CONSEC_LIKES) {
         S.consecLikes = 0;
         logLine("· like cooldown");
         await sleep(rand(2000, 4000));
       } else if (!A.isLiked(c)) {
-        const btn = A.likeBtn(c);
-        if (btn) {
-          btn.click();
-          await sleep(rand(250, 500));
-          if (A.isLiked(c)) {
-            S.liked++;
+        // Facebook reels share the posts' reaction picker — pick a weighted
+        // reaction (Like dominant). IG/TikTok have no picker → plain like.
+        if (A.reactable && platformForHost() === "facebook") {
+          const want = pickReaction();
+          const got = await fbReactWith({ root: c }, want);
+          if (got) {
+            S.liked += got === "like" ? 1 : 0;
+            if (got === "love") S.loved++;
+            S.reactionCounts[got] = (S.reactionCounts[got] || 0) + 1;
             S.consecLikes++;
-            logLine(`❤️ liked ${A.noun}`);
+            logLine(
+              `${FB_REACTIONS[got].emoji} reacted ${got} ${A.noun}${got !== want ? ` (picker missed ${want})` : ""}`,
+            );
+          }
+        } else {
+          const btn = A.likeBtn(c);
+          if (btn) {
+            await humanClick(btn);
+            await sleep(rand(250, 500));
+            if (A.isLiked(c)) {
+              S.liked++;
+              S.consecLikes++;
+              logLine(`❤️ liked ${A.noun}`);
+            }
           }
         }
       }
@@ -1689,6 +2040,58 @@ import {
         S.consecFollows++;
         logLine("➕ followed author");
       }
+    }
+    // Comment (FB reels only) — rare, capped, and only on reels we watched fully.
+    await maybeComment(A, c, watchedFull);
+  }
+
+  // Gate + post a comment. All the safety lives here so the action itself stays
+  // simple. Reels/FB only; skips silently unless every gate passes.
+  async function maybeComment(A, c, watchedFull) {
+    const cs = S.commentSettings;
+    if (
+      !A.commentable ||
+      platformForHost() !== "facebook" ||
+      !cs.enabled ||
+      !(cs.phrases || []).length
+    )
+      return;
+    if (cs.onlyFullyWatched && !watchedFull) return; // full-watch bias
+    if (S.processed < S.warmupPosts) return; // warm-up: lurk only
+    if (S.consecComments >= 1) { S.consecComments = 0; return; } // never back-to-back
+    if (Math.random() >= cs.chance) return;
+
+    const reelId = (location.pathname.match(/\/reel\/(\d+)/) || [])[1] || null;
+    if (reelId && S.commentedIds.has(reelId)) return; // once per reel / run
+    const authorKey = fbAuthorKey(c) || fbReelAuthorName(c);
+    const nowT = Date.now();
+    S.commentTimes = S.commentTimes.filter((t) => nowT - t < 3600000);
+    if (S.commentTimes.length >= MAX_COMMENTS_PER_HOUR) {
+      logLine("· hourly comment cap — skip");
+      return;
+    }
+    if (authorKey && (S.authorComments[authorKey] || 0) >= MAX_COMMENTS_PER_AUTHOR)
+      return;
+
+    const text = pickPhrase();
+    if (!text) return;
+    await sleep(rand(800, 2200)); // read-before-comment beat
+    const ok = await fbCommentReel(text);
+    if (ok) {
+      S.commented++;
+      S.consecComments++;
+      S.lastPhrase = text;
+      S.commentTimes.push(Date.now());
+      if (reelId) S.commentedIds.add(reelId);
+      if (authorKey)
+        S.authorComments[authorKey] = (S.authorComments[authorKey] || 0) + 1;
+      S.softFailStreak = 0;
+      logLine(`💬 commented "${text.slice(0, 28)}"`);
+    } else {
+      S.softFailStreak++;
+      logLine(`· comment did not post (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`);
+      if (S.softFailStreak >= SOFT_FAIL_LIMIT)
+        halt("possible soft-block — comments not posting");
     }
   }
 
@@ -1742,9 +2145,9 @@ import {
           continue;
         }
 
-        await reelDwell();
+        const watchedFull = await reelDwell(A, c);
         if (!S.isRunning || S.isPaused) continue;
-        await doVideoActions(A, c);
+        await doVideoActions(A, c, watchedFull);
         S.processed++;
         logLine(`✓ ${A.noun} ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
         persist();
@@ -1762,6 +2165,7 @@ import {
         }
         endStreak = 0;
         await actionGap();
+        await maybeIdle(); // rare "got distracted" pause
       }
       if (S.isRunning) finishRun();
     } finally {
@@ -1967,10 +2371,34 @@ import {
       like: !!settings.like,
       follow: !!settings.follow,
     };
+    // Reaction mix. Default to Like + Love if the panel sent nothing usable.
+    if (settings.reactions && REACTION_KEYS.some((k) => settings.reactions[k]))
+      S.reactions = REACTION_KEYS.reduce(
+        (o, k) => ((o[k] = !!settings.reactions[k]), o),
+        {},
+      );
+    S.reactionCounts = {};
+    // Commenting (FB reels). phrases arrive as plain strings; empty list = off.
+    if (settings.comment) {
+      const phrases = Array.isArray(settings.comment.phrases)
+        ? settings.comment.phrases.map((t) => String(t || "").trim()).filter(Boolean)
+        : [];
+      S.commentSettings = {
+        enabled: !!settings.comment.enabled && phrases.length > 0,
+        chance: Math.min(0.5, Math.max(0, Number(settings.comment.chance) || 0.08)),
+        onlyFullyWatched: settings.comment.onlyFullyWatched !== false,
+        phrases,
+      };
+    }
+    S.commented = 0;
+    S.commentedIds = new Set();
+    S.commentTimes = [];
+    S.authorComments = {};
+    S.lastPhrase = null;
     S.englishOnly = !!settings.englishOnly;
     S.relevanceMin = Math.max(0, Number(settings.relevanceMin) || 0);
     S.spamGuard = settings.spamGuard !== false; // default on
-    S.deepRelevance = !!settings.deepRelevance;
+    S.quickMode = !!settings.quickMode;
     S.warmupPosts = rand(2, 4); // lurk-first browse before any reactions
     if (settings.thresholds)
       S.thresholds = {
@@ -2000,6 +2428,7 @@ import {
       S.personalityMode = map[settings.personality];
     } else pickPersonality();
     S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], now);
+    rollSessionMood(); // per-session engagement intensity + browse-only chance
 
     logLine(
       `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}m${S.maxItems ? ` · cap ${S.maxItems}` : ""} · ${
@@ -2007,7 +2436,7 @@ import {
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join("+") || "observe"
-      } · ${persona().name}`,
+      } · ${persona().name}${S.browseOnly ? " · 👀browse-only" : ` · mood ${S.sessionIntensity.toFixed(2)}`}${S.quickMode ? " · ⚡quick" : ""}`,
     );
     persist();
 
@@ -2129,10 +2558,14 @@ import {
         keyword: saved.keyword || "",
         maxItems: saved.maxItems || 0,
         actions: saved.actions || { save: true, like: true, follow: false },
+        reactions: saved.reactions || freshState().reactions,
+        reactionCounts: saved.reactionCounts || {},
+        commentSettings: saved.commentSettings || freshState().commentSettings,
+        commented: saved.commented || 0,
         englishOnly: !!saved.englishOnly,
         relevanceMin: saved.relevanceMin || 0,
         spamGuard: saved.spamGuard !== false,
-        deepRelevance: !!saved.deepRelevance,
+        quickMode: !!saved.quickMode,
         warmupPosts: saved.warmupPosts || 0,
         thresholds: saved.thresholds || { minLikes: 0, minComments: 0 },
         autoCapture: saved.autoCapture || freshState().autoCapture,

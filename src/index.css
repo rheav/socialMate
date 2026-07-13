@@ -33,41 +33,76 @@
   --radius-lg: var(--radius);
 }
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 222 35% 18%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 35% 18%;
-  /* neutral near-black primary (standardized; brand color lives only on logo/wordmark) */
-  --primary: 240 6% 10%;
+/* Unified brand (unFunnelizer "Smart" identity): azure → seaFoam, one look for
+   every platform. Theme axis is light/dark (not per-social-network). Tokens are
+   shadcn HSL triplets so remapping them re-skins every component at once. */
+:root, :root[data-theme="light"] {
+  --background: 210 40% 98%;      /* #f8fafc */
+  --foreground: 217 33% 17%;      /* #1e293b */
+  --card: 0 0% 100%;              /* #ffffff */
+  --card-foreground: 217 33% 17%;
+  /* Smart-blue primary (azure) — CTAs, switches, focus rings */
+  --primary: 220 97% 61%;         /* #3c7cfc */
   --primary-foreground: 0 0% 100%;
   --secondary: 213 100% 96%;
   --secondary-foreground: 220 50% 30%;
-  --muted: 213 60% 97%;
-  --muted-foreground: 218 14% 52%;
-  --accent: 199 89% 94%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%; /* #64748b */
+  --accent: 205 87% 94%;
   --accent-foreground: 220 50% 30%;
-  --destructive: 0 72% 51%;
+  --destructive: 0 84% 60%;        /* #ef4444 */
   --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 91%;
+  --border: 214 32% 91%;           /* #e2e8f0 */
   --input: 214 32% 89%;
-  --ring: 240 6% 10%;
+  --ring: 220 97% 61%;
   --radius: 0.625rem;
 
-  /* Defaults = Facebook brand identity + neutral black/white UI. App.jsx swaps only
-     the identity vars (--sw-from/--sw-to/--sw-grad/--sw-glow) per platform. */
   --sw-from: #3c7cfc;
   --sw-to: #59c0e8;
   --sw-grad: linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%);
   --sw-glow: rgba(60, 124, 252, 0.5);
   --sw-wash: radial-gradient(130% 90% at 50% -20%, #f7f7f8 0%, #fcfcfd 55%, #ffffff 82%);
-  /* neutral black accents — identical for every platform */
-  --sw-switch: linear-gradient(0deg, #18181b, #18181b);
-  --sw-action: linear-gradient(0deg, #18181b, #18181b);
-  --sw-action-hover: linear-gradient(0deg, #000000, #000000);
+  /* Smart gradient primary action (Start / primary CTA) */
+  --sw-switch: var(--sw-grad);
+  --sw-action: var(--sw-grad);
+  --sw-action-hover: linear-gradient(135deg, #2f6bea 0%, #46acd6 100%);
 
   /* ember = the "warming" heat. Reserved for the LIVE/running state only. */
   --sw-ember: 28 92% 52%;
+}
+
+/* Dark theme (unFunnelizer "Dark Tech Elegance" surfaces). Applied when the root
+   carries .dark / [data-theme="dark"]; the header toggle sets it, defaulting to
+   the OS preference. */
+/* Dark = "Brute" identity per the unFunnelizer model: red→yellow accents on the
+   dark surfaces (light stays Smart-blue). Text on the Brute gradient is BLACK —
+   the yellow end kills white — so --primary-foreground flips to black here. */
+.dark, :root[data-theme="dark"] {
+  --background: 240 24% 7%;       /* #0f0f14 */
+  --foreground: 240 6% 90%;       /* #e4e4e7 */
+  --card: 240 15% 10%;            /* #16161d */
+  --card-foreground: 240 6% 90%;
+  --primary: 0 100% 65%;          /* #ff4d4d scarlet */
+  --primary-foreground: 0 0% 0%;  /* black on the Brute gradient */
+  --secondary: 240 14% 16%;
+  --secondary-foreground: 240 6% 85%;
+  --muted: 240 13% 14%;
+  --muted-foreground: 218 11% 65%; /* #9ca3af */
+  --accent: 240 14% 17%;
+  --accent-foreground: 240 6% 90%;
+  --destructive: 0 84% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 12% 19%;          /* #2a2a35 */
+  --input: 240 12% 22%;
+  --ring: 0 100% 65%;
+
+  --sw-from: #ff4d4d;
+  --sw-to: #f9cb28;
+  --sw-grad: linear-gradient(135deg, #ff4d4d 0%, #f9cb28 100%);
+  --sw-glow: rgba(255, 77, 77, 0.5);
+  --sw-action: var(--sw-grad);
+  --sw-action-hover: linear-gradient(135deg, #ef3d3d 0%, #e6b81f 100%);
+  --sw-wash: radial-gradient(130% 90% at 50% -20%, #16161d 0%, #101017 55%, #0f0f14 82%);
 }
 
 @layer base {

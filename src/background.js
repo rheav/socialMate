@@ -40,7 +40,34 @@ chrome.runtime.onInstalled.addListener(() => {
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch(() => {});
   syncBadge();
+  reinjectContentScripts();
 });
+
+// Re-inject content scripts into already-open platform tabs after an extension
+// reload/update — otherwise every open FB/IG/TT tab silently loses its engine
+// ("Receiving end does not exist") until the tab is manually reloaded. All our
+// content scripts carry an init guard, so double-injection is a no-op.
+async function reinjectContentScripts() {
+  for (const cs of chrome.runtime.getManifest().content_scripts || []) {
+    let tabs = [];
+    try {
+      tabs = await chrome.tabs.query({ url: cs.matches });
+    } catch {
+      continue;
+    }
+    for (const t of tabs) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: t.id },
+          files: cs.js,
+          world: cs.world === "MAIN" ? "MAIN" : "ISOLATED",
+        });
+      } catch {
+        /* discarded/errored tabs — the panel's reload banner covers those */
+      }
+    }
+  }
+}
 chrome.runtime.onStartup?.addListener(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
@@ -116,9 +143,29 @@ chrome.webRequest?.onBeforeRequest.addListener(
     const key = registryKeyFor(track);
     if (!key) return;
     trackRegistry.set(key, foldTrack(trackRegistry.get(key), track, Date.now()));
+    if (trackRegistry.size > TRACK_REGISTRY_CAP) pruneTrackRegistry();
   },
   { urls: ["*://*.fbcdn.net/*"] },
 );
+
+// The registry only needs the handful of recently-played videos (a job resolves
+// the most-recent match). Without a cap it grew for the whole warm session —
+// every scrolled reel adds an entry. Prune the oldest by lastSeen back to CAP,
+// and drop any now-dangling xpv→videoId aliases.
+const TRACK_REGISTRY_CAP = 300;
+function pruneTrackRegistry() {
+  const keep = Array.from(trackRegistry.entries())
+    .sort((a, b) => (b[1].lastSeen || 0) - (a[1].lastSeen || 0))
+    .slice(0, TRACK_REGISTRY_CAP);
+  trackRegistry.clear();
+  const liveVideoIds = new Set();
+  for (const [k, v] of keep) {
+    trackRegistry.set(k, v);
+    if (v.videoId) liveVideoIds.add(v.videoId);
+  }
+  for (const [xpv, vid] of xpvToVideoId)
+    if (!liveVideoIds.has(vid)) xpvToVideoId.delete(xpv);
+}
 
 /** Most recently active (playing) video that has at least an audio track. */
 function activeVideoId() {
@@ -214,23 +261,29 @@ function callOffscreen(message) {
 
 // ---- job runners ----
 async function runTranscription(videoId, tabId, meta = {}) {
-  // Instagram hands us the progressive MP4 URL directly (it has audio). Facebook
-  // has no direct URL → resolve the captured DASH audio track from the registry.
-  let audioUrl = meta.mediaUrl || null;
+  // Audio source, cheapest first:
+  //   1. a captured DASH audio-only track (small, fast to fetch+decode), then
+  //   2. meta.mediaUrl — a progressive MP4 (Instagram always; Facebook when we
+  //      read progressive_url off the page for a video we never saw on the wire).
+  //      It carries video too, so decoding its audio is heavier — used only as a
+  //      fallback so cached videos still transcribe.
+  let audioUrl = null;
   let id = videoId;
-  if (!audioUrl) {
-    const tracks = resolveTracks(videoId, meta.candidates);
-    if (!tracks || !tracks.audioUrl) {
-      notifyTab(tabId, {
-        type: "FBW_TRANSCRIBE_RESULT",
-        videoId,
-        success: false,
-        error: "No audio captured yet — let the video play once, then retry.",
-      });
-      return;
-    }
+  const tracks = resolveTracks(videoId, meta.candidates);
+  if (tracks && tracks.audioUrl) {
     audioUrl = tracks.audioUrl;
     id = tracks.videoId;
+  } else if (meta.mediaUrl) {
+    audioUrl = meta.mediaUrl;
+  }
+  if (!audioUrl) {
+    notifyTab(tabId, {
+      type: "FBW_TRANSCRIBE_RESULT",
+      videoId,
+      success: false,
+      error: "No audio captured yet — let the video play once, then retry.",
+    });
+    return;
   }
   if (!id) {
     notifyTab(tabId, {
@@ -241,7 +294,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     });
     return;
   }
-  const { thumb, counts, author, caption, platform } = meta;
+  const { thumb, counts, author, caption, platform, sourceUrl } = meta;
   await putTranscript(id, {
     status: "running",
     error: null,
@@ -250,6 +303,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     ...(author ? { author } : {}),
     ...(caption ? { caption } : {}),
     ...(platform ? { platform } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
   });
   notifyTab(tabId, {
     type: "FBW_TRANSCRIBE_PROGRESS",
@@ -295,13 +349,14 @@ async function runTranscription(videoId, tabId, meta = {}) {
   }
 }
 
-async function runDownload(videoId, tabId, mediaUrl, candidates) {
-  // Instagram = a single progressive MP4 → download it directly (no mux needed).
+async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName) {
+  // A direct progressive MP4 (Instagram, or a Facebook reel/video whose
+  // progressive_url we read from the page JSON) → download it as-is, no mux.
   if (mediaUrl) {
     try {
       await chrome.downloads.download({
         url: mediaUrl,
-        filename: `ig-${videoId || Date.now()}.mp4`,
+        filename: mediaName || `ig-${videoId || Date.now()}.mp4`,
       });
       notifyTab(tabId, { type: "FBW_DOWNLOAD_RESULT", videoId, success: true });
     } catch (e) {
@@ -441,6 +496,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         author: msg.author,
         caption: msg.caption,
         platform: msg.platform,
+        sourceUrl: msg.sourceUrl,
         mediaUrl: msg.mediaUrl,
         candidates: msg.candidates,
       });
@@ -448,7 +504,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
     }
     case "FBW_DOWNLOAD": {
-      runDownload(msg.videoId, sender.tab?.id, msg.mediaUrl, msg.candidates);
+      runDownload(msg.videoId, sender.tab?.id, msg.mediaUrl, msg.candidates, msg.mediaName);
       sendResponse({ started: true });
       return false;
     }
@@ -475,31 +531,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           );
         } catch (e) {
           sendResponse({ score: 1, spam: 0, error: e.message });
-        }
-      })();
-      return true; // async
-    }
-    // content → bg → offscreen: quick partial transcript of the in-view video.
-    // Resolves the captured fbcdn audio track, Whisper-transcribes a ~12s cap.
-    case "FBW_QUICK_TRANSCRIBE": {
-      (async () => {
-        try {
-          const tracks = resolveTracks(msg.videoId, msg.candidates);
-          if (!tracks || !tracks.audioUrl) {
-            sendResponse({ text: "" });
-            return;
-          }
-          await ensureOffscreen();
-          const res = await callOffscreen({
-            action: "quickTranscribe",
-            audioUrl: tracks.audioUrl,
-            maxSeconds: 12,
-            videoId: tracks.videoId,
-            lang: msg.lang,
-          });
-          sendResponse({ text: res?.success ? res.text : "" });
-        } catch (e) {
-          sendResponse({ text: "", error: e.message });
         }
       })();
       return true; // async

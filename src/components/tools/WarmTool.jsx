@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Play, Pause, Square, ExternalLink } from "lucide-react";
+import { Play, Pause, Square, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,33 @@ import { resolvePlatformTab } from "@/lib/tabs";
 import { isStaleSession } from "@/lib/sessionMath";
 
 const MODE_NAME = { A: "Keyword", B: "Feed", C: "Reels" };
+// Seed comment phrases — short, human, emoji-flavored (mystic/astro niche).
+const DEFAULT_PHRASES = [
+  "I claim this ✨",
+  "Yesss! 🙌",
+  "This is for me 🔮",
+  "Needed this today 🙏",
+  "Claiming it ⭐",
+  "So true 💫",
+  "Wow 😍",
+  "Thank you 🌙",
+  "This spoke to me ❤️",
+  "Sending love 💖",
+  "Meant to see this 🌟",
+  "Grateful 🙏✨",
+];
+let _pid = 0;
+const newPhrase = (text) => ({ id: `p${Date.now().toString(36)}${_pid++}`, text });
+// FB's 7 reactions (order = how the picker lays them out).
+const REACTION_OPTS = [
+  { k: "like", emoji: "👍", name: "Like" },
+  { k: "love", emoji: "❤️", name: "Love" },
+  { k: "care", emoji: "🤗", name: "Care" },
+  { k: "haha", emoji: "😆", name: "Haha" },
+  { k: "wow", emoji: "😮", name: "Wow" },
+  { k: "sad", emoji: "😢", name: "Sad" },
+  { k: "angry", emoji: "😡", name: "Angry" },
+];
 const fmtMs = (ms) => {
   if (!ms || ms <= 0) return "0:00";
   const s = Math.round(ms / 1000);
@@ -42,9 +69,22 @@ export default function WarmTool({ platform }) {
     follow: false,
   });
   const [englishOnly, setEnglishOnly] = useState(true);
-  const [relevanceMin, setRelevanceMin] = useState(0.25); // niche cosine gate (0 = off)
-  const [spamGuard, setSpamGuard] = useState(true); // skip scam/spam posts
-  const [deepRelevance, setDeepRelevance] = useState(false); // transcribe video for relevance
+  // Which FB reactions the warmer may send (weighted mix, Like dominant).
+  const [reactions, setReactions] = useState({
+    like: true, love: true, haha: false, wow: false, care: false, sad: false, angry: false,
+  });
+  // Commenting (FB reels): enable + chance + editable phrase pool + draft input.
+  const [comment, setComment] = useState({
+    enabled: false,
+    chance: 0.08,
+    onlyFullyWatched: true,
+    phrases: DEFAULT_PHRASES.map(newPhrase),
+  });
+  const [phraseDraft, setPhraseDraft] = useState("");
+  const [quickMode, setQuickMode] = useState(false); // test mode: 3–10s dwell + short gaps
+  // Relevance/spam knobs are no longer surfaced: spam guard stays ON via the
+  // engine default; the niche-relevance gate is off (a hashtag feed is already
+  // on-niche). Deep relevance (Whisper-for-relevance) was removed entirely.
   const [pacing, setPacing] = useState({
     minDelay: 4,
     maxDelay: 9,
@@ -76,9 +116,19 @@ export default function WarmTool({ platform }) {
       if (o?.autoCapture) setAutoCapture((a) => ({ ...a, ...o.autoCapture }));
       if (o?.duration != null) setDuration(o.duration);
       if (o?.maxItems != null) setMaxItems(o.maxItems);
-      if (o?.relevanceMin != null) setRelevanceMin(o.relevanceMin);
-      if (o?.spamGuard != null) setSpamGuard(o.spamGuard);
-      if (o?.deepRelevance != null) setDeepRelevance(o.deepRelevance);
+      if (o?.quickMode != null) setQuickMode(o.quickMode);
+      if (o?.reactions) setReactions((r) => ({ ...r, ...o.reactions }));
+      if (o?.comment) {
+        // stored phrases are plain strings → rehydrate to {id,text}
+        const phrases = Array.isArray(o.comment.phrases)
+          ? o.comment.phrases.map((t) => newPhrase(t))
+          : DEFAULT_PHRASES.map(newPhrase);
+        setComment((c) => ({
+          ...c,
+          ...o.comment,
+          phrases: phrases.length ? phrases : DEFAULT_PHRASES.map(newPhrase),
+        }));
+      }
       optsLoaded.current = true;
     });
   }, []);
@@ -96,24 +146,22 @@ export default function WarmTool({ platform }) {
         autoCapture,
         duration,
         maxItems,
-        relevanceMin,
-        spamGuard,
-        deepRelevance,
+        quickMode,
+        reactions,
+        comment: {
+          enabled: comment.enabled,
+          chance: comment.chance,
+          onlyFullyWatched: comment.onlyFullyWatched,
+          phrases: comment.phrases.map((p) => p.text),
+        },
       },
     });
-  }, [
-    pacing,
-    thresholds,
-    autoCapture,
-    duration,
-    maxItems,
-    relevanceMin,
-    spamGuard,
-    deepRelevance,
-  ]);
+  }, [pacing, thresholds, autoCapture, duration, maxItems, quickMode, reactions, comment]);
 
   const [status, setStatus] = useState(null);
   const [noTab, setNoTab] = useState(false);
+  const [needReload, setNeedReload] = useState(false); // tab exists, engine unreachable
+  const statusMisses = useRef(0);
   const tabId = useRef(null);
   const logRef = useRef(null);
 
@@ -188,11 +236,31 @@ export default function WarmTool({ platform }) {
     setNoTab(false);
     const st = await send("FBW_STATUS");
     if (st === null) {
+      // Tab exists but the engine doesn't answer — content script missing
+      // (tab predates the extension load/reload). Surface it after a few
+      // misses instead of failing Start silently.
       tabId.current = null;
+      statusMisses.current += 1;
+      if (statusMisses.current >= 3) setNeedReload(true);
       return;
     }
+    statusMisses.current = 0;
+    setNeedReload(false);
     setStatus(st);
   }, [send, platform]);
+
+  const reloadPlatformTab = async () => {
+    const t = tabId.current ?? (await resolvePlatformTab(platform));
+    if (t == null || typeof chrome === "undefined" || !chrome?.tabs?.reload)
+      return;
+    try {
+      await chrome.tabs.reload(t);
+      statusMisses.current = 0;
+      setNeedReload(false);
+    } catch {
+      /* tab gone — next poll re-resolves */
+    }
+  };
 
   // reset mode + re-resolve the target tab whenever the platform changes
   useEffect(() => {
@@ -245,11 +313,24 @@ export default function WarmTool({ platform }) {
       durationMinutes: Math.max(3, Number(duration) || 15),
       maxItems: Math.max(0, Number(maxItems) || 0),
       ...actions,
+      // FB warmer is like-only (panel hides Save/Follow there) — force the
+      // hidden defaults off so reels runs don't save/follow every card.
+      ...(platform === "facebook" ? { save: false, follow: false } : {}),
       englishOnly,
-      relevanceMin: Number(relevanceMin) || 0,
-      spamGuard,
-      deepRelevance,
+      quickMode,
       personality,
+      // Reaction mix only applies to the Facebook engine; ensure Like is on if
+      // the user cleared everything.
+      reactions: reactions.like || Object.values(reactions).some(Boolean)
+        ? reactions
+        : { ...reactions, like: true },
+      // Comments only meaningful on FB reels — engine ignores it elsewhere.
+      comment: {
+        enabled: comment.enabled,
+        chance: Number(comment.chance) || 0.08,
+        onlyFullyWatched: comment.onlyFullyWatched,
+        phrases: comment.phrases.map((p) => p.text.trim()).filter(Boolean),
+      },
       thresholds: {
         minLikes: Number(thresholds.minLikes) || 0,
         minComments: Number(thresholds.minComments) || 0,
@@ -301,11 +382,28 @@ export default function WarmTool({ platform }) {
 
   const toggle = (k) => setActions((a) => ({ ...a, [k]: !a[k] }));
 
+  // Comment phrase-list editing (mirrors the ugc-factory headlines UX).
+  const addPhrase = () => {
+    const t = phraseDraft.trim();
+    if (!t) return;
+    setComment((c) => ({ ...c, phrases: [...c.phrases, newPhrase(t)] }));
+    setPhraseDraft("");
+  };
+  const removePhrase = (id) =>
+    setComment((c) => ({ ...c, phrases: c.phrases.filter((p) => p.id !== id) }));
+  const patchPhrase = (id, text) =>
+    setComment((c) => ({
+      ...c,
+      phrases: c.phrases.map((p) => (p.id === id ? { ...p, text } : p)),
+    }));
+
   const modeTabs = platformCfg.modes;
 
   const hint = (() => {
     if (platform === "facebook")
-      return "Facebook hashtag: lurks first, then Likes/Loves posts weighted by niche relevance — human pointer trail, per-author throttle, hourly cap, circadian pacing.";
+      return mode === "C"
+        ? "Facebook reels: watches each reel to the end, then advances — Likes randomly by personality. Localized (en/pt-br/es/fr/it). Keep the tab visible or pop it out."
+        : "Facebook hashtag: lurks first, watches each post's video, Likes/Loves randomly by personality — scam posts skipped automatically, per-author throttle, hourly cap.";
     if (platform === "instagram")
       return mode === "C"
         ? "Instagram reels: Like, Save + Follow verified (localized labels handled)."
@@ -348,6 +446,21 @@ export default function WarmTool({ platform }) {
       {noTab && (
         <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
           Open {platformCfg.name} in a tab, then reopen this panel.
+        </div>
+      )}
+      {!noTab && needReload && (
+        <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 flex items-center justify-between gap-2">
+          <span>
+            The {platformCfg.name} tab isn&apos;t responding — it needs a reload.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs shrink-0"
+            onClick={reloadPlatformTab}
+          >
+            Reload tab
+          </Button>
         </div>
       )}
 
@@ -429,7 +542,44 @@ export default function WarmTool({ platform }) {
                     />
                   </div>
                 ))}
-              {platform === "facebook" && (
+
+              {/* FB reactions: pick which ones the warmer sends (weighted mix,
+                  Like dominant). Only meaningful when Like is on. */}
+              {platform === "facebook" && actions.like && (
+                <div className="space-y-1.5">
+                  <Label className="text-sm text-foreground">Reactions</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {REACTION_OPTS.map(({ k, emoji, name }) => {
+                      const on = reactions[k];
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          title={name}
+                          onClick={() =>
+                            setReactions((r) => ({ ...r, [k]: !r[k] }))
+                          }
+                          className={
+                            "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors " +
+                            (on
+                              ? "border-transparent bg-primary/12 text-foreground ring-1 ring-primary/40"
+                              : "border-border text-muted-foreground hover:bg-accent")
+                          }
+                        >
+                          <span className={on ? "" : "opacity-50 grayscale"}>{emoji}</span>
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    A weighted mix of the ones you pick — Like most often, the
+                    rest sprinkled in (opens FB's reaction picker per post).
+                  </p>
+                </div>
+              )}
+              {/* English filter only runs in the posts loop — hide it on Reels. */}
+              {platform === "facebook" && mode === "A" && (
                 <>
                   <Separator />
                   <div className="flex items-center justify-between">
@@ -447,70 +597,131 @@ export default function WarmTool({ platform }) {
                   </div>
                 </>
               )}
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label
+                    htmlFor="quickMode"
+                    className="text-sm text-foreground cursor-pointer"
+                  >
+                    ⚡ Quick mode
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    3–10s per item, short gaps — for testing.
+                  </p>
+                </div>
+                <Switch
+                  id="quickMode"
+                  checked={quickMode}
+                  onCheckedChange={() => setQuickMode((v) => !v)}
+                />
+              </div>
             </CardContent>
           </Card>
 
-          {mode === "A" && (
+          {/* Comments — FB reels only. Rare, fully-watched reels, editable pool. */}
+          {platform === "facebook" && mode === "C" && (
             <Card>
-              <CardContent className="p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="relMin" className="text-sm text-foreground">
-                    Niche relevance (AI)
-                  </Label>
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {relevanceMin <= 0
-                      ? "off"
-                      : `≥ ${Number(relevanceMin).toFixed(2)}`}
-                  </span>
-                </div>
-                <input
-                  id="relMin"
-                  type="range"
-                  min={0}
-                  max={0.6}
-                  step={0.05}
-                  value={relevanceMin}
-                  onChange={(e) => setRelevanceMin(Number(e.target.value))}
-                  className="w-full accent-foreground cursor-pointer"
-                />
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Local MiniLM embeds each post and weights likes toward ones
-                  semantically close to your keyword. Higher = stricter. 0 = like
-                  regardless.
-                </p>
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <Label
-                    htmlFor="spamGuard"
-                    className="text-sm text-foreground cursor-pointer"
-                  >
-                    Spam / scam guard
-                  </Label>
-                  <Switch
-                    id="spamGuard"
-                    checked={spamGuard}
-                    onCheckedChange={() => setSpamGuard((v) => !v)}
-                  />
-                </div>
+              <CardContent className="p-3.5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <Label
-                      htmlFor="deepRel"
+                      htmlFor="commentOn"
                       className="text-sm text-foreground cursor-pointer"
                     >
-                      Deep relevance (transcribe video)
+                      💬 Comment on reels
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Whisper reads the video's audio — better on caption-thin
-                      posts. Slower.
+                      Rarely posts one of your phrases — only on reels watched to
+                      the end.
                     </p>
                   </div>
                   <Switch
-                    id="deepRel"
-                    checked={deepRelevance}
-                    onCheckedChange={() => setDeepRelevance((v) => !v)}
+                    id="commentOn"
+                    checked={comment.enabled}
+                    onCheckedChange={() =>
+                      setComment((c) => ({ ...c, enabled: !c.enabled }))
+                    }
                   />
                 </div>
+
+                {comment.enabled && (
+                  <>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="cchance" className="text-sm text-foreground">
+                          How often
+                        </Label>
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {Math.round((comment.chance || 0) * 100)}% of full watches
+                        </span>
+                      </div>
+                      <input
+                        id="cchance"
+                        type="range"
+                        min={0.02}
+                        max={0.3}
+                        step={0.01}
+                        value={comment.chance}
+                        onChange={(e) =>
+                          setComment((c) => ({ ...c, chance: Number(e.target.value) }))
+                        }
+                        className="w-full accent-primary cursor-pointer"
+                      />
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-1.5">
+                      <Label className="text-sm text-foreground">
+                        Phrases ({comment.phrases.length})
+                      </Label>
+                      <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
+                        {comment.phrases.map((p) => (
+                          <div key={p.id} className="flex items-center gap-1.5">
+                            <Input
+                              value={p.text}
+                              onChange={(e) => patchPhrase(p.id, e.target.value)}
+                              className="h-8 text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removePhrase(p.id)}
+                              title="Remove phrase"
+                              className="grid size-8 flex-none place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-destructive"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          value={phraseDraft}
+                          onChange={(e) => setPhraseDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addPhrase();
+                            }
+                          }}
+                          placeholder="Add a phrase (with emoji ✨)…"
+                          className="h-8 text-xs"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 shrink-0"
+                          onClick={addPhrase}
+                          disabled={!phraseDraft.trim()}
+                        >
+                          <Plus className="size-3.5" /> Add
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           )}
@@ -548,6 +759,19 @@ export default function WarmTool({ platform }) {
               </>
             )}
           </div>
+          {platform === "facebook" &&
+            (status.reactionCounts || status.commented) && (
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                {REACTION_OPTS.filter((o) => status.reactionCounts?.[o.k]).map(
+                  (o) => (
+                    <span key={o.k}>
+                      {o.emoji} {status.reactionCounts[o.k]}
+                    </span>
+                  ),
+                )}
+                {status.commented ? <span>💬 {status.commented}</span> : null}
+              </div>
+            )}
           {status.etaMs > 0 && (
             <p className="text-xs text-muted-foreground text-right">
               time left {fmtMs(status.etaMs)}
@@ -569,9 +793,9 @@ export default function WarmTool({ platform }) {
       <div className="flex gap-2">
         {!running ? (
           <Button
-            className="flex-1 grad-blue border-0 text-white shadow-md"
+            className="flex-1 grad-blue border-0 text-primary-foreground shadow-md"
             onClick={start}
-            disabled={noTab}
+            disabled={noTab || needReload}
           >
             <Play /> Start
           </Button>

@@ -216,22 +216,6 @@ async function spamScore(text) {
   return max;
 }
 
-// ---- quick partial transcript (relevance signal for video posts) ----
-const quickTxCache = new Map(); // videoId -> text (in-memory)
-async function quickTranscribe(audioUrl, maxSeconds, videoId, lang) {
-  if (videoId && quickTxCache.has(videoId)) return quickTxCache.get(videoId);
-  const idbKey = "qtx:" + (videoId || hashText(audioUrl));
-  const cached = await idbGet(idbKey).catch(() => null);
-  if (cached != null) { if (videoId) quickTxCache.set(videoId, cached); return cached; }
-  // Range-fetch a ~512 KB prefix (covers 12 s even at high audio bitrates) instead
-  // of the whole file; fetchAudioPCM falls back to the full file if it won't decode.
-  let pcm = await fetchAudioPCM(audioUrl, maxSeconds, 512 * 1024);
-  const res = await workerTranscribe(pcm, lang);
-  const text = res.ok ? cleanChunks(res.result).text : "";
-  if (text) { idbSet(idbKey, text).catch(() => {}); if (videoId) quickTxCache.set(videoId, text); }
-  return text;
-}
-
 // ---- ffmpeg mux (lazy) ----
 let ffmpeg = null;
 async function getFfmpeg() {
@@ -293,18 +277,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const score = await relevanceScore(msg.keyword, msg.text);
         const spam = msg.spam ? await spamScore(msg.text) : 0;
         sendResponse({ success: true, score, spam });
-      } catch (e) {
-        sendResponse({ success: false, error: e.message });
-      }
-    })();
-    return true;
-  }
-
-  if (msg.action === "quickTranscribe") {
-    (async () => {
-      try {
-        const text = await quickTranscribe(msg.audioUrl, msg.maxSeconds || 12, msg.videoId, msg.lang);
-        sendResponse({ success: true, text });
       } catch (e) {
         sendResponse({ success: false, error: e.message });
       }

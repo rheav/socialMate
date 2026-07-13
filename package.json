@@ -1,7 +1,7 @@
 {
   "name": "social-mate",
   "private": true,
-  "version": "0.34.0",
+  "version": "0.50.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {

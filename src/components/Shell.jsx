@@ -1,18 +1,60 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Library as LibraryIcon } from "lucide-react";
+import { ChevronRight, Flame, Library as LibraryIcon, Moon, Sun } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
 import { toolsForPlatform, getTool } from "@/lib/tools";
 import { detectActivePlatform } from "@/lib/tabs";
-import Launcher from "@/components/ui/Launcher";
+import Segmented from "@/components/ui/Segmented";
 import ToolFrame from "@/components/ui/ToolFrame";
+import LibraryTool from "@/components/tools/LibraryTool";
 
-const NAV_KEY = "sw_nav";
+const NAV_KEY = "sw_nav2";
+const THEME_KEY = "sw_theme";
 
-// The swiss-knife launcher shell: Home (platform grid + Library) → platform hub
-// (tool grid) → tool. Nav location is persisted so the panel reopens where you
-// left off; the active platform's theme retints the whole panel.
+// Light/dark theme: toggle the `.dark` class on <html>. Defaults to the OS
+// preference until the user picks, then persists their choice.
+function applyTheme(theme) {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
+function useTheme() {
+  // Seed from the class main.jsx already applied (OS preference) so the toggle
+  // icon is right on first paint; then reconcile with a stored override.
+  const [theme, setTheme] = useState(() =>
+    document.documentElement.classList.contains("dark") ? "dark" : "light",
+  );
+  useEffect(() => {
+    (async () => {
+      if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+      try {
+        const t = (await chrome.storage.local.get(THEME_KEY))?.[THEME_KEY];
+        if (t && t !== theme) {
+          setTheme(t);
+          applyTheme(t);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const toggle = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    applyTheme(next);
+    chrome?.storage?.local?.set({ [THEME_KEY]: next });
+  };
+  return [theme, toggle];
+}
+
+// Two top-level tabs: Warmer and Library.
+//   Warmer  → pick a platform, then that platform's workspace. A platform's tools
+//             (Warm always; Instagram adds Sort + Download and Stories) show as a
+//             segmented sub-nav inside the workspace — that's where the IG tools live.
+//   Library → saved posts · transcripts · run history (cross-platform).
+// The active tab's platform theme retints the whole panel.
 export default function Shell() {
-  const [nav, setNav] = useState({ screen: "home", platform: null, tool: null });
+  const [tab, setTab] = useState("warm"); // "warm" | "library"
+  const [platform, setPlatform] = useState(null); // selected platform in the Warmer tab
+  const [toolId, setToolId] = useState(null); // selected platform tool
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -20,47 +62,91 @@ export default function Shell() {
       let saved = null;
       if (typeof chrome !== "undefined" && chrome?.storage?.local) {
         try {
-          const r = await chrome.storage.local.get(NAV_KEY);
-          saved = r?.[NAV_KEY] || null;
+          saved = (await chrome.storage.local.get(NAV_KEY))?.[NAV_KEY] || null;
         } catch {
           /* ignore */
         }
       }
-      // Land on the active tab's platform: restore the last tool if it was on
-      // this same platform, otherwise drop into that platform's hub. Off-platform
-      // (e.g. a google.com tab) falls back to the saved location, then home.
+      // Land on the active tab's platform when there is one; else restore.
       const plat = await detectActivePlatform();
       if (plat) {
-        if (saved && saved.platform === plat && saved.screen) setNav(saved);
-        else setNav({ screen: "hub", platform: plat, tool: null });
+        setTab("warm");
+        setPlatform(plat);
+        setToolId(saved?.platform === plat ? saved?.toolId || null : null);
       } else if (saved) {
-        setNav(saved);
+        setTab(saved.tab || "warm");
+        setPlatform(saved.platform || null);
+        setToolId(saved.toolId || null);
       }
       setReady(true);
     })();
   }, []);
   useEffect(() => {
-    if (ready) chrome.storage?.local?.set({ [NAV_KEY]: nav });
-  }, [nav, ready]);
+    if (ready)
+      chrome.storage?.local?.set({ [NAV_KEY]: { tab, platform, toolId } });
+  }, [tab, platform, toolId, ready]);
 
-  useEffect(() => {
-    if (!nav.platform || !PLATFORMS[nav.platform]) return;
-    const root = document.documentElement;
-    for (const [k, v] of Object.entries(PLATFORMS[nav.platform].theme))
-      root.style.setProperty(k, v);
-  }, [nav.platform]);
+  const [theme, toggleTheme] = useTheme();
 
   if (!ready) return null;
 
-  const goHome = () => setNav({ screen: "home", platform: null, tool: null });
-  const goLibrary = () => setNav({ screen: "tool", platform: null, tool: "library" });
-  const inLibrary = nav.screen === "tool" && nav.tool === "library";
-  const chromeProps = { onHome: goHome, onLibrary: goLibrary, libraryActive: inLibrary };
+  return (
+    <div className="flex min-h-screen flex-col">
+      <header className="flex items-center justify-between px-4 pt-4 pb-2.5">
+        <button
+          onClick={() => {
+            setTab("warm");
+            setPlatform(null);
+          }}
+          title="Home"
+          className="flex items-center gap-2.5"
+        >
+          <div className="grad-identity size-7 rounded-[9px]" />
+          <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
+            socialMate
+          </h1>
+        </button>
+        <button
+          onClick={toggleTheme}
+          title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+          className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </button>
+      </header>
 
-  // HOME — brand-tinted platform rows (Library lives in the always-on header tab)
-  if (nav.screen === "home") {
+      <div className="px-4">
+        <Segmented
+          value={tab}
+          onChange={setTab}
+          items={[
+            { id: "warm", label: "Warmer", Icon: Flame },
+            { id: "library", label: "Library", Icon: LibraryIcon },
+          ]}
+        />
+      </div>
+
+      <main className="flex-1 px-4 py-3 space-y-3">
+        {tab === "library" ? (
+          <LibraryTool />
+        ) : (
+          <WarmTab
+            platform={platform}
+            setPlatform={setPlatform}
+            toolId={toolId}
+            setToolId={setToolId}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+// Warmer tab: platform picker → platform workspace (segmented tools + panel).
+function WarmTab({ platform, setPlatform, toolId, setToolId }) {
+  if (!platform) {
     return (
-      <Chrome {...chromeProps}>
+      <div className="space-y-3">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Pick a platform
         </p>
@@ -73,7 +159,10 @@ export default function Shell() {
             return (
               <button
                 key={id}
-                onClick={() => setNav({ screen: "hub", platform: id, tool: null })}
+                onClick={() => {
+                  setPlatform(id);
+                  setToolId(null);
+                }}
                 className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
               >
                 <span
@@ -93,85 +182,34 @@ export default function Shell() {
             );
           })}
         </div>
-      </Chrome>
+      </div>
     );
   }
 
-  // HUB — a platform's tools
-  if (nav.screen === "hub") {
-    const items = toolsForPlatform(nav.platform).map((t) => ({
-      id: t.id,
-      label: t.label,
-      Icon: t.Icon,
-    }));
-    return (
-      <Chrome {...chromeProps}>
-        <ToolFrame title={PLATFORMS[nav.platform].name} onBack={goHome} platform={null}>
-          <Launcher items={items} onPick={(tid) => setNav({ ...nav, screen: "tool", tool: tid })} />
-        </ToolFrame>
-      </Chrome>
-    );
-  }
-
-  // TOOL
-  const tool = getTool(nav.tool);
-  if (!tool) {
-    goHome();
-    return null;
-  }
+  const tools = toolsForPlatform(platform);
+  const activeId = tools.some((t) => t.id === toolId) ? toolId : tools[0].id;
+  const tool = getTool(activeId);
   const Panel = tool.Panel;
-  const isGlobal = tool.platforms === "global";
-  const backTo = isGlobal
-    ? goHome
-    : () => setNav({ screen: "hub", platform: nav.platform, tool: null });
-  const onSwap = (p) => {
-    if (toolsForPlatform(p).some((t) => t.id === tool.id))
-      setNav({ screen: "tool", platform: p, tool: tool.id });
-    else setNav({ screen: "hub", platform: p, tool: null });
+  const swap = (p) => {
+    setPlatform(p);
+    setToolId(null);
   };
-  return (
-    <Chrome {...chromeProps}>
-      <ToolFrame
-        title={tool.label}
-        onBack={backTo}
-        platform={isGlobal ? null : nav.platform}
-        onSwapPlatform={onSwap}
-      >
-        <Panel platform={nav.platform} />
-      </ToolFrame>
-    </Chrome>
-  );
-}
 
-// Shared header chrome: wordmark (→ Home) + an always-visible Library tab, so
-// saved posts / transcripts / history are one tap away from any screen.
-function Chrome({ children, onHome, onLibrary, libraryActive }) {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="px-4 pt-4 pb-2.5">
-        <div className="flex items-center justify-between">
-          <button onClick={onHome} title="Home" className="flex items-center gap-2.5">
-            <div className="grad-identity size-7 rounded-[9px]" />
-            <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
-              socialMate
-            </h1>
-          </button>
-          <button
-            onClick={onLibrary}
-            title="Library — saved · transcripts · history"
-            className={
-              "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors " +
-              (libraryActive
-                ? "border-transparent bg-foreground text-background"
-                : "border-border text-muted-foreground hover:bg-accent hover:text-foreground")
-            }
-          >
-            <LibraryIcon className="size-3.5" />
-            Library
-          </button>
-        </div>
-      </header>
-      <main className="flex-1 px-4 py-3 space-y-3">{children}</main>
-    </div>
+    <ToolFrame
+      title="Platforms"
+      onBack={() => setPlatform(null)}
+      platform={platform}
+      onSwapPlatform={swap}
+    >
+      {tools.length > 1 && (
+        <Segmented
+          value={activeId}
+          onChange={setToolId}
+          items={tools.map((t) => ({ id: t.id, label: t.label, Icon: t.Icon }))}
+        />
+      )}
+      <Panel platform={platform} />
+    </ToolFrame>
   );
 }
