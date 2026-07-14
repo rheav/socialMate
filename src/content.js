@@ -326,12 +326,30 @@ import {
     }
   }
 
+  // Re-attach to this run's buffer after a navigation rebuilt the content script.
+  // Keyed by runId, so it can only ever pick up its own events.
+  async function loadEventBuffer() {
+    if (!S.runId) return;
+    try {
+      const buf = (await chrome.storage.local.get(EVENTS_KEY))[EVENTS_KEY];
+      if (buf?.meta?.runId === S.runId && Array.isArray(buf.events))
+        S.events = buf.events;
+    } catch {
+      /* noop */
+    }
+  }
+
   // A previous run that never reached finishRun/halt (tab closed mid-run) left its
   // buffer behind. Ship it as "abandoned" so the data isn't lost.
+  //
+  // Guarded by runId: start() kicks this off and then immediately writes its own
+  // buffer, so without the check a slow read could come back, mistake the run
+  // that just started for an orphan, and delete it.
   async function flushOrphanRun() {
     try {
       const prev = (await chrome.storage.local.get(EVENTS_KEY))[EVENTS_KEY];
       if (!prev?.events?.length) return;
+      if (prev.meta?.runId && prev.meta.runId === S.runId) return; // ours, not an orphan
       chrome.runtime?.sendMessage?.(
         {
           type: "FBW_WRITE_RUN_LOG",
@@ -408,6 +426,14 @@ import {
           skipped: S.skipped,
           commented: S.commented,
           haltReason: S.haltReason,
+          // A run navigates to its target surface (start → location.assign), which
+          // kills this content script. Everything the rebuilt state needs to keep
+          // being the SAME run has to survive here — the telemetry identity and the
+          // session mood included, or the run silently restarts as a different one.
+          runId: S.runId,
+          itemSeq: S.itemSeq,
+          sessionIntensity: S.sessionIntensity,
+          browseOnly: S.browseOnly,
           log: S.log.slice(-LOG_CAP),
           savedAt: Date.now(),
         },
@@ -613,7 +639,11 @@ import {
   // to genuinely short reels; longer items fall back to the fraction dwell. And
   // no single item ever dwells past MAX_DWELL_MS — that was the 60–100s stall.
   const WATCH_FULL_MAX_SEC = 40;
-  const MAX_DWELL_MS = 30000;
+  // Ceiling on any single dwell. It must be JITTERED, not a constant: the reels
+  // rail is mostly long-form, so the fraction dwell lands over the cap on most
+  // items and every one of them clamps to the same number — a run where half the
+  // watches are exactly 30.000s is a signature no human produces. Rolled per item.
+  const MAX_DWELL_MS = () => rand(23000, 34000);
   // Dwell on the active video: watch-full adapters stay for the whole remaining
   // runtime; otherwise a personality-driven fraction of its length. Falls back
   // to the plain random dwell range when no duration is readable. Prefers the
@@ -641,6 +671,7 @@ import {
     }
     const vid =
       (c && c.querySelector && c.querySelector("video")) || igActiveVideo();
+    const capMs = MAX_DWELL_MS(); // rolled per item — never the same ceiling twice
     let dwell = null;
     let frac = null;
     let full = false;
@@ -648,14 +679,17 @@ import {
       if (A?.watchFull && vid.duration <= WATCH_FULL_MAX_SEC) {
         const remaining = Math.max(0, vid.duration - vid.currentTime) * 1000;
         dwell = Math.max(2000, Math.round(remaining + rand(400, 1200)));
-        full = dwell <= MAX_DWELL_MS; // a genuine full watch (short reel, not capped)
+        full = dwell <= capMs; // a genuine full watch (short reel, not capped)
       } else {
         frac = watchFraction();
         dwell = commitmentDwellMs(frac, vid.duration, S.pacing.reelDwellMin, S.pacing.reelDwellMax);
       }
     }
     if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
-    if (dwell > MAX_DWELL_MS) { dwell = MAX_DWELL_MS; full = false; }
+    if (dwell > capMs) {
+      dwell = capMs;
+      full = false;
+    }
     const label = `dwell${frac != null ? ` (${Math.round(frac * 100)}%)` : full ? " (full)" : ""}`;
     const prog = startProgress("👀", label, dwell);
     const t0 = Date.now();
@@ -672,7 +706,8 @@ import {
         vid && isFinite(vid.duration) ? Math.round(vid.duration) : null,
       watchFraction: frac,
       watchedFull: full,
-      cappedAtMax: dwell >= MAX_DWELL_MS,
+      capMs, // the ceiling this item rolled
+      cappedAtMax: dwell >= capMs,
       quick: false,
     });
     return full;
@@ -1409,7 +1444,7 @@ import {
       dwell = Math.min(dwell, remaining);
     }
     if (dwell == null) dwell = rand(S.pacing.reelDwellMin, S.pacing.reelDwellMax);
-    dwell = Math.min(dwell, MAX_DWELL_MS);
+    dwell = Math.min(dwell, MAX_DWELL_MS());
     const prog = startProgress(
       "▶",
       `watching${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
@@ -2863,10 +2898,19 @@ import {
         skipped: saved.skipped || 0,
         haltReason: null,
         log: Array.isArray(saved.log) ? saved.log.slice(-LOG_CAP) : [],
+        // same run, not a new one: keep its telemetry identity and its rolled mood
+        runId: saved.runId || "",
+        itemSeq: saved.itemSeq || 0,
+        sessionIntensity:
+          typeof saved.sessionIntensity === "number" ? saved.sessionIntensity : 1,
+        browseOnly: !!saved.browseOnly,
       });
       if (!S.personalityMode) pickPersonality();
       if (!S.nextBreakAt || S.nextBreakAt < Date.now())
         S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], Date.now());
+      // Pick the event buffer back up so events from before the navigation stay
+      // in the same record (it's keyed by runId, so it can only be ours).
+      await loadEventBuffer();
 
       const target = targetUrlForMode();
       if (target) {
@@ -2876,6 +2920,7 @@ import {
         return;
       }
       logLine("🔄 resumed run on " + pageSurface());
+      emit("resumed", { surface: pageSurface(), url: location.href });
       runEngine();
       S.tickTimer = setInterval(tick, 1000);
     } catch (e) {

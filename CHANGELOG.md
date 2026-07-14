@@ -18,6 +18,29 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.52.0] — 2026-07-13
+
+### Fixed — found by reading the first real run log
+- **The run log recorded no events at all** (`"events": []`). `start()` navigates
+  to the target surface, which destroys the content script; the resume path
+  rebuilds state from storage, and `runId` was never persisted. `emit()` bails
+  when there's no `runId`, so every event after the navigation — i.e. all of them
+  — was dropped. `runId` and `itemSeq` now persist and restore, and the run
+  re-attaches to its event buffer (keyed by `runId`) so events from before the
+  navigation stay in the same record.
+- **The session mood was being erased by the same navigation.** The log said
+  `mood 0.90`, the file said `sessionIntensity: 1` — `sessionIntensity` and
+  `browseOnly` weren't persisted either, so every run reset to neutral intensity
+  after navigating and the 0.50 realism pass was effectively dead. Both now
+  survive the resume.
+- **The dwell cap was a constant, and it showed.** Over half that run's dwells
+  (15 of 29) were *exactly* 30s: the reels rail is mostly long-form, so the
+  fraction dwell exceeds the ceiling on most items and every one clamped to the
+  same number. Fifteen identical 30.000s watches is a signature no human
+  produces. The cap is now rolled per item (23–34s) and recorded in the log.
+- `flushOrphanRun` compares `runId` before shipping a buffer, so the run that
+  just started can't be mistaken for an orphan and deleted.
+
 ## [0.51.0] — 2026-07-13
 
 ### Added — run telemetry
