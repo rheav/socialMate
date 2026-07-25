@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
 import {
@@ -43,37 +44,26 @@ export default function TtCommentsTool() {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState("thread");
   const [sortDir, setSortDir] = useState("desc");
-  const [noTab, setNoTab] = useState(false);
   const [copied, setCopied] = useState(false);
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
   // Follow the currently-open TikTok video until the user manually picks one.
   const follow = useRef(true);
 
   const pull = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
-    if (tabId.current == null) {
-      setNoTab(true);
-      return;
+    const res = await send({ type: "FBW_TT_COMMENTS" });
+    if (res && Array.isArray(res.videos)) {
+      // Keep only videos that actually have comments; newest capture first.
+      const withComments = res.videos.filter((v) => v.comments && v.comments.length);
+      setVideos(withComments);
+      const has = (id) => id && withComments.some((v) => v.aweme_id === id);
+      setActiveId((cur) => {
+        // Auto-follow the video the user is currently viewing (res.current).
+        if (follow.current && has(res.current)) return res.current;
+        if (has(cur)) return cur;
+        return (withComments[0] && withComments[0].aweme_id) || null;
+      });
     }
-    setNoTab(false);
-    try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_COMMENTS" });
-      if (res && Array.isArray(res.videos)) {
-        // Keep only videos that actually have comments; newest capture first.
-        const withComments = res.videos.filter((v) => v.comments && v.comments.length);
-        setVideos(withComments);
-        const has = (id) => id && withComments.some((v) => v.aweme_id === id);
-        setActiveId((cur) => {
-          // Auto-follow the video the user is currently viewing (res.current).
-          if (follow.current && has(res.current)) return res.current;
-          if (has(cur)) return cur;
-          return (withComments[0] && withComments[0].aweme_id) || null;
-        });
-      }
-    } catch {
-      tabId.current = null;
-    }
-  }, []);
+  }, [send]);
 
   const pickVideo = (id) => { follow.current = false; setActiveId(id); };
 
@@ -81,14 +71,10 @@ export default function TtCommentsTool() {
     follow.current = true;
     setVideos([]);
     setActiveId(null);
-    try {
-      if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
-      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_CLEAR" });
-    } catch {
-      tabId.current = null;
-    }
+    // userAction: the user pressed Atualizar and is owed an answer either way.
+    await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     pull();
-  }, [pull]);
+  }, [send, pull]);
 
   useEffect(() => {
     pull();
@@ -124,22 +110,33 @@ export default function TtCommentsTool() {
     });
   }
 
-  if (noTab)
-    return (
-      <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Abra o TikTok em uma aba (com login feito) e reabra este painel.
-      </div>
-    );
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="TikTok"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
 
   if (!videos.length)
     return (
-      <p className="text-sm text-muted-foreground py-8 text-center">
-        Abra um vídeo do TikTok (para carregar os comentários) para capturar a conversa aqui.
-      </p>
+      <div className="space-y-2">
+        {banner}
+        <p className="text-sm text-muted-foreground py-8 text-center">
+          Abra um vídeo do TikTok (para carregar os comentários) para capturar a conversa aqui.
+        </p>
+      </div>
     );
 
   return (
     <div className="space-y-3">
+      {banner}
       {/* video picker + refresh */}
       <ToolBar>
         <ToolSelect

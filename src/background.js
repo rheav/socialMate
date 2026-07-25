@@ -81,7 +81,14 @@ chrome.runtime.onInstalled.addListener(() => {
 // reload/update — otherwise every open FB/IG/TT tab silently loses its engine
 // ("Receiving end does not exist") until the tab is manually reloaded. All our
 // content scripts carry an init guard, so double-injection is a no-op.
-async function reinjectContentScripts() {
+//
+// `onlyTabId` narrows the sweep to a single tab. The panel's one-click recovery
+// needs exactly this manifest → executeScript mapping, so it reuses this
+// function instead of keeping a second copy that could drift — the `world`
+// mapping especially: a MAIN-world script injected as ISOLATED runs happily and
+// does nothing, which is the hardest possible bug to see.
+async function reinjectContentScripts(onlyTabId = null) {
+  let injected = 0;
   for (const cs of chrome.runtime.getManifest().content_scripts || []) {
     let tabs = [];
     try {
@@ -90,16 +97,72 @@ async function reinjectContentScripts() {
       continue;
     }
     for (const t of tabs) {
+      if (onlyTabId != null && t.id !== onlyTabId) continue;
       try {
         await chrome.scripting.executeScript({
           target: { tabId: t.id },
           files: cs.js,
           world: cs.world === "MAIN" ? "MAIN" : "ISOLATED",
         });
+        injected += 1;
       } catch {
         /* discarded/errored tabs — the panel's reload banner covers those */
       }
     }
+  }
+  return injected;
+}
+
+// ---- one-click recovery for a tab whose content scripts are gone ----
+// Every content script answers FBW_PING, so a ping is the liveness test — the
+// same test tabs.onActivated already uses to set fbw_need_reload.
+function pingTab(tabId) {
+  return chrome.tabs.sendMessage(tabId, { type: "FBW_PING" }).then(
+    () => true,
+    () => false,
+  );
+}
+async function waitForPing(tabId, attempts, delayMs) {
+  for (let i = 0; i < attempts; i += 1) {
+    if (await pingTab(tabId)) return true;
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+
+// Cheapest repair first. Re-injection keeps the page exactly as the user left
+// it — scroll position, the open reel, a half-typed comment — so it is tried
+// before the blunt fallback. A reload is only needed for tabs executeScript
+// cannot reach: one open since before the extension had its host permission, or
+// one Chrome discarded. A reload re-runs the manifest's content scripts by
+// itself, so afterwards we only wait for one of them to answer.
+async function reviveTab(tabId) {
+  if (tabId == null) return { ok: false, error: "nenhuma aba para reconectar" };
+  if (await pingTab(tabId)) return { ok: true, method: "alive" };
+  try {
+    await reinjectContentScripts(tabId);
+  } catch {
+    /* fall through to the reload path */
+  }
+  if (await waitForPing(tabId, 6, 250)) return { ok: true, method: "inject" };
+  try {
+    await chrome.tabs.reload(tabId);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  // ≤10s covers a cold facebook.com load on a slow connection.
+  if (await waitForPing(tabId, 20, 500)) return { ok: true, method: "reload" };
+  return { ok: false, error: "a aba não respondeu depois de recarregar" };
+}
+
+// Recovery succeeded → the stale-tab hint is provably wrong, so retire it. This
+// is what lets the panel re-enable itself without being reopened: the panel and
+// the Library both watch this key through storage.onChanged.
+async function markTabHealthy() {
+  try {
+    await chrome.storage.local.set({ [NEED_RELOAD_KEY]: false });
+  } catch {
+    /* storage unavailable during teardown */
   }
 }
 chrome.runtime.onStartup?.addListener(() => {
@@ -625,14 +688,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return false;
     }
+    // panel → bg: bring ONE tab's content scripts back (re-inject, else reload)
+    // and report what happened. The panel keeps its buttons enabled and shows
+    // this result either way — the whole point is that a failed recovery is as
+    // visible as a successful one.
+    case "FBW_REVIVE_TAB": {
+      (async () => {
+        const res = await reviveTab(msg.tabId);
+        if (res.ok) await markTabHealthy();
+        sendResponse(res);
+      })();
+      return true; // async
+    }
     case "FBW_RELOAD_TAB": {
-      chrome.tabs
-        .query({ active: true, lastFocusedWindow: true })
-        .then(([t]) => {
-          if (t && /(facebook|instagram)\.com/.test(t.url || ""))
-            chrome.tabs.reload(t.id);
-        });
-      return false;
+      // The Library's stale-tab hint. Now routed through the same recovery as
+      // the panel banner, so it re-injects (page state preserved) before
+      // resorting to a reload — and clears the hint once the tab answers, which
+      // a bare reload never did. Returning true keeps the worker alive for the
+      // wait; the caller ignores the response.
+      (async () => {
+        const [t] = await chrome.tabs
+          .query({ active: true, lastFocusedWindow: true })
+          .catch(() => []);
+        if (!t || !/(facebook|instagram)\.com/.test(t.url || "")) {
+          sendResponse({ ok: false, error: "nenhuma aba compatível ativa" });
+          return;
+        }
+        const res = await reviveTab(t.id);
+        if (res.ok) await markTabHealthy();
+        sendResponse(res);
+      })();
+      return true; // async
     }
     case "FBW_TRANSCRIBE": {
       runTranscription(msg.videoId, sender.tab?.id, {

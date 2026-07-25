@@ -16,8 +16,9 @@ import {
 import Segmented from "@/components/ui/Segmented";
 import OptionsDropdown from "@/components/ui/OptionsDropdown";
 import { ToolBar, ActionButton, ToolIconButton } from "@/components/ui/ToolBar";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { PLATFORMS } from "@/lib/platforms";
-import { resolvePlatformTab } from "@/lib/tabs";
+import { useContentLink } from "@/lib/useContentLink";
 import { isStaleSession } from "@/lib/sessionMath";
 import { startPolling } from "@/lib/poll";
 
@@ -161,10 +162,14 @@ export default function WarmTool({ platform }) {
   }, [pacing, thresholds, autoCapture, duration, maxItems, quickMode, reactions, comment]);
 
   const [status, setStatus] = useState(null);
-  const [noTab, setNoTab] = useState(false);
-  const [needReload, setNeedReload] = useState(false); // tab exists, engine unreachable
-  const statusMisses = useRef(0);
-  const tabId = useRef(null);
+  // The panel↔content-script link (tab binding, failure reporting, recovery)
+  // lives in one shared hook — see lib/contentLink.js for why.
+  const { link, noTab, fixing, send, revive, openTab, ensureTab, tabId } =
+    useContentLink(platform);
+  // Anything the ENGINE itself refused, or that this form got wrong. Distinct
+  // from `link`: the tab answered, it just said no — and that answer used to be
+  // dropped on the floor by `if (res?.ok)`.
+  const [runError, setRunError] = useState(null);
   const logRef = useRef(null);
 
   const [summary, setSummary] = useState(null);
@@ -219,55 +224,17 @@ export default function WarmTool({ platform }) {
     })().catch(() => {});
   }, []);
 
-  const send = useCallback(async (type, payload = {}) => {
-    if (tabId.current == null) return null;
-    try {
-      return await chrome.tabs.sendMessage(tabId.current, { type, ...payload });
-    } catch {
-      return null;
-    }
-  }, []);
-
+  // Background traffic: a lone miss is tolerated (the hook only escalates after
+  // a run of them), so an SPA navigation doesn't flash a banner.
   const poll = useCallback(async () => {
-    if (tabId.current == null)
-      tabId.current = await resolvePlatformTab(platform);
-    if (tabId.current == null) {
-      setNoTab(true);
-      return;
-    }
-    setNoTab(false);
-    const st = await send("FBW_STATUS");
-    if (st === null) {
-      // Tab exists but the engine doesn't answer — content script missing
-      // (tab predates the extension load/reload). Surface it after a few
-      // misses instead of failing Start silently.
-      tabId.current = null;
-      statusMisses.current += 1;
-      if (statusMisses.current >= 3) setNeedReload(true);
-      return;
-    }
-    statusMisses.current = 0;
-    setNeedReload(false);
-    setStatus(st);
-  }, [send, platform]);
+    const st = await send({ type: "FBW_STATUS" });
+    if (st) setStatus(st);
+  }, [send]);
 
-  const reloadPlatformTab = async () => {
-    const t = tabId.current ?? (await resolvePlatformTab(platform));
-    if (t == null || typeof chrome === "undefined" || !chrome?.tabs?.reload)
-      return;
-    try {
-      await chrome.tabs.reload(t);
-      statusMisses.current = 0;
-      setNeedReload(false);
-    } catch {
-      /* tab gone — next poll re-resolves */
-    }
-  };
-
-  // reset mode + re-resolve the target tab whenever the platform changes
+  // reset mode when the platform changes (the hook re-binds the tab itself)
   useEffect(() => {
     setMode(PLATFORMS[platform].defaultMode);
-    tabId.current = null;
+    setRunError(null);
   }, [platform]);
 
   useEffect(() => {
@@ -307,7 +274,17 @@ export default function WarmTool({ platform }) {
   };
 
   const start = async () => {
-    if (mode === "A" && !keyword.trim()) return;
+    setRunError(null);
+    if (mode === "A" && !keyword.trim()) {
+      // This used to be a bare `return`: the click did nothing and said nothing,
+      // which is indistinguishable from the extension being broken.
+      setRunError(
+        platform === "facebook"
+          ? "Digite uma hashtag antes de iniciar (ex.: tarotreading)."
+          : "Digite uma palavra-chave ou hashtag antes de iniciar.",
+      );
+      return;
+    }
     const settings = {
       platform,
       mode,
@@ -352,33 +329,54 @@ export default function WarmTool({ platform }) {
         reelDwellMax: (Number(pacing.reelMax) || 15) * 1000,
       },
     };
-    const res = await send("FBW_START", { settings });
-    if (res?.ok) setStatus(res);
+    // userAction: the user is waiting on this click, so a dead link is reported
+    // immediately instead of after a run of misses.
+    const res = await send(
+      { type: "FBW_START", settings },
+      { userAction: true, action: "iniciar o aquecimento" },
+    );
+    // null → the link is down; the banner already explains it and offers the fix.
+    if (res == null) return;
+    if (res.ok) {
+      setStatus(res);
+      return;
+    }
+    // The engine answered and REFUSED (wrong page, bad settings). Its reason is
+    // the most useful thing we have; `if (res?.ok)` used to discard it.
+    setRunError(res.error || "O motor recusou a inicialização nesta página.");
   };
   const togglePause = async () => {
-    const r = await send("FBW_TOGGLE_PAUSE");
+    setRunError(null);
+    const r = await send(
+      { type: "FBW_TOGGLE_PAUSE" },
+      { userAction: true, action: paused ? "retomar o aquecimento" : "pausar o aquecimento" },
+    );
     if (r) setStatus(r);
   };
   const stop = async () => {
-    const r = await send("FBW_STOP");
+    setRunError(null);
+    const r = await send(
+      { type: "FBW_STOP" },
+      { userAction: true, action: "parar o aquecimento" },
+    );
     if (r) setStatus(r);
   };
 
   // Pop the bound tab into its OWN window (kept unfocused) so it keeps scrolling
   // while you work elsewhere.
   const detach = async () => {
-    if (tabId.current == null)
-      tabId.current = await resolvePlatformTab(platform);
-    if (
-      tabId.current == null ||
-      typeof chrome === "undefined" ||
-      !chrome?.windows?.create
-    )
-      return;
+    setRunError(null);
+    const id = await ensureTab(); // reports "no tab" through the banner
+    if (id == null) return;
+    if (typeof chrome === "undefined" || !chrome?.windows?.create) return;
     try {
-      await chrome.windows.create({ tabId: tabId.current, focused: false });
-    } catch {
-      /* tab may already be alone in its window */
+      await chrome.windows.create({ tabId: id, focused: false });
+    } catch (e) {
+      // Almost always "tab is already alone in its window" — harmless, but say
+      // so rather than making the button look broken.
+      setRunError(
+        `Não foi possível mover a aba para outra janela: ${e?.message || e}`,
+      );
     }
   };
 
@@ -445,26 +443,25 @@ export default function WarmTool({ platform }) {
           Interrompido automaticamente: {status.haltReason}
         </div>
       )}
-      {noTab && (
-        <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-          Abra o {platformCfg.name} em uma aba e reabra este painel.
-        </div>
-      )}
-      {!noTab && needReload && (
-        // flex-wrap: at the narrowest panel the button drops under the message
-        // instead of squeezing it.
-        <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <span className="min-w-0 break-words">
-            A aba do {platformCfg.name} não está respondendo — é necessário recarregar.
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-xs shrink-0"
-            onClick={reloadPlatformTab}
+      {/* One banner for every link failure — and the only place that fixes it.
+          Renders null while the link is healthy. */}
+      <ContentLinkBanner
+        link={link}
+        platformName={platformCfg.name}
+        fixing={fixing}
+        onRevive={revive}
+        onOpenTab={openTab}
+      />
+      {runError && (
+        <div className="flex min-w-0 items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <span className="min-w-0 break-words">{runError}</span>
+          <button
+            type="button"
+            onClick={() => setRunError(null)}
+            className="ml-auto shrink-0 underline"
           >
-            Recarregar aba
-          </Button>
+            ok
+          </button>
         </div>
       )}
 
@@ -806,13 +803,20 @@ export default function WarmTool({ platform }) {
 
       <ToolBar className="gap-2">
         {!running ? (
+          // DELIBERATELY NOT DISABLED. It used to be `disabled={noTab ||
+          // needReload}`, and needReload is sticky until a later ping happens to
+          // succeed — so the button could sit dead while the user clicked it,
+          // with only a small hint to explain why. A disabled control answers
+          // "no" without ever saying why or how to proceed. Enabled, the click
+          // always produces something: the run starts, or the banner above names
+          // the failure and offers the one-click repair. The ping/flag detection
+          // is untouched — it now drives the banner instead of a dead button.
           <ActionButton
             icon={Play}
             label="Iniciar"
             size="default"
             className="h-9 basis-0 grow grad-blue border-0 text-primary-foreground shadow-md"
             onClick={start}
-            disabled={noTab || needReload}
           />
         ) : (
           <>
@@ -840,7 +844,6 @@ export default function WarmTool({ platform }) {
           hint={`Mover o ${platformCfg.name} para sua própria janela para continuar rolando enquanto você trabalha em outras abas`}
           className="size-9"
           onClick={detach}
-          disabled={noTab}
         />
       </ToolBar>
       {!noTab && (

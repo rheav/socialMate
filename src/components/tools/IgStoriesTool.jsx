@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Download,
   DownloadCloud,
@@ -10,7 +10,8 @@ import {
   Link2,
 } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { extFromUrl } from "@/lib/igMedia";
 import { groupReels, reelLabel, storyToCard, storyFilename } from "@/lib/igReels";
 import { startPolling } from "@/lib/poll";
@@ -33,21 +34,13 @@ function IconBtn({ children, ...props }) {
 // Instagram (nothing is fetched in the background). Downloads via FBW_DL_MEDIA.
 export default function IgStoriesTool() {
   const [reels, setReels] = useState([]);
-  const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // pk -> 'downloading'|'done'|'error'
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
 
   const listFromTab = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
-    if (tabId.current == null) { setNoTab(true); return; }
-    setNoTab(false);
-    try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_REELS" });
-      if (res && Array.isArray(res.reels)) setReels(res.reels);
-    } catch {
-      tabId.current = null;
-    }
-  }, []);
+    const res = await send({ type: "FBW_IG_REELS" });
+    if (res && Array.isArray(res.reels)) setReels(res.reels);
+  }, [send]);
 
   useEffect(() => {
     listFromTab();
@@ -56,14 +49,10 @@ export default function IgStoriesTool() {
 
   const refresh = useCallback(async () => {
     setReels([]);
-    try {
-      if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
-      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_CLEAR" });
-    } catch {
-      tabId.current = null;
-    }
+    // userAction: the user pressed Atualizar and is owed an answer either way.
+    await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
-  }, [listFromTab]);
+  }, [send, listFromTab]);
 
   const bg = (msg) =>
     new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
@@ -115,29 +104,40 @@ export default function IgStoriesTool() {
     }
   }
 
-  if (noTab)
-    return (
-      <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Abra o Instagram em uma aba e reabra este painel.
-      </div>
-    );
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="Instagram"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
 
   const groups = groupReels(reels);
 
   if (!groups.length)
     return (
-      <div className="space-y-2 py-8 text-center">
-        <p className="text-sm text-muted-foreground">
-          Abra um story ou destaque no Instagram para capturá-lo aqui.
-        </p>
-        <p className="text-[11px] text-muted-foreground/70">
-          Nada é buscado em segundo plano — você toca, nós capturamos.
-        </p>
+      <div className="space-y-2">
+        {banner}
+        <div className="space-y-2 py-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            Abra um story ou destaque no Instagram para capturá-lo aqui.
+          </p>
+          <p className="text-[11px] text-muted-foreground/70">
+            Nada é buscado em segundo plano — você toca, nós capturamos.
+          </p>
+        </div>
       </div>
     );
 
   return (
     <div className="space-y-4">
+      {banner}
       <ToolBar className="justify-between">
         <span className="min-w-0 break-words text-[11px] text-muted-foreground">
           {groups.length} perfil(is) capturado(s)

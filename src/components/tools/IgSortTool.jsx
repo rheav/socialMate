@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Download,
   Bookmark,
@@ -25,7 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import {
   sortRecords,
@@ -71,10 +72,9 @@ export default function IgSortTool() {
   const [showAll, setShowAll] = useState(false);
   const [sortKey, setSortKey] = useState("default");
   const [sortDir, setSortDir] = useState("desc");
-  const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const [overlay, setOverlay] = useState(true);
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
 
   useEffect(() => {
     chrome?.storage?.local?.get("sw_ig_overlay").then((r) => {
@@ -114,22 +114,12 @@ export default function IgSortTool() {
   }, []);
 
   const listFromTab = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
-    if (tabId.current == null) {
-      setNoTab(true);
-      return;
+    const res = await send({ type: "FBW_IG_LIST" });
+    if (res && Array.isArray(res.records)) {
+      setRecords(res.records);
+      setSurface(res.surface || null);
     }
-    setNoTab(false);
-    try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_LIST" });
-      if (res && Array.isArray(res.records)) {
-        setRecords(res.records);
-        setSurface(res.surface || null);
-      }
-    } catch {
-      tabId.current = null;
-    }
-  }, []);
+  }, [send]);
 
   useEffect(() => {
     listFromTab();
@@ -140,14 +130,10 @@ export default function IgSortTool() {
   // current surface — so switching context doesn't leave stale posts in the grid.
   const refresh = useCallback(async () => {
     setRecords([]);
-    try {
-      if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
-      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_CLEAR" });
-    } catch {
-      tabId.current = null;
-    }
+    // userAction: the user pressed Atualizar and is owed an answer either way.
+    await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
-  }, [listFromTab]);
+  }, [send, listFromTab]);
 
   const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
@@ -302,15 +288,23 @@ export default function IgSortTool() {
     }
   }
 
-  if (noTab)
-    return (
-      <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Abra o Instagram em uma aba e reabra este painel.
-      </div>
-    );
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="Instagram"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
 
   return (
     <div className="space-y-3">
+      {banner}
       <ToolBar>
         <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
         <ToolIconButton

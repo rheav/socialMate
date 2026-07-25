@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Download,
   Bookmark,
@@ -12,7 +12,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 
@@ -46,10 +47,9 @@ export default function FbReelsTool() {
   const [onReelsTab, setOnReelsTab] = useState(true);
   const [sortKey, setSortKey] = useState("views");
   const [sortDir, setSortDir] = useState("desc");
-  const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const [harvesting, setHarvesting] = useState(false);
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("facebook");
 
   // Saved-ids mirror (yellow-filled bookmark), live via storage.onChanged.
   const [savedIds, setSavedIds] = useState({});
@@ -67,21 +67,16 @@ export default function FbReelsTool() {
     return () => chrome.storage.onChanged.removeListener(onCh);
   }, []);
 
-  const listFromTab = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("facebook");
-    if (tabId.current == null) { setNoTab(true); return; }
-    setNoTab(false);
-    try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_FB_REELS_LIST" });
-      if (res && Array.isArray(res.records)) {
-        setRecords(res.records);
-        setOwner(res.owner || null);
-        setOnReelsTab(!!res.onReelsTab);
-      }
-    } catch {
-      tabId.current = null;
-    }
+  const apply = useCallback((res) => {
+    if (!res || !Array.isArray(res.records)) return;
+    setRecords(res.records);
+    setOwner(res.owner || null);
+    setOnReelsTab(!!res.onReelsTab);
   }, []);
+
+  const listFromTab = useCallback(async () => {
+    apply(await send({ type: "FBW_FB_REELS_LIST" }));
+  }, [send, apply]);
 
   useEffect(() => {
     listFromTab();
@@ -90,18 +85,15 @@ export default function FbReelsTool() {
 
   // Auto-scroll the FB grid to load every reel, then take the full list.
   async function collectAll() {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("facebook");
-    if (tabId.current == null) { setNoTab(true); return; }
     setHarvesting(true);
     try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_FB_REELS_HARVEST" });
-      if (res && Array.isArray(res.records)) {
-        setRecords(res.records);
-        setOwner(res.owner || null);
-        setOnReelsTab(!!res.onReelsTab);
-      }
-    } catch {
-      tabId.current = null;
+      // userAction: a click that can't reach the page says so at once.
+      apply(
+        await send(
+          { type: "FBW_FB_REELS_HARVEST" },
+          { userAction: true, action: "coletar os reels" },
+        ),
+      );
     } finally {
       setHarvesting(false);
     }
@@ -162,15 +154,23 @@ export default function FbReelsTool() {
     }
   }
 
-  if (noTab)
-    return (
-      <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Abra o Facebook em uma aba e reabra este painel.
-      </div>
-    );
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="Facebook"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
 
   return (
     <div className="space-y-3">
+      {banner}
       <ToolBar>
         <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
         <ToolIconButton

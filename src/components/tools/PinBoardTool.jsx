@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, RotateCw, Play, Image as ImageIcon, Film, Layers, Bookmark } from "lucide-react";
 import { ToolBar, ActionButton, ToolSelect } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
 
@@ -21,8 +22,7 @@ const SORT_OPTS = [
 // for context once per surface and then drives an explicit Harvest.
 export default function PinBoardTool() {
   const [ctx, setCtx] = useState(null);
-  const [noTab, setNoTab] = useState(false);
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("pinterest");
 
   const [records, setRecords] = useState([]);
   const [state, setState] = useState({ harvesting: false, pages: 0, done: false, hitCap: false, error: null });
@@ -34,18 +34,6 @@ export default function PinBoardTool() {
   const recordsRef = useRef([]);
   const stateRef = useRef({ harvesting: false, pages: 0, done: false, hitCap: false, error: null });
   const applyRecords = useCallback((next) => { recordsRef.current = next; setRecords(next); }, []);
-
-  const send = useCallback(async (msg) => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("pinterest");
-    if (tabId.current == null) { setNoTab(true); return null; }
-    setNoTab(false);
-    try {
-      return await chrome.tabs.sendMessage(tabId.current, msg);
-    } catch {
-      tabId.current = null;
-      return null;
-    }
-  }, []);
 
   const loadContext = useCallback(async () => {
     const res = await send({ type: "FBW_PIN_CONTEXT" });
@@ -94,14 +82,22 @@ export default function PinBoardTool() {
     return startPolling(pullState, 1000);
   }, [pullState]);
 
+  // userAction on both: these are clicks, so an unreachable page is reported at
+  // once instead of leaving the button looking inert.
   const harvest = useCallback(async () => {
     applyRecords([]);
-    await send({ type: "FBW_PIN_HARVEST", maxPages: MAX_PAGES });
+    await send(
+      { type: "FBW_PIN_HARVEST", maxPages: MAX_PAGES },
+      { userAction: true, action: "coletar os pins" },
+    );
     pullState();
   }, [send, pullState, applyRecords]);
 
   const clear = useCallback(async () => {
-    await send({ type: "FBW_PIN_CLEAR" });
+    await send(
+      { type: "FBW_PIN_CLEAR" },
+      { userAction: true, action: "limpar os pins" },
+    );
     applyRecords([]);
     pullState();
   }, [send, pullState, applyRecords]);
@@ -173,13 +169,33 @@ export default function PinBoardTool() {
     }
   }
 
-  if (noTab)
-    return <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">Abra o Pinterest em uma aba (com login feito) e reabra este painel.</div>;
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state — this is
+  // the panel that used to sit on "Lendo a página…" forever when pin-api.js was
+  // not live in the tab (see the note in lib/tabs.js).
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="Pinterest"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
 
-  if (!ctx) return <p className="py-8 text-center text-sm text-muted-foreground">Lendo a página…</p>;
+  if (noTab) return banner;
+
+  if (!ctx)
+    return (
+      <div className="space-y-2">
+        {banner}
+        <p className="py-8 text-center text-sm text-muted-foreground">Lendo a página…</p>
+      </div>
+    );
 
   return (
     <div className="space-y-2">
+      {banner}
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="text-[13px] font-medium">{ctx.board?.name || ctx.surface?.kind}</div>
         <div className="text-[11px] text-muted-foreground">

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, Loader2, Bookmark, RotateCw, Eye, Heart } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
 
@@ -22,11 +23,10 @@ function IconBtn({ children, ...props }) {
 // (HD + captions), so download uses hd_url and transcribe is caption-first.
 export default function TtStoriesTool() {
   const [owners, setOwners] = useState([]);
-  const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({});
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
 
   useEffect(() => {
     if (!chrome?.storage?.local) return;
@@ -46,16 +46,9 @@ export default function TtStoriesTool() {
   }, []);
 
   const pull = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
-    if (tabId.current == null) { setNoTab(true); return; }
-    setNoTab(false);
-    try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_STORIES" });
-      if (res && Array.isArray(res.owners)) setOwners(res.owners.filter((o) => o.items && o.items.length));
-    } catch {
-      tabId.current = null;
-    }
-  }, []);
+    const res = await send({ type: "FBW_TT_STORIES" });
+    if (res && Array.isArray(res.owners)) setOwners(res.owners.filter((o) => o.items && o.items.length));
+  }, [send]);
 
   useEffect(() => {
     pull();
@@ -64,12 +57,10 @@ export default function TtStoriesTool() {
 
   const refresh = useCallback(async () => {
     setOwners([]);
-    try {
-      if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
-      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_CLEAR" });
-    } catch { tabId.current = null; }
+    // userAction: the user pressed Atualizar and is owed an answer either way.
+    await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     pull();
-  }, [pull]);
+  }, [send, pull]);
 
   const bg = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
   const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
@@ -116,19 +107,34 @@ export default function TtStoriesTool() {
     } catch { /* ignore */ }
   }
 
-  if (noTab)
-    return <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">Abra o TikTok em uma aba (com login feito) e reabra este painel.</div>;
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="TikTok"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
 
   if (!owners.length)
     return (
-      <div className="space-y-2 py-8 text-center">
-        <p className="text-sm text-muted-foreground">Visite um perfil do TikTok que tenha stories ativos (ou abra o anel de stories) para capturá-los aqui.</p>
-        <p className="text-[11px] text-muted-foreground/70">Passivo — nada é buscado em segundo plano.</p>
+      <div className="space-y-2">
+        {banner}
+        <div className="space-y-2 py-8 text-center">
+          <p className="text-sm text-muted-foreground">Visite um perfil do TikTok que tenha stories ativos (ou abra o anel de stories) para capturá-los aqui.</p>
+          <p className="text-[11px] text-muted-foreground/70">Passivo — nada é buscado em segundo plano.</p>
+        </div>
       </div>
     );
 
   return (
     <div className="space-y-4">
+      {banner}
       <ToolBar className="justify-between">
         <span className="min-w-0 break-words text-[11px] text-muted-foreground">
           {owners.length} criador(es) capturado(s)
