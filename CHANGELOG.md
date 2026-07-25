@@ -18,9 +18,22 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.64.1] — 2026-07-25
+
+### Reverted — per-platform identity retint (0.64.0)
+- **The panel keeps ONE identity on every platform again** (Smart blue in light,
+  Brute red→yellow in dark), as established in 0.41.0 which deliberately dropped
+  per-social-network retinting. 0.64.0 wired `PLATFORMS[p].theme` into `<html>`;
+  that is removed and `Shell.jsx` now carries a comment saying not to do it.
+- `PLATFORMS[p].theme` stays in `platforms.jsx` — it is still read inline for the
+  small per-platform icon tiles on the Home picker, which have always been branded.
+- Everything else from 0.64.0's line of work (per-platform *workspaces*, tab
+  following, header switcher, flame glyph, `Sort` label, `min-w-0` overflow fix) is
+  unaffected — this reverts only the color retint.
+
 ## [0.64.0] — 2026-07-25
 
-### Added — per-platform identity retint
+### Added — per-platform identity retint (REVERTED in 0.64.1 — do not reintroduce)
 - **The panel now takes the active platform's brand gradient.** `platforms.jsx` has
   always defined a per-platform `THEMES` map whose comment claimed it was "applied to
   `<html>` on switch", but nothing ever applied it (0.63.0 documented this as dead

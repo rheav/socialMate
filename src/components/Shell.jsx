@@ -20,32 +20,10 @@ import LibraryTool from "@/components/tools/LibraryTool";
 
 const THEME_KEY = "sw_theme";
 
-// ---- per-platform identity retint ----
-// Only the identity gradient is per-platform (logo squircle, wordmark, active
-// switcher glyph + glow, segmented thumb, Start button, toggles — they all read
-// --sw-grad / --sw-from / --sw-to / --sw-glow).
-//
-// Deliberately does NOT apply PLATFORMS[p].theme wholesale: that object spreads a
-// NEUTRAL bundle carrying LIGHT-mode tokens (--primary: 240 6% 10%, --ring,
-// --radius, --sw-wash). Inline-styling those on <html> would win over the .dark
-// block and wreck dark mode. Identity vars only, so both themes stay intact.
-const IDENTITY_VARS = ["--sw-from", "--sw-to", "--sw-grad", "--sw-glow"];
-function applyPlatformIdentity(platform) {
-  const root = document.documentElement.style;
-  const theme = platform ? PLATFORMS[platform]?.theme : null;
-  if (!theme) {
-    // Home / unknown → drop the overrides so index.css :root (light) or .dark
-    // (Brute) identity comes back.
-    for (const v of IDENTITY_VARS) root.removeProperty(v);
-    root.removeProperty("--primary-foreground");
-    return;
-  }
-  for (const v of IDENTITY_VARS) if (theme[v]) root.setProperty(v, theme[v]);
-  // Dark mode's --primary-foreground is BLACK, tuned for the Brute red→yellow
-  // accent whose yellow end kills white text. A platform gradient needs white, and
-  // light mode is already white, so pin it while a platform identity is active.
-  root.setProperty("--primary-foreground", "0 0% 100%");
-}
+// NOTE: do NOT retint the UI per platform. The panel keeps ONE identity (Smart blue
+// in light, Brute red→yellow in dark) on every platform — see index.css :root/.dark.
+// `PLATFORMS[p].theme` exists but is intentionally NOT applied to <html>; it is only
+// read inline for the small per-platform icon tiles on the Home picker.
 
 // Light/dark theme: toggle the `.dark` class on <html>. Defaults to the OS
 // preference until the user picks, then persists their choice.
@@ -135,13 +113,6 @@ export default function Shell() {
   useFollowActiveTab(ready, ownWindowId, setNav);
 
   const [theme, toggleTheme] = useTheme();
-
-  // Retint the identity gradient for the workspace on screen (and restore the
-  // default at Home). Re-runs on light/dark toggle too, since that swaps which
-  // --primary-foreground default we're overriding.
-  useEffect(() => {
-    applyPlatformIdentity(nav.platform);
-  }, [nav.platform, theme]);
 
   const setPlatform = useCallback((p) => setNav((n) => withPlatform(n, p)), []);
   const setToolId = useCallback(
