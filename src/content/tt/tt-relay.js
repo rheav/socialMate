@@ -351,7 +351,11 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
         videoId: rec.id, platform: "tiktok", thumb: rec.cover || rec.dynamic_cover || null, caption: rec.desc || null,
         author: { name: rec.username || rec.nickname || "unknown", url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null },
         counts: { like: fmt(rec.digg_count), comment: fmt(rec.comment_count), views: fmt(rec.play_count) },
-        code: rec.id, updatedAt: Date.now(),
+        code: rec.id,
+        // Same shape as ttTranscribe below — without it VideoCard falls back to a
+        // dead facebook.com/reel/<id> link.
+        sourceUrl: rec.username ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
+        updatedAt: Date.now(),
       };
       return chrome.storage.local.set({ fbw_saved: map }).then(() => true);
     });

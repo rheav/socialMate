@@ -25,17 +25,29 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
   let lastError = null;
   let generation = 0;        // bumps on clear/surface change to abandon in-flight loops
 
+  // Resume state for "Harvest again for more" (see harvest() below). Cleared
+  // whenever the store itself is cleared, so a fresh surface always starts fresh.
+  let lastBookmark = null;
+  let lastSurfaceKey = null;
+
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // #__PWS_DATA__ is Pinterest's whole SSR state blob — parsing it is not free, and
+  // appVersion cannot change for the lifetime of the page, so parse it once and cache.
+  let cachedAppVersion = null;
   function appVersion() {
+    if (cachedAppVersion) return cachedAppVersion;
     try {
-      return JSON.parse(document.querySelector("#__PWS_DATA__").textContent).appVersion || APP_VERSION_FALLBACK;
+      cachedAppVersion = JSON.parse(document.querySelector("#__PWS_DATA__").textContent).appVersion || APP_VERSION_FALLBACK;
     } catch {
-      return APP_VERSION_FALLBACK;
+      cachedAppVersion = APP_VERSION_FALLBACK;
     }
+    return cachedAppVersion;
   }
 
-  const csrfToken = () => document.cookie.match(/csrftoken=([^;]+)/)?.[1] || null;
+  // Boundary-anchored so a cookie whose name merely ENDS with csrftoken (e.g.
+  // xcsrftoken) can't win the match if it happens to appear before the real one.
+  const csrfToken = () => document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] || null;
   // _auth is httpOnly so we can't read it; its absence here proves nothing. The
   // reliable signal is whether the API answers, so treat a 403 as "log in".
   const looksLoggedIn = () => !!csrfToken();
@@ -103,7 +115,29 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
   async function harvest(maxPages) {
     const gen = ++generation;
     const surface = PIN.surfaceOf(location.href);
-    harvesting = true; done = false; hitCap = false; lastError = null; pages = 0; surfaceKey = surface.key;
+
+    // The panel's Harvest is expected to start fresh on a new surface — but the
+    // FBW_PIN_CONTEXT handler below only clears on a surface change every 5s, which
+    // is far too slow to guard the natural flow: harvest board A, SPA-navigate to
+    // board B (the panel still shows A), press Harvest within that window. Without
+    // this, B's pins get folded straight into A's still-live store, and since
+    // surfaceKey is about to be set to B's key below, the 5s poll never even notices
+    // a change afterwards. Clear here too, keyed off the same surfaceKey the poll uses.
+    if (surfaceKey && surfaceKey !== surface.key) store = new Map();
+
+    // Resume support ("Harvest again for more"): only pick up from lastBookmark when
+    // this press is for the SAME surface as the run that stopped on the page cap.
+    // Any other case — a different surface, a run that reached a genuine end
+    // (env.isEnd), or no bookmark on record — starts fresh from page 1. `pages` is
+    // cumulative across a resumed run so the counter reflects the whole harvest, not
+    // just the latest maxPages-page slice.
+    const resuming = surface.key === lastSurfaceKey && hitCap && lastBookmark != null;
+    const bookmarkStart = resuming ? lastBookmark : null;
+    if (!resuming) { pages = 0; lastBookmark = null; }
+    surfaceKey = surface.key;
+    lastSurfaceKey = surface.key;
+
+    harvesting = true; done = false; hitCap = false; lastError = null;
     try {
       // A section surface intentionally harvests the WHOLE parent board, not just that
       // section: filter_section_pins:false (baked into PIN.boardFeedOptions) already
@@ -117,9 +151,10 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
       // than comparing pages to maxPages afterwards, so a board that naturally ends on
       // exactly the last allowed page still reports "complete", not "capped".
       let reachedEnd = false;
+      let finalBookmark = null;
       if (surface.kind === "board" || surface.kind === "section") {
         const board = await fetchBoard(surface);
-        let bookmark = null;
+        let bookmark = bookmarkStart;
         for (let i = 0; i < maxPages; i++) {
           if (gen !== generation) return;
           const env = await resourceGet("BoardFeedResource", PIN.boardFeedOptions(board, bookmark), surface);
@@ -136,8 +171,9 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
           if (env.isEnd) { reachedEnd = true; break; }
           await sleep(350);
         }
+        finalBookmark = bookmark;
       } else if (surface.kind === "search") {
-        let bookmark = null;
+        let bookmark = bookmarkStart;
         for (let i = 0; i < maxPages; i++) {
           if (gen !== generation) return;
           const opts = { query: surface.query, scope: "pins", rs: "typed", appliedProductFilters: "---", bookmarks: bookmark ? [bookmark] : [] };
@@ -152,11 +188,12 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
           if (env.isEnd) { reachedEnd = true; break; }
           await sleep(350);
         }
+        finalBookmark = bookmark;
       } else {
         throw new Error("Open a board, a board section, or a search page.");
       }
-      if (reachedEnd) done = true;
-      else hitCap = true; // maxPages exhausted with a bookmark still outstanding — not complete
+      if (reachedEnd) { done = true; lastBookmark = null; }
+      else { hitCap = true; lastBookmark = finalBookmark; } // outstanding bookmark — resume point for next Harvest
     } catch (e) {
       lastError = e.message || String(e);
     } finally {
@@ -186,8 +223,9 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
       (async () => {
         const surface = PIN.surfaceOf(location.href);
         // Surface changed under us (SPA nav) — drop stale records so the panel
-        // never shows another board's pins.
-        if (surfaceKey && surfaceKey !== surface.key) { store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; }
+        // never shows another board's pins, and drop the resume bookmark with them
+        // so a later Harvest on this new surface starts from page 1, not A's cursor.
+        if (surfaceKey && surfaceKey !== surface.key) { store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; lastBookmark = null; lastSurfaceKey = null; }
         surfaceKey = surface.key;
         const out = { ok: true, loggedIn: looksLoggedIn(), surface, board: null, sections: [], error: null };
         try {
@@ -215,7 +253,10 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
     }
 
     if (msg?.type === "FBW_PIN_CLEAR") {
-      store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; lastError = null;
+      // An explicit Clear always means "start over" — drop the resume bookmark too,
+      // so the next Harvest walks from page 1 instead of quietly picking up a cursor
+      // into pins the user just asked to forget.
+      store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; lastError = null; lastBookmark = null; lastSurfaceKey = null;
       sendResponse({ ok: true });
       return;
     }

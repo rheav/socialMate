@@ -105,7 +105,12 @@ export default function TtStoriesTool() {
         videoId: item.id, platform: "tiktok", thumb: item.cover || item.dynamic_cover || null, caption: item.desc || null,
         author: { name: item.reel_owner || item.username || "unknown", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
         counts: { like: fmtCount(item.digg_count), comment: fmtCount(item.comment_count), views: fmtCount(item.play_count) },
-        code: item.id, updatedAt: Date.now(),
+        code: item.id,
+        // item.username, not reel_owner — same field this file's transcribe() above
+        // already uses for author.url. Without this VideoCard falls back to a dead
+        // facebook.com/reel/<id> link.
+        sourceUrl: item.username ? `https://www.tiktok.com/@${item.username}/video/${item.id}` : null,
+        updatedAt: Date.now(),
       };
       await chrome.storage.local.set({ fbw_saved: map });
     } catch { /* ignore */ }

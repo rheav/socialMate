@@ -208,6 +208,9 @@ export default function TtSortTool() {
           views: rec.play_count != null ? fmtCount(rec.play_count) : null,
         },
         code: rec.id,
+        // Same shape as the transcribe path below — without it VideoCard falls back
+        // to a dead facebook.com/reel/<id> link.
+        sourceUrl: rec.username ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
         updatedAt: Date.now(),
       };
       await chrome.storage.local.set({ fbw_saved: map });

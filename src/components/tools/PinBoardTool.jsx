@@ -19,6 +19,13 @@ export default function PinBoardTool() {
   const [state, setState] = useState({ harvesting: false, pages: 0, done: false, hitCap: false, error: null });
   const [sortKey, setSortKey] = useState("default");
 
+  // Mirrors of `records`/`state` for pullState's change check below — a ref (not the
+  // state itself) so the 1s poll can compare without becoming a dependency that
+  // recreates the callback every render.
+  const recordsRef = useRef([]);
+  const stateRef = useRef({ harvesting: false, pages: 0, done: false, hitCap: false, error: null });
+  const applyRecords = useCallback((next) => { recordsRef.current = next; setRecords(next); }, []);
+
   const send = useCallback(async (msg) => {
     if (tabId.current == null) tabId.current = await resolvePlatformTab("pinterest");
     if (tabId.current == null) { setNoTab(true); return null; }
@@ -48,8 +55,27 @@ export default function PinBoardTool() {
   const pullState = useCallback(async () => {
     const res = await send({ type: "FBW_PIN_STATE" });
     if (!res) return;
-    setRecords(res.records || []);
-    setState({ harvesting: !!res.harvesting, pages: res.pages || 0, done: !!res.done, hitCap: !!res.hitCap, error: res.error || null });
+    const nextRecords = res.records || [];
+    const nextState = { harvesting: !!res.harvesting, pages: res.pages || 0, done: !!res.done, hitCap: !!res.hitCap, error: res.error || null };
+    const prev = stateRef.current;
+    // The grid can hold 870+ tiles on a real board; re-rendering all of them once a
+    // second forever (this poll never stops while the panel is open) is wasted work
+    // whenever nothing actually changed. Compare against the last-applied snapshot
+    // and skip both setStates when the diff is empty — harvesting still updates the
+    // UI every tick because pages/records.length are moving.
+    if (
+      recordsRef.current.length === nextRecords.length &&
+      prev.harvesting === nextState.harvesting &&
+      prev.pages === nextState.pages &&
+      prev.done === nextState.done &&
+      prev.hitCap === nextState.hitCap &&
+      prev.error === nextState.error
+    )
+      return;
+    recordsRef.current = nextRecords;
+    stateRef.current = nextState;
+    setRecords(nextRecords);
+    setState(nextState);
   }, [send]);
 
   useEffect(() => {
@@ -60,16 +86,16 @@ export default function PinBoardTool() {
   }, [pullState]);
 
   const harvest = useCallback(async () => {
-    setRecords([]);
+    applyRecords([]);
     await send({ type: "FBW_PIN_HARVEST", maxPages: MAX_PAGES });
     pullState();
-  }, [send, pullState]);
+  }, [send, pullState, applyRecords]);
 
   const clear = useCallback(async () => {
     await send({ type: "FBW_PIN_CLEAR" });
-    setRecords([]);
+    applyRecords([]);
     pullState();
-  }, [send, pullState]);
+  }, [send, pullState, applyRecords]);
 
   const sorted = sortRecords(records, sortKey, "desc");
 
