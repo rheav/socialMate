@@ -45,6 +45,11 @@ describe("migrateNav", () => {
     expect(out.platform).toBe("tiktok");
     expect(out.perPlatform).toEqual({ tiktok: { toolId: "tt-comments" } });
   });
+  it("seeds pinterest from the legacy sw_nav2 value (sw_nav2 -> sw_nav3 migration)", () => {
+    const out = migrateNav(null, { tab: "warm", platform: "pinterest", toolId: "pin-board" });
+    expect(out.platform).toBe("pinterest");
+    expect(out.perPlatform).toEqual({ pinterest: { toolId: "pin-board" } });
+  });
   it("carries the legacy top-level tab", () => {
     expect(migrateNav(null, { tab: "library" }).tab).toBe("library");
   });
@@ -57,6 +62,9 @@ describe("migrateNav", () => {
 describe("withPlatform", () => {
   it("switches platform", () => {
     expect(withPlatform(emptyNav(), "tiktok").platform).toBe("tiktok");
+  });
+  it("accepts pinterest (added in Task 4 fix round 1 — was missing from NAV_PLATFORMS)", () => {
+    expect(withPlatform(emptyNav(), "pinterest").platform).toBe("pinterest");
   });
   it("returns the SAME reference when unchanged (no re-render)", () => {
     const nav = withPlatform(emptyNav(), "tiktok");
@@ -94,6 +102,12 @@ describe("withToolId / toolIdFor", () => {
   it("returns the SAME reference when unchanged", () => {
     const nav = withToolId(emptyNav(), "tiktok", "tt-sort");
     expect(withToolId(nav, "tiktok", "tt-sort")).toBe(nav);
+  });
+  it("round-trips a pinterest platform + tool through withPlatform/withToolId", () => {
+    let nav = withPlatform(emptyNav(), "pinterest");
+    nav = withToolId(nav, "pinterest", "pin-board");
+    expect(nav.platform).toBe("pinterest");
+    expect(toolIdFor(nav, "pinterest")).toBe("pin-board");
   });
   it("ignores bad input", () => {
     const nav = emptyNav();

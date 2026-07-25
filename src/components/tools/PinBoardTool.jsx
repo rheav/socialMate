@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolvePlatformTab } from "@/lib/tabs";
+import { startPolling } from "@/lib/poll";
 
 // Pinterest Board tool. Unlike the IG/TT tools this is not polling a passive
 // capture — pin-api.js actively pages Pinterest's resource API, so the panel asks
@@ -30,8 +31,9 @@ export default function PinBoardTool() {
     loadContext();
     // Context is cheap but not free (2 API calls), so re-check on a slow interval
     // to catch SPA navigation between boards rather than the 2.5s data-tool cadence.
-    const id = setInterval(loadContext, 5000);
-    return () => clearInterval(id);
+    // startPolling (house pattern, see TtCollectionsTool) skips ticks while the panel
+    // is hidden and fires once immediately on becoming visible.
+    return startPolling(loadContext, 5000);
   }, [loadContext]);
 
   if (noTab)

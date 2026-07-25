@@ -4,7 +4,7 @@
 // back) resumes where you were. Shape:
 //
 //   { tab: "warm"|"library",            // top-level tab — GLOBAL, not per-platform
-//     platform: "facebook"|"instagram"|"tiktok"|null,
+//     platform: "facebook"|"instagram"|"tiktok"|"pinterest"|null,
 //     perPlatform: { <platform>: { toolId } } }
 //
 // IMPORTANT — every `with*` helper returns the SAME object reference when nothing
@@ -15,7 +15,7 @@
 export const NAV_KEY = "sw_nav3";
 export const LEGACY_NAV_KEY = "sw_nav2"; // read once for migration, then ignored
 
-export const NAV_PLATFORMS = ["facebook", "instagram", "tiktok"];
+export const NAV_PLATFORMS = ["facebook", "instagram", "tiktok", "pinterest"];
 const isPlatform = (p) => NAV_PLATFORMS.includes(p);
 const isTab = (t) => t === "warm" || t === "library";
 
