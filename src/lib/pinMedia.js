@@ -152,9 +152,13 @@ function pickVideo(videoList) {
 }
 
 function pickImage(images) {
-  const o = images?.orig;
-  // Only images.orig is trustworthy. Rewriting /236x/ -> /originals/ 403s whenever
+  // Full-res lives under two different keys depending on pin type — verified live:
+  // ordinary pins key it images.orig, but Idea-Pin story blocks (image.images inside
+  // story_pin_data.pages[].blocks[]) key it images.originals instead and omit orig
+  // entirely. Both have the same { url, width, height } shape, so accept either.
+  // Only these two keys are trustworthy. Rewriting /236x/ -> /originals/ 403s whenever
   // the original's extension differs from the thumbnail's (png vs jpg) — verified.
+  const o = images?.orig || images?.originals;
   if (o?.url) return { kind: "image", url: o.url, hls: false, width: o.width ?? null, height: o.height ?? null, duration: null, thumb: null };
   const f = images?.["736x"] || images?.["474x"] || images?.["236x"];
   return f?.url ? { kind: "image", url: f.url, hls: false, width: f.width ?? null, height: f.height ?? null, duration: null, thumb: null } : null;

@@ -253,6 +253,59 @@ describe("mediaItems", () => {
     expect(mediaItems({ id: "x" })).toEqual([]);
     expect(mediaItems(null)).toEqual([]);
   });
+
+  it("uses images.originals (not 736x) for an Idea Pin block that has no orig — live-verified shape", () => {
+    const ideaImagePin = {
+      id: "idea1",
+      story_pin_data: {
+        page_count: 1,
+        pages: [
+          {
+            blocks: [
+              {
+                type: "story_pin_image_block",
+                image: {
+                  images: {
+                    originals: { url: "https://i.pinimg.com/originals/0d/93/45/full.jpg", width: 1080, height: 1920 },
+                    "1200x": { url: "https://i.pinimg.com/1200x/0d/93/45/full.jpg", width: 1200, height: 2133 },
+                    "474x": { url: "https://i.pinimg.com/474x/0d/93/45/full.jpg", width: 474, height: 843 },
+                    "236x": { url: "https://i.pinimg.com/236x/0d/93/45/full.jpg", width: 236, height: 419 },
+                    "736x": { url: "https://i.pinimg.com/736x/0d/93/45/full.jpg", width: 736, height: 1309 },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const items = mediaItems(ideaImagePin);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe("image");
+    expect(items[0].url).toBe("https://i.pinimg.com/originals/0d/93/45/full.jpg");
+    expect(items[0].url).not.toContain("/736x/");
+    expect(items[0].width).toBe(1080);
+    expect(items[0].height).toBe(1920);
+  });
+
+  it("still uses images.orig for an ordinary pin (regression guard)", () => {
+    const items = mediaItems(IMAGE_PIN);
+    expect(items[0].url).toBe(IMAGE_PIN.images.orig.url);
+  });
+
+  it("falls back to 736x when neither orig nor originals is present", () => {
+    const noFullRes = {
+      id: "nofull1",
+      images: {
+        "736x": { url: "https://i.pinimg.com/736x/aa/bb/cc/thumb.jpg", width: 736, height: 1104 },
+        "474x": { url: "https://i.pinimg.com/474x/aa/bb/cc/thumb.jpg", width: 474, height: 711 },
+        "236x": { url: "https://i.pinimg.com/236x/aa/bb/cc/thumb.jpg", width: 236, height: 354 },
+      },
+    };
+    const items = mediaItems(noFullRes);
+    expect(items).toHaveLength(1);
+    expect(items[0].url).toBe("https://i.pinimg.com/736x/aa/bb/cc/thumb.jpg");
+  });
 });
 
 describe("parseHlsMaster", () => {
