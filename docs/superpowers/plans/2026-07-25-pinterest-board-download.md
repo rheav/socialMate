@@ -23,7 +23,7 @@
 - Pinterest exposes **no view counts**, so there is no engagement rate. Sort keys are saves / comments / date / default only.
 - Bulk download pacing: **serial, 400 ms between items**, matching `IgSortTool.downloadAll` / `TtSortTool.downloadAll`. Page-to-page harvest delay **350 ms**.
 - Harvest safety cap: **40 pages** (~1000 pins) per run, surfaced in the UI, never silent.
-- Bump `version` in BOTH `manifest.config.js` and `package.json` (0.63.0 → **0.64.0**), set `version_name`, add a CHANGELOG entry (project rule).
+- Bump `version` in BOTH `manifest.config.js` and `package.json` (0.65.0 → **0.66.0**), set `version_name`, add a CHANGELOG entry (project rule). *(Corrected at execution time: the repo advanced to 0.65.0 after this plan was drafted, and 0.64.0 is already taken by the TikTok suite.)*
 - Commands: tests `npx vitest run`, build `npm run build`.
 - Code style: match existing — 2-space indent, no TS, section banner comments explaining *why*, `catch {}` for intentional no-ops, `@/lib/...` alias in panel code and relative `./lib/...` in content scripts.
 
@@ -572,8 +572,8 @@ describe("pinToRecord", () => {
 });
 
 describe("filenames", () => {
-  it("strips path-hostile characters", () => {
-    expect(sanitizeFilenamePart('a/b:c*d?"<>|')).toBe("a_b_c_d_");
+  it("strips path-hostile characters and trims both ends, like ttMedia/igMedia", () => {
+    expect(sanitizeFilenamePart('a/b:c*d?"<>|')).toBe("a_b_c_d");
   });
 
   it("builds pin-<user>-<id>.<ext> and suffixes multi-asset pins", () => {
@@ -1625,21 +1625,23 @@ git commit -m "feat(pinterest): save pins to the shared Library"
 
 - [ ] **Step 1: Bump both version fields**
 
-`manifest.config.js`:
+`manifest.config.js` (current is 0.65.0; 0.64.0 is already taken by the TikTok suite):
 
 ```js
-  version: "0.64.0",
-  version_name: "0.64.0 — Pinterest: harvest a whole board through the resource API and bulk-download full-res images + MP4 video (HLS derived)",
+  version: "0.66.0",
+  version_name: "0.66.0 — Pinterest: harvest a whole board through the resource API and bulk-download full-res images + MP4 video (HLS derived)",
 ```
 
-`package.json`: set `"version": "0.64.0"`.
+`package.json`: set `"version": "0.66.0"`.
 
 - [ ] **Step 2: Add the changelog entry**
 
 Prepend to `CHANGELOG.md`, matching the existing entry style:
 
+Match the existing heading format exactly — entries are `## [X.Y.Z] — YYYY-MM-DD`, newest first, inserted after the format preamble (around line 21, above the `## [0.65.0]` entry).
+
 ```markdown
-## 0.64.0 — Pinterest board download
+## [0.66.0] — 2026-07-25
 
 - **New platform: Pinterest.** Fourth platform in the switcher, with a single `Board` tool.
 - **Active fetch, not passive capture.** Pinterest's `/resource/*` API is unsigned and cookie-authenticated, so `src/content/pin/pin-api.js` calls it directly and walks the cursor — a whole board is harvested without the user scrolling. This is the first platform in the extension that works this way.
