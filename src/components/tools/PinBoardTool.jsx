@@ -16,7 +16,7 @@ export default function PinBoardTool() {
   const tabId = useRef(null);
 
   const [records, setRecords] = useState([]);
-  const [state, setState] = useState({ harvesting: false, pages: 0, done: false, error: null });
+  const [state, setState] = useState({ harvesting: false, pages: 0, done: false, hitCap: false, error: null });
   const [sortKey, setSortKey] = useState("default");
 
   const send = useCallback(async (msg) => {
@@ -49,7 +49,7 @@ export default function PinBoardTool() {
     const res = await send({ type: "FBW_PIN_STATE" });
     if (!res) return;
     setRecords(res.records || []);
-    setState({ harvesting: !!res.harvesting, pages: res.pages || 0, done: !!res.done, error: res.error || null });
+    setState({ harvesting: !!res.harvesting, pages: res.pages || 0, done: !!res.done, hitCap: !!res.hitCap, error: res.error || null });
   }, [send]);
 
   useEffect(() => {
@@ -109,8 +109,10 @@ export default function PinBoardTool() {
 
       <div className="text-[11px] text-muted-foreground">
         {records.length} pin(s) · {state.pages} page(s)
+        {/* done and hitCap are mutually exclusive (set from pin-api.js's reachedEnd branch),
+            so "complete" and the cap message never render together. */}
         {state.harvesting ? " · running" : state.done ? " · complete" : ""}
-        {state.pages >= MAX_PAGES ? ` · stopped at the ${MAX_PAGES}-page cap — Harvest again for more` : ""}
+        {state.hitCap ? ` · stopped at the ${MAX_PAGES}-page cap — Harvest again for more` : ""}
       </div>
       {state.error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">{state.error}</div> : null}
 

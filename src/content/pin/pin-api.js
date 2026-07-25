@@ -20,7 +20,8 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
   let surfaceKey = null;
   let harvesting = false;
   let pages = 0;
-  let done = false;
+  let done = false;          // true ONLY when the feed itself reported the end (env.isEnd)
+  let hitCap = false;        // true when maxPages was exhausted while pins remained — NOT complete
   let lastError = null;
   let generation = 0;        // bumps on clear/surface change to abandon in-flight loops
 
@@ -102,13 +103,20 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
   async function harvest(maxPages) {
     const gen = ++generation;
     const surface = PIN.surfaceOf(location.href);
-    harvesting = true; done = false; lastError = null; pages = 0; surfaceKey = surface.key;
+    harvesting = true; done = false; hitCap = false; lastError = null; pages = 0; surfaceKey = surface.key;
     try {
       // A section surface intentionally harvests the WHOLE parent board, not just that
       // section: filter_section_pins:false (baked into PIN.boardFeedOptions) already
       // returns sectioned pins in the main board feed, so a separate per-section fetch
       // would only be a filing convenience, not new data. surface.sectionSlug is
       // deliberately unused below — this is a known, accepted limitation, not a bug.
+      //
+      // The loop below can end two ways: env.isEnd (the feed itself ran out — a genuine
+      // finish) or maxPages exhausted while a bookmark was still outstanding (the cap
+      // stopped it, more pins remain). Track which one happened via reachedEnd rather
+      // than comparing pages to maxPages afterwards, so a board that naturally ends on
+      // exactly the last allowed page still reports "complete", not "capped".
+      let reachedEnd = false;
       if (surface.kind === "board" || surface.kind === "section") {
         const board = await fetchBoard(surface);
         let bookmark = null;
@@ -125,7 +133,7 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
           ingest(env.results, surface.key);
           pages++;
           bookmark = env.bookmark;
-          if (env.isEnd) break;
+          if (env.isEnd) { reachedEnd = true; break; }
           await sleep(350);
         }
       } else if (surface.kind === "search") {
@@ -141,13 +149,14 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
           ingest(env.results, surface.key);
           pages++;
           bookmark = env.bookmark;
-          if (env.isEnd) break;
+          if (env.isEnd) { reachedEnd = true; break; }
           await sleep(350);
         }
       } else {
         throw new Error("Open a board, a board section, or a search page.");
       }
-      done = true;
+      if (reachedEnd) done = true;
+      else hitCap = true; // maxPages exhausted with a bookmark still outstanding — not complete
     } catch (e) {
       lastError = e.message || String(e);
     } finally {
@@ -178,7 +187,7 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
         const surface = PIN.surfaceOf(location.href);
         // Surface changed under us (SPA nav) — drop stale records so the panel
         // never shows another board's pins.
-        if (surfaceKey && surfaceKey !== surface.key) { store = new Map(); generation++; harvesting = false; done = false; pages = 0; }
+        if (surfaceKey && surfaceKey !== surface.key) { store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; }
         surfaceKey = surface.key;
         const out = { ok: true, loggedIn: looksLoggedIn(), surface, board: null, sections: [], error: null };
         try {
@@ -201,12 +210,12 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
     }
 
     if (msg?.type === "FBW_PIN_STATE") {
-      sendResponse({ records: Array.from(store.values()), harvesting, pages, done, error: lastError, surfaceKey });
+      sendResponse({ records: Array.from(store.values()), harvesting, pages, done, hitCap, error: lastError, surfaceKey });
       return;
     }
 
     if (msg?.type === "FBW_PIN_CLEAR") {
-      store = new Map(); generation++; harvesting = false; done = false; pages = 0; lastError = null;
+      store = new Map(); generation++; harvesting = false; done = false; hitCap = false; pages = 0; lastError = null;
       sendResponse({ ok: true });
       return;
     }
