@@ -104,12 +104,23 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
     const surface = PIN.surfaceOf(location.href);
     harvesting = true; done = false; lastError = null; pages = 0; surfaceKey = surface.key;
     try {
+      // A section surface intentionally harvests the WHOLE parent board, not just that
+      // section: filter_section_pins:false (baked into PIN.boardFeedOptions) already
+      // returns sectioned pins in the main board feed, so a separate per-section fetch
+      // would only be a filing convenience, not new data. surface.sectionSlug is
+      // deliberately unused below — this is a known, accepted limitation, not a bug.
       if (surface.kind === "board" || surface.kind === "section") {
         const board = await fetchBoard(surface);
         let bookmark = null;
         for (let i = 0; i < maxPages; i++) {
           if (gen !== generation) return;
           const env = await resourceGet("BoardFeedResource", PIN.boardFeedOptions(board, bookmark), surface);
+          // Re-check after the await: generation can bump WHILE this request is in flight
+          // (FBW_PIN_CLEAR, or the surface-change reset in FBW_PIN_CONTEXT). The top-of-loop
+          // check above only catches a bump that happened before the fetch started — this
+          // check is the one that actually stops a stale page's results from being written
+          // into a cleared or superseded store.
+          if (gen !== generation) return;
           if (!env.ok) throw new Error(env.error);
           ingest(env.results, surface.key);
           pages++;
@@ -123,6 +134,9 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
           if (gen !== generation) return;
           const opts = { query: surface.query, scope: "pins", rs: "typed", appliedProductFilters: "---", bookmarks: bookmark ? [bookmark] : [] };
           const env = await resourcePost("BaseSearchResource", opts, surface);
+          // Re-check after the await — see comment on the board/section loop above; the
+          // same in-flight-bump hazard applies here.
+          if (gen !== generation) return;
           if (!env.ok) throw new Error(env.error);
           ingest(env.results, surface.key);
           pages++;
