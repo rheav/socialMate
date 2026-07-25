@@ -33,7 +33,7 @@ export default function OptionsDropdown({
     <div className="relative" ref={ref}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        title="Options"
+        title="Opções"
         className="flex items-center rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
         <Settings size={16} />
@@ -43,34 +43,34 @@ export default function OptionsDropdown({
         <div className="absolute top-full right-0 z-50 mt-2 w-72 rounded-xl border border-slate-300 bg-white/95 backdrop-blur-md shadow-xl">
           <div className="max-h-96 overflow-y-auto p-4">
             <Section
-              title="Pacing"
-              tooltip="Random waits between actions, and how long each video is watched (dwell). Values are ranges — a random point inside is picked every time, so the run never looks metronomic."
+              title="Ritmo"
+              tooltip="Esperas aleatórias entre as ações e por quanto tempo cada vídeo é assistido (permanência). Os valores são intervalos — um ponto aleatório dentro deles é escolhido a cada vez, para que a sessão nunca pareça mecânica."
             >
               <div className="grid grid-cols-2 gap-2.5">
                 <Field
                   id="opt-amin"
-                  label="Action min (s)"
+                  label="Ação mín. (s)"
                   value={pacing.minDelay}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, minDelay: v }))}
                 />
                 <Field
                   id="opt-amax"
-                  label="Action max (s)"
+                  label="Ação máx. (s)"
                   value={pacing.maxDelay}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, maxDelay: v }))}
                 />
                 <Field
                   id="opt-rmin"
-                  label="Dwell min (s)"
+                  label="Permanência mín. (s)"
                   value={pacing.reelMin}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, reelMin: v }))}
                 />
                 <Field
                   id="opt-rmax"
-                  label="Dwell max (s)"
+                  label="Permanência máx. (s)"
                   value={pacing.reelMax}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, reelMax: v }))}
@@ -79,13 +79,13 @@ export default function OptionsDropdown({
             </Section>
 
             <Section
-              title="Engagement filters"
-              tooltip="Only save/like/follow posts with at least this many likes or comments (read from the post's own counters). Posts below the threshold are still watched and scrolled past — they just get no action. 0 turns a filter off."
+              title="Filtros de engajamento"
+              tooltip="Salva/curte/segue apenas posts com pelo menos essa quantidade de curtidas ou comentários (lido dos contadores do próprio post). Posts abaixo do limite ainda são assistidos e passados — só não recebem nenhuma ação. 0 desativa o filtro."
             >
               <div className="grid grid-cols-2 gap-2.5">
                 <Field
                   id="opt-ml"
-                  label="Min likes"
+                  label="Curtidas mín."
                   value={thresholds.minLikes}
                   disabled={disabled}
                   onChange={(v) =>
@@ -94,7 +94,7 @@ export default function OptionsDropdown({
                 />
                 <Field
                   id="opt-mc"
-                  label="Min comments"
+                  label="Comentários mín."
                   value={thresholds.minComments}
                   disabled={disabled}
                   onChange={(v) =>
@@ -105,15 +105,15 @@ export default function OptionsDropdown({
             </Section>
 
             <Section
-              title="Auto-capture (Facebook)"
-              tooltip="While warming, any video post that clears these thresholds is automatically queued to be transcribed and/or downloaded, and saved to the Saved (favorites) tab. Thresholds are read from each post's own counters; 0 = that filter is off (so set just one if you like). Each video is captured at most once per run."
+              title="Captura automática (Facebook)"
+              tooltip="Durante o aquecimento, todo post em vídeo que ultrapassar esses limites é automaticamente enfileirado para transcrição e/ou download, e salvo na aba Salvos (favoritos). Os limites são lidos dos contadores de cada post; 0 = filtro desativado (defina só um, se preferir). Cada vídeo é capturado no máximo uma vez por sessão."
             >
               <div className="flex items-center justify-between mb-2.5">
                 <Label
                   htmlFor="opt-ac-en"
                   className="text-sm text-foreground cursor-pointer"
                 >
-                  Enable auto-capture
+                  Ativar captura automática
                 </Label>
                 <Switch
                   id="opt-ac-en"
@@ -127,7 +127,7 @@ export default function OptionsDropdown({
               <div className="grid grid-cols-2 gap-2.5">
                 <Field
                   id="opt-ac-ml"
-                  label="Min likes"
+                  label="Curtidas mín."
                   value={autoCapture.minLikes}
                   disabled={disabled || !autoCapture.enabled}
                   onChange={(v) =>
@@ -136,7 +136,7 @@ export default function OptionsDropdown({
                 />
                 <Field
                   id="opt-ac-mc"
-                  label="Min comments"
+                  label="Comentários mín."
                   value={autoCapture.minComments}
                   disabled={disabled || !autoCapture.enabled}
                   onChange={(v) =>
@@ -146,9 +146,9 @@ export default function OptionsDropdown({
               </div>
               <div className="mt-3 space-y-2">
                 {[
-                  ["transcribe", "Transcribe"],
-                  ["download", "Download"],
-                  ["favorite", "Save to favorites"],
+                  ["transcribe", "Transcrever"],
+                  ["download", "Baixar"],
+                  ["favorite", "Salvar nos favoritos"],
                 ].map(([k, label]) => (
                   <div key={k} className="flex items-center justify-between">
                     <Label
@@ -171,13 +171,13 @@ export default function OptionsDropdown({
             </Section>
 
             <Section
-              title="Session"
-              tooltip="Hard cap on how many posts get processed in a run. The run stops when it's reached even if the duration timer hasn't run out. 0 = no cap."
+              title="Sessão"
+              tooltip="Limite rígido de quantos posts são processados em uma sessão. A sessão para ao atingir esse limite, mesmo que o tempo ainda não tenha acabado. 0 = sem limite."
               noBorder
             >
               <Field
                 id="opt-cap"
-                label="Max items (0 = no cap)"
+                label="Máx. de itens (0 = sem limite)"
                 value={maxItems}
                 disabled={disabled}
                 onChange={setMaxItems}

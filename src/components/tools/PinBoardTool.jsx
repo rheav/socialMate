@@ -143,7 +143,7 @@ export default function PinBoardTool() {
           platform: "pinterest",
           thumb: rec.thumb || null,
           caption: rec.title || rec.description || null,
-          author: { name: rec.username || "unknown", url: rec.username ? `https://www.pinterest.com/${rec.username}/` : null },
+          author: { name: rec.username || "desconhecido", url: rec.username ? `https://www.pinterest.com/${rec.username}/` : null },
           counts: { like: fmtCount(rec.saves), comment: fmtCount(rec.comments), views: "—" },
           code: rec.id,
           // TranscriptsPanel only knows how to rebuild FB/IG permalinks, so Pinterest
@@ -165,48 +165,48 @@ export default function PinBoardTool() {
   }
 
   if (noTab)
-    return <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">Open Pinterest in a tab (logged in), then reopen this panel.</div>;
+    return <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">Abra o Pinterest em uma aba (com login feito) e reabra este painel.</div>;
 
-  if (!ctx) return <p className="py-8 text-center text-sm text-muted-foreground">Reading the page…</p>;
+  if (!ctx) return <p className="py-8 text-center text-sm text-muted-foreground">Lendo a página…</p>;
 
   return (
     <div className="space-y-2">
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="text-[13px] font-medium">{ctx.board?.name || ctx.surface?.kind}</div>
         <div className="text-[11px] text-muted-foreground">
-          surface: {ctx.surface?.kind} · board: {ctx.board?.id || "—"} · pins: {ctx.board?.pin_count ?? "—"} · sections: {ctx.sections?.length ?? 0}
+          superfície: {ctx.surface?.kind} · pasta: {ctx.board?.id || "—"} · pins: {ctx.board?.pin_count ?? "—"} · subpastas: {ctx.sections?.length ?? 0}
         </div>
         {ctx.error ? <div className="mt-1 text-[11px] text-red-600">{ctx.error}</div> : null}
       </div>
 
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={harvest} disabled={state.harvesting}>
-          <Play className="size-3.5" /> {state.harvesting ? `Harvesting… ${state.pages}p` : "Harvest"}
+          <Play className="size-3.5" /> {state.harvesting ? `Coletando… ${state.pages}p` : "Coletar"}
         </Button>
         <Button variant="outline" size="sm" onClick={clear} disabled={state.harvesting}>
-          <RotateCw className="size-3.5" /> Clear
+          <RotateCw className="size-3.5" /> Limpar
         </Button>
         <Button variant="secondary" size="sm" onClick={downloadAll} disabled={!records.length || state.harvesting}>
-          <Download className="size-3.5" /> All ({records.length})
+          <Download className="size-3.5" /> Tudo ({records.length})
         </Button>
         <select
           className="ml-auto rounded-md border border-border bg-background px-1.5 py-1 text-[11px]"
           value={sortKey}
           onChange={(e) => setSortKey(e.target.value)}
         >
-          <option value="default">Board order</option>
-          <option value="saves">Most saved</option>
-          <option value="comments">Most commented</option>
-          <option value="date">Newest</option>
+          <option value="default">Ordem da pasta</option>
+          <option value="saves">Mais salvos</option>
+          <option value="comments">Mais comentados</option>
+          <option value="date">Mais recentes</option>
         </select>
       </div>
 
       <div className="text-[11px] text-muted-foreground">
-        {records.length} pin(s) · {state.pages} page(s)
+        {records.length} pin(s) · {state.pages} página(s)
         {/* done and hitCap are mutually exclusive (set from pin-api.js's reachedEnd branch),
             so "complete" and the cap message never render together. */}
-        {state.harvesting ? " · running" : state.done ? " · complete" : ""}
-        {state.hitCap ? ` · stopped at the ${MAX_PAGES}-page cap — Harvest again for more` : ""}
+        {state.harvesting ? " · em andamento" : state.done ? " · concluído" : ""}
+        {state.hitCap ? ` · parado no limite de ${MAX_PAGES} páginas — colete novamente para mais` : ""}
       </div>
       {state.error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">{state.error}</div> : null}
 
@@ -220,14 +220,14 @@ export default function PinBoardTool() {
                 onClick={() => downloadRecord(rec)}
                 disabled={busy[rec.id] === "downloading"}
                 className="absolute left-1 top-1 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
-                title={rec.items.length > 1 ? `Download ${rec.items.length} assets` : "Download"}
+                title={rec.items.length > 1 ? `Baixar ${rec.items.length} arquivos` : "Baixar"}
               >
                 <Download className={"size-3.5 " + (busy[rec.id] === "done" ? "text-emerald-400" : busy[rec.id] === "error" ? "text-red-400" : "")} />
               </button>
               <button
                 onClick={() => save(rec)}
                 className="absolute left-1 top-8 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80"
-                title="Save to Library"
+                title="Salvar na biblioteca"
               >
                 <Bookmark className="size-3.5" />
               </button>
@@ -239,7 +239,7 @@ export default function PinBoardTool() {
               </span>
               {card.saves != null && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-[9.5px] font-semibold text-white">
-                  {fmtCount(card.saves)} saves
+                  {fmtCount(card.saves)} salvamentos
                 </div>
               )}
             </div>

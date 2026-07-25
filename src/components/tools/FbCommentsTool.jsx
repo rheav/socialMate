@@ -51,10 +51,10 @@ function CommentRow({ c }) {
         {c.is_reply && <CornerDownRight className="size-3 flex-none text-sky-400/70" />}
         {prof ? (
           <a href={prof} target="_blank" rel="noreferrer" className="truncate text-[12px] font-semibold text-foreground hover:underline">
-            {c.author?.name || "unknown"}
+            {c.author?.name || "desconhecido"}
           </a>
         ) : (
-          <span className="truncate text-[12px] font-semibold text-foreground">{c.author?.name || "unknown"}</span>
+          <span className="truncate text-[12px] font-semibold text-foreground">{c.author?.name || "desconhecido"}</span>
         )}
         {c.badges?.length ? <BadgeCheck className="size-3 flex-none text-amber-500" /> : null}
         {c.time_relative && <span className="flex-none text-[10px] text-muted-foreground">· {c.time_relative}</span>}
@@ -67,7 +67,7 @@ function CommentRow({ c }) {
       {c.text ? (
         <p className="whitespace-pre-wrap text-[11.5px] leading-snug text-foreground/85">{c.text}</p>
       ) : (
-        <p className="text-[11px] italic text-muted-foreground">(no text — sticker / media)</p>
+        <p className="text-[11px] italic text-muted-foreground">(sem texto — figurinha / mídia)</p>
       )}
     </div>
   );
@@ -171,9 +171,9 @@ export default function FbCommentsTool() {
   if (!posts.length)
     return (
       <p className="text-sm text-muted-foreground py-8 text-center leading-relaxed">
-        No comments scraped yet.<br />
-        Open a Facebook reel/post and hit the <span className="font-medium text-foreground">💬 comment</span> button in the
-        video rail — the thread streams in here.
+        Nenhum comentário coletado ainda.<br />
+        Abra um reel/post do Facebook e toque no botão <span className="font-medium text-foreground">💬 comentário</span> na
+        barra de vídeos — a conversa aparece aqui em tempo real.
       </p>
     );
 
@@ -191,7 +191,7 @@ export default function FbCommentsTool() {
             <SelectContent>
               {posts.map((p) => (
                 <SelectItem key={p.post_id} value={p.post_id}>
-                  {p.scraping ? "⏳ " : ""}{p.post_id} · {p.count} comments
+                  {p.scraping ? "⏳ " : ""}{p.post_id} · {p.count} comentários
                 </SelectItem>
               ))}
             </SelectContent>
@@ -202,7 +202,7 @@ export default function FbCommentsTool() {
           size="icon"
           className="ml-auto shrink-0"
           onClick={() => setPostId(null)}
-          title="Refresh — jump to the newest / streaming scrape"
+          title="Atualizar — ir para a coleta mais recente / em andamento"
         >
           <RotateCw />
         </Button>
@@ -212,7 +212,7 @@ export default function FbCommentsTool() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search text / author" className="h-8 pl-7 text-xs" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar texto / autor" className="h-8 pl-7 text-xs" />
         </div>
         <Select value={sortKey} onValueChange={setSortKey}>
           <SelectTrigger className="h-8 w-[112px] text-xs">
@@ -220,8 +220,8 @@ export default function FbCommentsTool() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="order">Thread order</SelectItem>
-            <SelectItem value="reactions">Reactions</SelectItem>
+            <SelectItem value="order">Ordem da conversa</SelectItem>
+            <SelectItem value="reactions">Reações</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -229,7 +229,7 @@ export default function FbCommentsTool() {
       {/* filter pills + counts */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1">
-          {[["all", "All"], ["top", "Top-level"], ["replies", "Replies"]].map(([k, l]) => (
+          {[["all", "Todos"], ["top", "Principais"], ["replies", "Respostas"]].map(([k, l]) => (
             <button
               key={k}
               onClick={() => setFilter(k)}
@@ -244,7 +244,7 @@ export default function FbCommentsTool() {
         </div>
         <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
           {active.scraping && <Loader2 className="size-3 animate-spin text-sky-500" />}
-          {rows.length} shown · {active.count}{active.scraping ? "…" : " total"}
+          {rows.length} exibidos · {active.count}{active.scraping ? "…" : " no total"}
         </span>
       </div>
 
@@ -252,7 +252,7 @@ export default function FbCommentsTool() {
       <div className="flex items-center gap-2">
         <Button variant="secondary" size="sm" className="h-8 flex-1 text-xs" onClick={copyAll}>
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? "Copied" : "Copy text"}
+          {copied ? "Copiado" : "Copiar texto"}
         </Button>
         <Button
           variant="outline"
@@ -262,7 +262,7 @@ export default function FbCommentsTool() {
         >
           <Download className="size-3.5" /> JSON
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Clear this post" onClick={clearPost}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title="Limpar este post" onClick={clearPost}>
           <Trash2 className="size-3.5 text-muted-foreground" />
         </Button>
       </div>

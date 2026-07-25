@@ -42,14 +42,14 @@ import {
 } from "@/lib/ttMedia";
 
 const SORT_LABEL = {
-  default: "Default",
-  views: "Views",
-  likes: "Likes",
-  comments: "Comments",
-  shares: "Shares",
-  saves: "Saves",
-  er: "ER %",
-  date: "Date",
+  default: "Padrão",
+  views: "Visualizações",
+  likes: "Curtidas",
+  comments: "Comentários",
+  shares: "Compartilhamentos",
+  saves: "Salvamentos",
+  er: "TE %",
+  date: "Data",
 };
 
 // Small icon button overlaid on a card thumbnail.
@@ -199,7 +199,7 @@ export default function TtSortTool() {
         thumb: rec.cover || rec.dynamic_cover || null,
         caption: rec.desc || null,
         author: {
-          name: rec.username || rec.nickname || "unknown",
+          name: rec.username || rec.nickname || "desconhecido",
           url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null,
         },
         counts: {
@@ -230,7 +230,7 @@ export default function TtSortTool() {
       captionFormat: rec.subtitle?.format || null,
       caption: rec.desc || null,
       author: {
-        name: rec.username || rec.nickname || "unknown",
+        name: rec.username || rec.nickname || "desconhecido",
         url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null,
       },
       thumb: rec.cover || rec.dynamic_cover || null,
@@ -249,7 +249,7 @@ export default function TtSortTool() {
     const t = (r.fbw_transcripts || {})[rec.id];
     if (!t?.text) return;
     setCopied(false);
-    setTxModal({ id: rec.id, username: rec.username || rec.nickname || "unknown", text: t.text });
+    setTxModal({ id: rec.id, username: rec.username || rec.nickname || "desconhecido", text: t.text });
   }
 
   async function copyTranscript() {
@@ -265,7 +265,7 @@ export default function TtSortTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open TikTok in a tab (logged in), then reopen this panel.
+        Abra o TikTok em uma aba (com login feito) e reabra este painel.
       </div>
     );
 
@@ -288,30 +288,30 @@ export default function TtSortTool() {
           variant="outline"
           size="icon"
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          title={sortDir === "desc" ? "High → low" : "Low → high"}
+          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
         >
           {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
         </Button>
-        <Button variant="outline" size="icon" onClick={refresh} title="Refresh — drop other surfaces, re-collect this one">
+        <Button variant="outline" size="icon" onClick={refresh} title="Atualizar — descarta outras superfícies, recolhe esta">
           <RotateCw />
         </Button>
         <Button variant="secondary" onClick={downloadAll} disabled={!sorted.length}>
-          <Download /> All
+          <Download /> Tudo
         </Button>
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
-          {sorted.length} collected{surface ? ` · ${surface}` : ""}
+          {sorted.length} coletados{surface ? ` · ${surface}` : ""}
         </span>
         <button className="underline" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "scope to surface" : "show all"}
+          {showAll ? "restringir à superfície" : "mostrar tudo"}
         </button>
       </div>
 
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
-          Scroll a TikTok profile / hashtag / feed to collect videos, then sort here.
+          Role um perfil / hashtag / feed do TikTok para coletar vídeos e ordená-los aqui.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -337,25 +337,25 @@ export default function TtSortTool() {
                 {/* actions — top-left */}
                 <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
                   <IconBtn
-                    title={savedIds[c.id] ? "Saved — tap to remove" : "Save to Library"}
+                    title={savedIds[c.id] ? "Salvo — toque para remover" : "Salvar na biblioteca"}
                     onClick={() => saveToLibrary(rec)}
                   >
                     <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Download video" onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
+                  <IconBtn title="Baixar vídeo" onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
                     <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)}>
+                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)}>
                     <ImageDown className="size-3.5" />
                   </IconBtn>
                   {(rec.video || txMap[c.id] === "done") && (
                     <IconBtn
                       title={
                         txMap[c.id] === "done"
-                          ? "View transcript"
+                          ? "Ver transcrição"
                           : txMap[c.id] === "error"
-                            ? "Transcription failed — tap to retry"
-                            : "Transcribe"
+                            ? "Falha na transcrição — toque para tentar novamente"
+                            : "Transcrever"
                       }
                       onClick={() => (txMap[c.id] === "done" ? openTranscript(rec) : transcribe(rec))}
                       disabled={txMap[c.id] === "running"}
@@ -374,7 +374,7 @@ export default function TtSortTool() {
                   href={c.permalink || undefined}
                   target="_blank"
                   rel="noreferrer"
-                  title="Open on TikTok"
+                  title="Abrir no TikTok"
                   className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/55 p-1 text-white transition-colors hover:bg-black/80"
                 >
                   {c.pinned ? <Pin className="size-3.5" /> : <Play className="size-3.5" />}
@@ -466,7 +466,7 @@ export default function TtSortTool() {
             <div className="border-t border-border p-2.5">
               <Button className="w-full" variant={copied ? "secondary" : "default"} onClick={copyTranscript}>
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied ? "Copied" : "Copy transcript"}
+                {copied ? "Copiado" : "Copiar transcrição"}
               </Button>
             </div>
           </div>

@@ -90,7 +90,7 @@ export default function TtStoriesTool() {
       type: "FBW_TRANSCRIBE", videoId: item.id, mediaUrl: item.video, platform: "tiktok",
       captionUrl: item.subtitle?.url || null, captionFormat: item.subtitle?.format || null,
       caption: item.desc || null,
-      author: { name: item.reel_owner || item.username || "unknown", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
+      author: { name: item.reel_owner || item.username || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
       thumb: item.cover || item.dynamic_cover || null,
     }).catch(() => {});
     setTxMap((m) => ({ ...m, [item.id]: "running" }));
@@ -103,7 +103,7 @@ export default function TtStoriesTool() {
       if (map[item.id]) { delete map[item.id]; }
       else map[item.id] = {
         videoId: item.id, platform: "tiktok", thumb: item.cover || item.dynamic_cover || null, caption: item.desc || null,
-        author: { name: item.reel_owner || item.username || "unknown", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
+        author: { name: item.reel_owner || item.username || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
         counts: { like: fmtCount(item.digg_count), comment: fmtCount(item.comment_count), views: fmtCount(item.play_count) },
         code: item.id,
         // item.username, not reel_owner — same field this file's transcribe() above
@@ -117,22 +117,22 @@ export default function TtStoriesTool() {
   }
 
   if (noTab)
-    return <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">Open TikTok in a tab (logged in), then reopen this panel.</div>;
+    return <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">Abra o TikTok em uma aba (com login feito) e reabra este painel.</div>;
 
   if (!owners.length)
     return (
       <div className="space-y-2 py-8 text-center">
-        <p className="text-sm text-muted-foreground">Visit a TikTok profile that has active stories (or open its story ring) to capture them here.</p>
-        <p className="text-[11px] text-muted-foreground/70">Passive — nothing is fetched in the background.</p>
+        <p className="text-sm text-muted-foreground">Visite um perfil do TikTok que tenha stories ativos (ou abra o anel de stories) para capturá-los aqui.</p>
+        <p className="text-[11px] text-muted-foreground/70">Passivo — nada é buscado em segundo plano.</p>
       </div>
     );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{owners.length} creator(s) captured</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Refresh — clear captured stories">
-          <RotateCw className="size-3.5" /> Refresh
+        <span className="text-[11px] text-muted-foreground">{owners.length} criador(es) capturado(s)</span>
+        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar stories capturados">
+          <RotateCw className="size-3.5" /> Atualizar
         </Button>
       </div>
 
@@ -149,19 +149,19 @@ export default function TtStoriesTool() {
                   {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
 
                   <div className="absolute left-1 top-1 flex flex-col gap-1">
-                    <IconBtn title="Download HD" onClick={() => download(item)} disabled={st === "downloading"}>
+                    <IconBtn title="Baixar HD" onClick={() => download(item)} disabled={st === "downloading"}>
                       {st === "downloading" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />}
                     </IconBtn>
                     {(item.video || item.subtitle) && (
                       <IconBtn
-                        title={txMap[item.id] === "done" ? "Transcribed" : item.subtitle ? "Transcribe (captions)" : "Transcribe"}
+                        title={txMap[item.id] === "done" ? "Transcrito" : item.subtitle ? "Transcrever (legendas)" : "Transcrever"}
                         onClick={() => transcribe(item)}
                         disabled={txMap[item.id] === "running"}
                       >
                         {txMap[item.id] === "running" ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className={"size-3.5 " + (txMap[item.id] === "done" ? "text-emerald-400" : "")} />}
                       </IconBtn>
                     )}
-                    <IconBtn title={savedIds[item.id] ? "Saved" : "Save to Library"} onClick={() => save(item)}>
+                    <IconBtn title={savedIds[item.id] ? "Salvo" : "Salvar na biblioteca"} onClick={() => save(item)}>
                       <Bookmark className={"size-3.5 " + (savedIds[item.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                     </IconBtn>
                   </div>

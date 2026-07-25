@@ -44,7 +44,7 @@ import {
   fmtER,
 } from "@/lib/igMedia";
 
-const SORT_LABEL = { default: "Default", views: "Views", likes: "Likes", comments: "Comments", er: "ER %", date: "Date" };
+const SORT_LABEL = { default: "Padrão", views: "Visualizações", likes: "Curtidas", comments: "Comentários", er: "TE %", date: "Data" };
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
 // Small frosted icon button overlaid on a card thumbnail.
@@ -235,7 +235,7 @@ export default function IgSortTool() {
         platform: "instagram",
         thumb: rec.thumb || rec.image || null,
         caption: rec.caption || null,
-        author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
+        author: { name: rec.username || rec.full_name || "desconhecido", url: rec.username ? `/${rec.username}/` : null },
         counts: {
           like: rec.like_count != null ? fmtCount(rec.like_count) : null,
           comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
@@ -265,7 +265,7 @@ export default function IgSortTool() {
       platform: "instagram",
       caption: rec.caption || null,
       author: {
-        name: rec.username || rec.full_name || "unknown",
+        name: rec.username || rec.full_name || "desconhecido",
         url: rec.username ? `/${rec.username}/` : null,
       },
       thumb: rec.thumb || rec.image || null,
@@ -286,7 +286,7 @@ export default function IgSortTool() {
     const t = (r.fbw_transcripts || {})[id];
     if (!t?.text) return;
     setCopied(false);
-    setTxModal({ id, username: rec.username || rec.full_name || "unknown", text: t.text });
+    setTxModal({ id, username: rec.username || rec.full_name || "desconhecido", text: t.text });
   }
 
   async function copyTranscript() {
@@ -302,7 +302,7 @@ export default function IgSortTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open Instagram in a tab, then reopen this panel.
+        Abra o Instagram em uma aba e reabra este painel.
       </div>
     );
 
@@ -325,30 +325,30 @@ export default function IgSortTool() {
           variant="outline"
           size="icon"
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          title={sortDir === "desc" ? "High → low" : "Low → high"}
+          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
         >
           {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
         </Button>
-        <Button variant="outline" size="icon" onClick={refresh} title="Refresh — drop other surfaces, re-collect this one">
+        <Button variant="outline" size="icon" onClick={refresh} title="Atualizar — descarta outras superfícies, recolhe esta">
           <RotateCw />
         </Button>
         <Button variant="secondary" onClick={downloadAll} disabled={!sorted.length}>
-          <Download /> All
+          <Download /> Tudo
         </Button>
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
-          {sorted.length} collected{surface ? ` · ${surface}` : ""}
+          {sorted.length} coletados{surface ? ` · ${surface}` : ""}
         </span>
         <button className="underline" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "scope to surface" : "show all"}
+          {showAll ? "restringir à superfície" : "mostrar tudo"}
         </button>
       </div>
 
       <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
         <Label htmlFor="ig-overlay" className="text-xs text-foreground cursor-pointer">
-          Stats overlay on Instagram
+          Sobreposição de estatísticas no Instagram
         </Label>
         <Switch id="ig-overlay" checked={overlay} onCheckedChange={toggleOverlay} />
       </div>
@@ -356,7 +356,7 @@ export default function IgSortTool() {
 
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
-          Scroll the Instagram feed to collect posts, then sort here.
+          Role o feed do Instagram para coletar posts e ordená-los aqui.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -383,7 +383,7 @@ export default function IgSortTool() {
                 {/* actions — top-left */}
                 <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
                   <IconBtn
-                    title={savedIds[c.id] ? "Saved — tap to remove" : "Save to Library"}
+                    title={savedIds[c.id] ? "Salvo — toque para remover" : "Salvar na biblioteca"}
                     onClick={() => saveToLibrary(rec)}
                   >
                     <Bookmark
@@ -393,7 +393,7 @@ export default function IgSortTool() {
                     />
                   </IconBtn>
                   <IconBtn
-                    title="Download media"
+                    title="Baixar mídia"
                     onClick={() => downloadRecord(rec)}
                     disabled={st === "downloading"}
                   >
@@ -404,17 +404,17 @@ export default function IgSortTool() {
                       }
                     />
                   </IconBtn>
-                  <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)}>
+                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)}>
                     <ImageDown className="size-3.5" />
                   </IconBtn>
                   {(rec.video || txMap[c.id] === "done") && (
                     <IconBtn
                       title={
                         txMap[c.id] === "done"
-                          ? "View transcript"
+                          ? "Ver transcrição"
                           : txMap[c.id] === "error"
-                            ? "Transcription failed — tap to retry"
-                            : "Transcribe"
+                            ? "Falha na transcrição — toque para tentar novamente"
+                            : "Transcrever"
                       }
                       onClick={() =>
                         txMap[c.id] === "done" ? openTranscript(rec) : transcribe(rec)
@@ -444,7 +444,7 @@ export default function IgSortTool() {
                   href={c.permalink || undefined}
                   target="_blank"
                   rel="noreferrer"
-                  title="Open on Instagram"
+                  title="Abrir no Instagram"
                   className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/65 p-1 text-white transition-colors hover:bg-black/80"
                 >
                   <TypeIcon className="size-3.5" />
@@ -536,7 +536,7 @@ export default function IgSortTool() {
             <div className="border-t border-border p-2.5">
               <Button className="w-full" variant={copied ? "secondary" : "default"} onClick={copyTranscript}>
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied ? "Copied" : "Copy transcript"}
+                {copied ? "Copiado" : "Copiar transcrição"}
               </Button>
             </div>
           </div>

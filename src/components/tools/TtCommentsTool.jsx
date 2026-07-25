@@ -32,7 +32,7 @@ import {
   exportFilename,
 } from "@/lib/ttComments";
 
-const SORT_LABEL = { thread: "Thread order", likes: "Likes", date: "Date" };
+const SORT_LABEL = { thread: "Ordem da conversa", likes: "Curtidas", date: "Data" };
 
 // TikTok Comments. Comments are captured passively (fetch tee of
 // /api/comment/list/) when you OPEN a video on TikTok — nothing is fetched in the
@@ -128,14 +128,14 @@ export default function TtCommentsTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open TikTok in a tab (logged in), then reopen this panel.
+        Abra o TikTok em uma aba (com login feito) e reabra este painel.
       </div>
     );
 
   if (!videos.length)
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
-        Open a TikTok video (so its comments load) to capture the thread here.
+        Abra um vídeo do TikTok (para carregar os comentários) para capturar a conversa aqui.
       </p>
     );
 
@@ -145,13 +145,13 @@ export default function TtCommentsTool() {
       <div className="flex items-center gap-2">
         <Select value={activeId || ""} onValueChange={pickVideo}>
         <SelectTrigger>
-          <SelectValue placeholder="Pick a captured video" />
+          <SelectValue placeholder="Escolha um vídeo capturado" />
         </SelectTrigger>
         <SelectContent>
           {videos.map((v) => {
             const label =
               (v.meta && (v.meta.desc || (v.meta.username && "@" + v.meta.username))) ||
-              "video " + v.aweme_id;
+              "vídeo " + v.aweme_id;
             return (
               <SelectItem key={v.aweme_id} value={v.aweme_id}>
                 {String(label).slice(0, 48)} · {v.comments.length}
@@ -164,7 +164,7 @@ export default function TtCommentsTool() {
           variant="outline"
           size="icon"
           onClick={refresh}
-          title="Refresh — drop other videos, follow the one you're viewing"
+          title="Atualizar — descarta outros vídeos, segue o que você está vendo"
         >
           <RotateCw />
         </Button>
@@ -177,7 +177,7 @@ export default function TtCommentsTool() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search text / author"
+            placeholder="Pesquisar texto / autor"
             className="pl-7"
           />
         </div>
@@ -198,7 +198,7 @@ export default function TtCommentsTool() {
           size="icon"
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
           disabled={sortKey === "thread"}
-          title={sortDir === "desc" ? "High → low" : "Low → high"}
+          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
         >
           {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
         </Button>
@@ -206,12 +206,12 @@ export default function TtCommentsTool() {
 
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
-          {counts.total} comments · {counts.topLevel} top · {counts.replies} replies
+          {counts.total} comentários · {counts.topLevel} principais · {counts.replies} respostas
         </span>
         <div className="flex items-center gap-3">
           <button className="inline-flex items-center gap-1 underline" onClick={copyAll}>
             {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? "Copiado" : "Copiar"}
           </button>
           <button className="inline-flex items-center gap-1 underline" onClick={exportJson}>
             <Download className="size-3" /> JSON
@@ -264,7 +264,7 @@ export default function TtCommentsTool() {
           </div>
         ))}
         {!rows.length && (
-          <p className="py-6 text-center text-sm text-muted-foreground">No comments match.</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">Nenhum comentário encontrado.</p>
         )}
       </div>
     </div>

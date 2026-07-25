@@ -13,8 +13,8 @@ export default function LibraryTool() {
         value={tab}
         onValueChange={setTab}
         tabs={[
-          { id: "transcripts", label: "Transcripts", Icon: FileText },
-          { id: "saved", label: "Saved", Icon: Bookmark },
+          { id: "transcripts", label: "Transcrições", Icon: FileText },
+          { id: "saved", label: "Salvos", Icon: Bookmark },
         ]}
       />
       {tab === "transcripts" ? <TranscriptsPanel /> : <SavedPanel />}

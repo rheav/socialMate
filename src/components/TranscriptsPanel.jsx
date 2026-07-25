@@ -70,12 +70,12 @@ function ReloadHint() {
   if (!needsReload) return null;
   return (
     <div className="flex items-center gap-2 rounded-lg bg-amber-400/10 border border-amber-400/30 px-2.5 py-2 text-[11px] text-amber-700">
-      <span className="flex-1">This tab isn’t linked yet — reload it to capture its video here.</span>
+      <span className="flex-1">Esta aba ainda não está vinculada — recarregue-a para capturar o vídeo aqui.</span>
       <button
         className="flex-none rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-600"
         onClick={() => hasStorage() && chrome.runtime.sendMessage({ type: "FBW_RELOAD_TAB" })}
       >
-        Reload tab
+        Recarregar aba
       </button>
     </div>
   );
@@ -107,17 +107,17 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
     <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div className="relative aspect-[3/4] bg-zinc-900">
         {srcUrl ? (
-          <a href={srcUrl} target="_blank" rel="noreferrer" title="Open the original reel" className="block h-full w-full">
+          <a href={srcUrl} target="_blank" rel="noreferrer" title="Abrir o reel original" className="block h-full w-full">
             {it.thumb ? (
               <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">open reel</div>
+              <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">abrir reel</div>
             )}
           </a>
         ) : it.thumb ? (
           <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
         ) : (
-          <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">no preview</div>
+          <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">sem prévia</div>
         )}
         {/* actions on the thumbnail */}
         <div className="absolute right-1.5 top-1.5 flex gap-1">
@@ -126,7 +126,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
               href={srcUrl}
               target="_blank"
               rel="noreferrer"
-              title="Open the original reel"
+              title="Abrir o reel original"
               className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
             >
               <ExternalLink size={12} />
@@ -134,7 +134,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
           )}
           <button
             onClick={onToggleSave}
-            title={saved ? "Remove from Saved" : "Save"}
+            title={saved ? "Remover dos salvos" : "Salvar"}
             className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
           >
             {saved ? <BookmarkCheck size={13} className="text-amber-400" /> : <Bookmark size={13} />}
@@ -142,7 +142,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
           {onDelete && (
             <button
               onClick={onDelete}
-              title="Delete this transcript"
+              title="Excluir esta transcrição"
               className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
             >
               <Trash2 size={12} />
@@ -171,7 +171,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             {it.author.name}
           </a>
         ) : (
-          <span className="text-[12px] text-muted-foreground">unknown</span>
+          <span className="text-[12px] text-muted-foreground">desconhecido</span>
         )}
 
         {it.caption && (
@@ -189,7 +189,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
               className="mt-0.5 flex items-center gap-1 text-left text-[11px] font-medium text-foreground/80 hover:text-foreground"
             >
               <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
-              Transcript
+              Transcrição
             </button>
             {open && (
               <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 whitespace-pre-wrap">
@@ -197,7 +197,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
               </div>
             )}
             <div className="mt-auto flex gap-2 pt-1 text-[11px]">
-              <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copy</button>
+              <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
               <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.txt`, it.text)}>.txt</button>
               {it.chunks?.length ? (
                 <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
@@ -205,7 +205,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             </div>
           </>
         ) : it.status !== "error" ? (
-          <div className="text-[11px] text-muted-foreground">transcribing…</div>
+          <div className="text-[11px] text-muted-foreground">transcrevendo…</div>
         ) : null}
       </div>
     </div>
@@ -232,15 +232,15 @@ export default function TranscriptsPanel() {
       <ReloadHint />
       {items.length === 0 ? (
         <p className="py-10 text-center text-xs text-muted-foreground leading-relaxed">
-          No transcripts yet.<br />
-          Hit <span className="font-medium text-foreground">Transcribe</span> on a video in
-          Facebook — it shows up here.
+          Ainda não há transcrições.<br />
+          Toque em <span className="font-medium text-foreground">Transcrever</span> em um vídeo no
+          Facebook — ele aparece aqui.
         </p>
       ) : (
         <>
           <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-medium text-foreground">{items.length} transcript{items.length > 1 ? "s" : ""}</span>
-            <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>clear all</button>
+            <span className="text-xs font-medium text-foreground">{items.length} {items.length === 1 ? "transcrição" : "transcrições"}</span>
+            <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>limpar tudo</button>
           </div>
           <Grid>
             {items.map((it) => (
@@ -274,7 +274,7 @@ export function SavedPanel() {
   if (!saved.length) {
     return (
       <div className="py-10 text-center text-xs text-muted-foreground">
-        No saved videos yet.<br />Tap the <Bookmark size={12} className="inline -mt-0.5" /> on a transcript to save it here.
+        Ainda não há vídeos salvos.<br />Toque no ícone <Bookmark size={12} className="inline -mt-0.5" /> em uma transcrição para salvá-la aqui.
       </div>
     );
   }
@@ -289,9 +289,9 @@ export function SavedPanel() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground">{saved.length} saved</span>
+        <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
         <button className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={() => hasStorage() && chrome.storage.local.set({ [SKEY]: {} })}>
-          <Trash2 size={11} /> clear all
+          <Trash2 size={11} /> limpar tudo
         </button>
       </div>
 

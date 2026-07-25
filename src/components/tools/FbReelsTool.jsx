@@ -23,7 +23,7 @@ import { resolvePlatformTab } from "@/lib/tabs";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 
-const SORT_LABEL = { default: "Default", views: "Views", comments: "Comments", shares: "Shares" };
+const SORT_LABEL = { default: "Padrão", views: "Visualizações", comments: "Comentários", shares: "Compartilhamentos" };
 
 function IconBtn({ children, ...props }) {
   return (
@@ -146,7 +146,7 @@ export default function FbReelsTool() {
         platform: "facebook",
         thumb: rec.thumb || null,
         caption: null,
-        author: { name: owner || "unknown", url: null },
+        author: { name: owner || "desconhecido", url: null },
         counts: {
           like: null,
           comment: rec.comments != null ? fmtCount(rec.comments) : null,
@@ -165,7 +165,7 @@ export default function FbReelsTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open Facebook in a tab, then reopen this panel.
+        Abra o Facebook em uma aba e reabra este painel.
       </div>
     );
 
@@ -188,13 +188,13 @@ export default function FbReelsTool() {
           variant="outline"
           size="icon"
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          title={sortDir === "desc" ? "High → low" : "Low → high"}
+          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
         >
           {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
         </Button>
-        <Button variant="secondary" onClick={collectAll} disabled={harvesting} title="Scroll the grid to load every reel">
+        <Button variant="secondary" onClick={collectAll} disabled={harvesting} title="Rolar a grade para carregar todos os reels">
           {harvesting ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          {harvesting ? "Collecting" : "Collect all"}
+          {harvesting ? "Coletando" : "Coletar tudo"}
         </Button>
       </div>
 
@@ -207,19 +207,19 @@ export default function FbReelsTool() {
           onClick={downloadAllThumbs}
           disabled={!sorted.length}
         >
-          download all thumbnails
+          baixar todas as miniaturas
         </button>
       </div>
 
       {!onReelsTab && (
         <div className="rounded-md bg-amber-500/10 text-amber-700 text-[11px] px-3 py-2">
-          Open the profile's <span className="font-semibold">Reels</span> tab on Facebook, then Collect all.
+          Abra a aba <span className="font-semibold">Reels</span> do perfil no Facebook e toque em Coletar tudo.
         </div>
       )}
 
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
-          Open a profile's Reels tab, then <span className="font-medium text-foreground">Collect all</span> to load and sort them here.
+          Abra a aba Reels de um perfil e toque em <span className="font-medium text-foreground">Coletar tudo</span> para carregar e ordenar os reels aqui.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -240,12 +240,12 @@ export default function FbReelsTool() {
                 {/* actions — top-left */}
                 <div className="absolute left-1.5 top-1.5 flex flex-col gap-1">
                   <IconBtn
-                    title={savedIds[c.id] ? "Saved — tap to remove" : "Save to Library"}
+                    title={savedIds[c.id] ? "Salvo — toque para remover" : "Salvar na biblioteca"}
                     onClick={() => saveToLibrary(rec)}
                   >
                     <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)} disabled={st === "downloading"}>
+                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)} disabled={st === "downloading"}>
                     {st === "downloading" ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (
@@ -282,7 +282,7 @@ export default function FbReelsTool() {
                     rel="noreferrer"
                     className="pointer-events-auto block max-w-[70%] truncate text-[12px] font-semibold text-white"
                   >
-                    Open reel
+                    Abrir reel
                   </a>
                 </div>
               </div>

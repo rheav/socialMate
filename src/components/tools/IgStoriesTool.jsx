@@ -118,7 +118,7 @@ export default function IgStoriesTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open Instagram in a tab, then reopen this panel.
+        Abra o Instagram em uma aba e reabra este painel.
       </div>
     );
 
@@ -128,10 +128,10 @@ export default function IgStoriesTool() {
     return (
       <div className="space-y-2 py-8 text-center">
         <p className="text-sm text-muted-foreground">
-          Open a story or highlight on Instagram to capture it here.
+          Abra um story ou destaque no Instagram para capturá-lo aqui.
         </p>
         <p className="text-[11px] text-muted-foreground/70">
-          Nothing is fetched in the background — you tap it, we grab it.
+          Nada é buscado em segundo plano — você toca, nós capturamos.
         </p>
       </div>
     );
@@ -139,9 +139,9 @@ export default function IgStoriesTool() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{groups.length} owner(s) captured</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Refresh — clear captured stories">
-          <RotateCw className="size-3.5" /> Refresh
+        <span className="text-[11px] text-muted-foreground">{groups.length} perfil(is) capturado(s)</span>
+        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar stories capturados">
+          <RotateCw className="size-3.5" /> Atualizar
         </Button>
       </div>
       {groups.map(({ owner, reels: ownerReels }) => (
@@ -158,7 +158,7 @@ export default function IgStoriesTool() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-medium">{reelLabel(reel)}</div>
                   <div className="text-[11px] text-muted-foreground">
-                    {(reel.items?.length || 0)} item{(reel.items?.length || 0) === 1 ? "" : "s"}
+                    {(reel.items?.length || 0)} {(reel.items?.length || 0) === 1 ? "item" : "itens"}
                   </div>
                 </div>
                 <Button
@@ -167,7 +167,7 @@ export default function IgStoriesTool() {
                   onClick={() => downloadReel(reel)}
                   disabled={!reel.items?.length}
                 >
-                  <DownloadCloud className="size-3.5" /> All
+                  <DownloadCloud className="size-3.5" /> Tudo
                 </Button>
               </div>
 
@@ -191,7 +191,7 @@ export default function IgStoriesTool() {
 
                       <div className="absolute left-1 top-1">
                         <IconBtn
-                          title="Download"
+                          title="Baixar"
                           onClick={() => downloadItem(item)}
                           disabled={st === "downloading"}
                         >
@@ -214,7 +214,7 @@ export default function IgStoriesTool() {
                           href={c.links[0]}
                           target="_blank"
                           rel="noreferrer"
-                          title={`Swipe-up link: ${c.links[0]}`}
+                          title={`Link (arraste para cima): ${c.links[0]}`}
                           className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded bg-sky-500/90 px-1 py-0.5 text-[9px] font-semibold text-white hover:bg-sky-500"
                         >
                           <Link2 className="size-2.5" /> link

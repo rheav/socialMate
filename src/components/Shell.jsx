@@ -139,7 +139,7 @@ export default function Shell() {
               setTab("warm");
               setPlatform(null);
             }}
-            title="Home"
+            title="Início"
             className="flex items-center gap-2.5"
           >
             <div className="grad-identity grid size-7 place-items-center rounded-[9px]">
@@ -154,7 +154,7 @@ export default function Shell() {
         </div>
         <button
           onClick={toggleTheme}
-          title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+          title={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
           className="grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -166,8 +166,8 @@ export default function Shell() {
           value={tab}
           onChange={setTab}
           items={[
-            { id: "warm", label: "Warmer", Icon: Flame },
-            { id: "library", label: "Library", Icon: LibraryIcon },
+            { id: "warm", label: "Aquecimento", Icon: Flame },
+            { id: "library", label: "Biblioteca", Icon: LibraryIcon },
           ]}
         />
       </div>
@@ -254,7 +254,7 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
     return (
       <div className="space-y-3">
         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Pick a platform
+          Escolha uma plataforma
         </p>
         <div className="space-y-2">
           {PLATFORM_ORDER.map((id) => {
@@ -296,7 +296,7 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
   const Panel = getTool(activeId).Panel;
 
   return (
-    <ToolFrame title="Platforms" onBack={() => setPlatform(null)}>
+    <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
       {tools.length > 1 && (
         <Segmented
           value={activeId}

@@ -60,7 +60,7 @@ export default function TtCollectionsTool() {
       if (map[item.id]) delete map[item.id];
       else map[item.id] = {
         videoId: item.id, platform: "tiktok", thumb: item.cover || null, caption: item.desc || null,
-        author: { name: item.username || item.nickname || "unknown", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
+        author: { name: item.username || item.nickname || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
         counts: { like: fmtCount(item.digg_count), comment: fmtCount(item.comment_count), views: fmtCount(item.play_count) },
         code: item.id,
         // This file has no transcribe path to mirror; same shape as TtSortTool's —
@@ -77,22 +77,22 @@ export default function TtCollectionsTool() {
   }
 
   if (noTab)
-    return <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">Open TikTok in a tab (logged in), then reopen this panel.</div>;
+    return <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">Abra o TikTok em uma aba (com login feito) e reabra este painel.</div>;
 
   if (!lists.length)
     return (
       <div className="space-y-2 py-8 text-center">
-        <p className="text-sm text-muted-foreground">Visit a TikTok profile that has playlists/collections to capture the buckets here.</p>
-        <p className="text-[11px] text-muted-foreground/70">Open a playlist to load its videos (passive).</p>
+        <p className="text-sm text-muted-foreground">Visite um perfil do TikTok que tenha playlists/coleções para capturar as coleções aqui.</p>
+        <p className="text-[11px] text-muted-foreground/70">Abra uma playlist para carregar os vídeos dela (passivo).</p>
       </div>
     );
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{lists.length} bucket(s) captured</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Refresh — clear captured buckets">
-          <RotateCw className="size-3.5" /> Refresh
+        <span className="text-[11px] text-muted-foreground">{lists.length} coleção(ões) capturada(s)</span>
+        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar coleções capturadas">
+          <RotateCw className="size-3.5" /> Atualizar
         </Button>
       </div>
 
@@ -113,8 +113,8 @@ export default function TtCollectionsTool() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium">{L.name}</div>
                 <div className="text-[11px] text-muted-foreground">
-                  {L.kind === "collection" ? "Collection" : "Playlist"} · {L.video_count ?? "?"} videos
-                  {items.length ? ` · ${items.length} captured` : ""}
+                  {L.kind === "collection" ? "Coleção" : "Playlist"} · {L.video_count ?? "?"} vídeos
+                  {items.length ? ` · ${items.length} capturados` : ""}
                 </div>
               </div>
               {isOpen ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
@@ -123,11 +123,11 @@ export default function TtCollectionsTool() {
             {isOpen && (
               <div className="border-t border-border p-2">
                 {!items.length ? (
-                  <p className="py-3 text-center text-[11px] text-muted-foreground">Open this {L.kind || "playlist"} on TikTok to load its videos.</p>
+                  <p className="py-3 text-center text-[11px] text-muted-foreground">Abra esta {L.kind === "collection" ? "coleção" : "playlist"} no TikTok para carregar os vídeos dela.</p>
                 ) : (
                   <>
                     <div className="mb-2 flex justify-end">
-                      <Button variant="secondary" size="sm" onClick={() => downloadAll(items)}><Download className="size-3.5" /> All HD</Button>
+                      <Button variant="secondary" size="sm" onClick={() => downloadAll(items)}><Download className="size-3.5" /> Tudo em HD</Button>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       {items.map((item) => {

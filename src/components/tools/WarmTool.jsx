@@ -20,7 +20,7 @@ import { resolvePlatformTab } from "@/lib/tabs";
 import { isStaleSession } from "@/lib/sessionMath";
 import { startPolling } from "@/lib/poll";
 
-const MODE_NAME = { A: "Keyword", B: "Feed", C: "Reels" };
+const MODE_NAME = { A: "Palavra-chave", B: "Feed", C: "Reels" };
 // Seed comment phrases — short, human, emoji-flavored (mystic/astro niche).
 const DEFAULT_PHRASES = [
   "I claim this ✨",
@@ -40,13 +40,13 @@ let _pid = 0;
 const newPhrase = (text) => ({ id: `p${Date.now().toString(36)}${_pid++}`, text });
 // FB's 7 reactions (order = how the picker lays them out).
 const REACTION_OPTS = [
-  { k: "like", emoji: "👍", name: "Like" },
-  { k: "love", emoji: "❤️", name: "Love" },
-  { k: "care", emoji: "🤗", name: "Care" },
+  { k: "like", emoji: "👍", name: "Curtir" },
+  { k: "love", emoji: "❤️", name: "Amei" },
+  { k: "care", emoji: "🤗", name: "Cuidado" },
   { k: "haha", emoji: "😆", name: "Haha" },
-  { k: "wow", emoji: "😮", name: "Wow" },
-  { k: "sad", emoji: "😢", name: "Sad" },
-  { k: "angry", emoji: "😡", name: "Angry" },
+  { k: "wow", emoji: "😮", name: "Uau" },
+  { k: "sad", emoji: "😢", name: "Triste" },
+  { k: "angry", emoji: "😡", name: "Grr" },
 ];
 const fmtMs = (ms) => {
   if (!ms || ms <= 0) return "0:00";
@@ -403,15 +403,15 @@ export default function WarmTool({ platform }) {
   const hint = (() => {
     if (platform === "facebook")
       return mode === "C"
-        ? "Facebook reels: watches each reel to the end, then advances — Likes randomly by personality. Localized (en/pt-br/es/fr/it). Keep the tab visible or pop it out."
-        : "Facebook hashtag: lurks first, watches each post's video, Likes/Loves randomly by personality — scam posts skipped automatically, per-author throttle, hourly cap.";
+        ? "Reels do Facebook: assiste cada reel até o fim e avança — curte aleatoriamente conforme a personalidade. Localizado (en/pt-br/es/fr/it). Mantenha a aba visível ou destaque-a em outra janela."
+        : "Hashtag do Facebook: primeiro observa, assiste ao vídeo de cada post, curte/ama aleatoriamente conforme a personalidade — posts suspeitos são pulados automaticamente, com limite por autor e limite por hora.";
     if (platform === "instagram")
       return mode === "C"
-        ? "Instagram reels: Like, Save + Follow verified (localized labels handled)."
-        : "Instagram explore/hashtag: best-effort — likes centered reels while scrolling.";
+        ? "Reels do Instagram: curte, salva e segue com verificação (rótulos localizados já tratados)."
+        : "Explorar/hashtag do Instagram: melhor esforço — curte os reels centralizados enquanto rola a tela.";
     return mode === "A"
-      ? "TikTok search: Like, Favorite + Follow verified; opens results and swipes through."
-      : "TikTok For You: Like, Favorite + Follow verified.";
+      ? "Pesquisa no TikTok: curte, favorita e segue com verificação; abre os resultados e desliza por eles."
+      : "Para Você do TikTok: curte, favorita e segue com verificação.";
   })();
 
   return (
@@ -441,18 +441,18 @@ export default function WarmTool({ platform }) {
 
       {halted && (
         <div className="rounded-md bg-destructive/10 text-destructive text-sm font-medium px-3 py-2">
-          Auto-halted: {status.haltReason}
+          Interrompido automaticamente: {status.haltReason}
         </div>
       )}
       {noTab && (
         <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-          Open {platformCfg.name} in a tab, then reopen this panel.
+          Abra o {platformCfg.name} em uma aba e reabra este painel.
         </div>
       )}
       {!noTab && needReload && (
         <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 flex items-center justify-between gap-2">
           <span>
-            The {platformCfg.name} tab isn&apos;t responding — it needs a reload.
+            A aba do {platformCfg.name} não está respondendo — é necessário recarregar.
           </span>
           <Button
             size="sm"
@@ -460,7 +460,7 @@ export default function WarmTool({ platform }) {
             className="h-6 text-xs shrink-0"
             onClick={reloadPlatformTab}
           >
-            Reload tab
+            Recarregar aba
           </Button>
         </div>
       )}
@@ -479,8 +479,8 @@ export default function WarmTool({ platform }) {
             <div className="space-y-1.5">
               <Label htmlFor="kw">
                 {platform === "facebook"
-                  ? "Hashtag (no # needed)"
-                  : "Keyword or #hashtag"}
+                  ? "Hashtag (sem # necessário)"
+                  : "Palavra-chave ou #hashtag"}
               </Label>
               <Input
                 id="kw"
@@ -493,7 +493,7 @@ export default function WarmTool({ platform }) {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div className="space-y-1.5">
-              <Label htmlFor="duration">Duration (min)</Label>
+              <Label htmlFor="duration">Duração (min)</Label>
               <Input
                 id="duration"
                 type="number"
@@ -504,16 +504,16 @@ export default function WarmTool({ platform }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="persona">Personality</Label>
+              <Label htmlFor="persona">Personalidade</Label>
               <Select value={personality} onValueChange={setPersonality}>
                 <SelectTrigger id="persona">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="random">Random</SelectItem>
-                  <SelectItem value="binge">Binge</SelectItem>
+                  <SelectItem value="random">Aleatória</SelectItem>
+                  <SelectItem value="binge">Maratona</SelectItem>
                   <SelectItem value="casual">Casual</SelectItem>
-                  <SelectItem value="engage">Engaged</SelectItem>
+                  <SelectItem value="engage">Engajada</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -522,9 +522,9 @@ export default function WarmTool({ platform }) {
           <Card>
             <CardContent className="p-3.5 space-y-3">
               {[
-                ["save", "Save"],
-                ["like", "Like"],
-                ["follow", "Follow"],
+                ["save", "Salvar"],
+                ["like", "Curtir"],
+                ["follow", "Seguir"],
               ]
                 // Facebook hashtag warmer is like-only — hide Save/Follow there.
                 .filter(([k]) => platform !== "facebook" || k === "like")
@@ -548,7 +548,7 @@ export default function WarmTool({ platform }) {
                   Like dominant). Only meaningful when Like is on. */}
               {platform === "facebook" && actions.like && (
                 <div className="space-y-1.5">
-                  <Label className="text-sm text-foreground">Reactions</Label>
+                  <Label className="text-sm text-foreground">Reações</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {REACTION_OPTS.map(({ k, emoji, name }) => {
                       const on = reactions[k];
@@ -574,8 +574,9 @@ export default function WarmTool({ platform }) {
                     })}
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    A weighted mix of the ones you pick — Like most often, the
-                    rest sprinkled in (opens FB's reaction picker per post).
+                    Uma mistura ponderada das que você escolher — Curtir na
+                    maioria das vezes, as outras aparecem ocasionalmente (abre
+                    o seletor de reações do Facebook em cada post).
                   </p>
                 </div>
               )}
@@ -588,7 +589,7 @@ export default function WarmTool({ platform }) {
                       htmlFor="englishOnly"
                       className="text-sm text-foreground cursor-pointer"
                     >
-                      English-only posts
+                      Somente posts em inglês
                     </Label>
                     <Switch
                       id="englishOnly"
@@ -605,10 +606,10 @@ export default function WarmTool({ platform }) {
                     htmlFor="quickMode"
                     className="text-sm text-foreground cursor-pointer"
                   >
-                    ⚡ Quick mode
+                    ⚡ Modo rápido
                   </Label>
                   <p className="text-[11px] text-muted-foreground">
-                    3–10s per item, short gaps — for testing.
+                    3–10s por item, intervalos curtos — para testes.
                   </p>
                 </div>
                 <Switch
@@ -630,11 +631,11 @@ export default function WarmTool({ platform }) {
                       htmlFor="commentOn"
                       className="text-sm text-foreground cursor-pointer"
                     >
-                      💬 Comment on reels
+                      💬 Comentar nos reels
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Rarely posts one of your phrases — only on reels watched to
-                      the end.
+                      Raramente publica uma das suas frases — só em reels
+                      assistidos até o fim.
                     </p>
                   </div>
                   <Switch
@@ -651,10 +652,10 @@ export default function WarmTool({ platform }) {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <Label htmlFor="cchance" className="text-sm text-foreground">
-                          How often
+                          Com que frequência
                         </Label>
                         <span className="text-xs font-mono text-muted-foreground">
-                          {Math.round((comment.chance || 0) * 100)}% of full watches
+                          {Math.round((comment.chance || 0) * 100)}% das visualizações completas
                         </span>
                       </div>
                       <input
@@ -675,7 +676,7 @@ export default function WarmTool({ platform }) {
 
                     <div className="space-y-1.5">
                       <Label className="text-sm text-foreground">
-                        Phrases ({comment.phrases.length})
+                        Frases ({comment.phrases.length})
                       </Label>
                       <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
                         {comment.phrases.map((p) => (
@@ -688,7 +689,7 @@ export default function WarmTool({ platform }) {
                             <button
                               type="button"
                               onClick={() => removePhrase(p.id)}
-                              title="Remove phrase"
+                              title="Remover frase"
                               className="grid size-8 flex-none place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-destructive"
                             >
                               <Trash2 className="size-3.5" />
@@ -706,7 +707,7 @@ export default function WarmTool({ platform }) {
                               addPhrase();
                             }
                           }}
-                          placeholder="Add a phrase (with emoji ✨)…"
+                          placeholder="Adicione uma frase (com emoji ✨)…"
                           className="h-8 text-xs"
                         />
                         <Button
@@ -717,7 +718,7 @@ export default function WarmTool({ platform }) {
                           onClick={addPhrase}
                           disabled={!phraseDraft.trim()}
                         >
-                          <Plus className="size-3.5" /> Add
+                          <Plus className="size-3.5" /> Adicionar
                         </Button>
                       </div>
                     </div>
@@ -734,12 +735,12 @@ export default function WarmTool({ platform }) {
       {(running || halted) && status && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <Stat label="Mode" value={MODE_NAME[status.mode] || status.mode} />
-            <Stat label="Persona" value={status.personality || "—"} />
+            <Stat label="Modo" value={MODE_NAME[status.mode] || status.mode} />
+            <Stat label="Personalidade" value={status.personality || "—"} />
           </div>
           <div className="grid grid-cols-4 gap-2">
             <Counter
-              label="done"
+              label="concluído"
               value={
                 status.maxItems > 0
                   ? `${status.processed}/${status.maxItems}`
@@ -748,15 +749,15 @@ export default function WarmTool({ platform }) {
             />
             {platform === "facebook" ? (
               <>
-                <Counter label="liked" value={status.liked} />
-                <Counter label="loved" value={status.loved ?? 0} />
-                <Counter label="skipped" value={status.skipped} />
+                <Counter label="curtidos" value={status.liked} />
+                <Counter label="amados" value={status.loved ?? 0} />
+                <Counter label="pulados" value={status.skipped} />
               </>
             ) : (
               <>
-                <Counter label="saved" value={status.saved} />
-                <Counter label="liked" value={status.liked} />
-                <Counter label="followed" value={status.followed} />
+                <Counter label="salvos" value={status.saved} />
+                <Counter label="curtidos" value={status.liked} />
+                <Counter label="seguidos" value={status.followed} />
               </>
             )}
           </div>
@@ -775,7 +776,7 @@ export default function WarmTool({ platform }) {
             )}
           {status.etaMs > 0 && (
             <p className="text-xs text-muted-foreground text-right">
-              time left {fmtMs(status.etaMs)}
+              tempo restante {fmtMs(status.etaMs)}
             </p>
           )}
           <div
@@ -798,15 +799,15 @@ export default function WarmTool({ platform }) {
             onClick={start}
             disabled={noTab || needReload}
           >
-            <Play /> Start
+            <Play /> Iniciar
           </Button>
         ) : (
           <>
             <Button className="flex-1" variant="secondary" onClick={togglePause}>
-              {paused ? <Play /> : <Pause />} {paused ? "Resume" : "Pause"}
+              {paused ? <Play /> : <Pause />} {paused ? "Retomar" : "Pausar"}
             </Button>
             <Button className="flex-1" variant="destructive" onClick={stop}>
-              <Square /> Stop
+              <Square /> Parar
             </Button>
           </>
         )}
@@ -815,17 +816,17 @@ export default function WarmTool({ platform }) {
           size="icon"
           onClick={detach}
           disabled={noTab}
-          title={`Move ${platformCfg.name} to its own window so it keeps scrolling while you work in other tabs`}
+          title={`Mover o ${platformCfg.name} para sua própria janela para continuar rolando enquanto você trabalha em outras abas`}
         >
           <ExternalLink />
         </Button>
       </div>
       {!noTab && (
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Click <ExternalLink className="inline size-3 -mt-0.5" /> to pop{" "}
-          {platformCfg.name} into its own window — it keeps running there while
-          you use other tabs. (A tab only scrolls while it's the visible tab of
-          its window.)
+          Clique em <ExternalLink className="inline size-3 -mt-0.5" /> para
+          abrir o {platformCfg.name} em sua própria janela — ele continua
+          rodando lá enquanto você usa outras abas. (Uma aba só rola enquanto
+          é a aba visível da sua janela.)
         </p>
       )}
     </div>
@@ -836,25 +837,25 @@ function StatusChip({ running, paused, halted, onBreak }) {
   if (halted)
     return (
       <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-[11px] font-medium text-destructive">
-        halted
+        interrompido
       </span>
     );
   if (!running)
     return (
       <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-        idle
+        inativo
       </span>
     );
   if (onBreak)
     return (
       <span className="rounded-full bg-sky-400/15 px-2.5 py-1 text-[11px] font-medium text-sky-600">
-        on break
+        em pausa
       </span>
     );
   if (paused)
     return (
       <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[11px] font-medium text-amber-600">
-        paused
+        pausado
       </span>
     );
   return (
@@ -869,9 +870,20 @@ function StatusChip({ running, paused, halted, onBreak }) {
         className="ember-pulse h-1.5 w-1.5 rounded-full"
         style={{ background: "hsl(var(--sw-ember))" }}
       />
-      running
+      em execução
     </span>
   );
+}
+
+// Display-only translation of the persisted outcome code (fbw_last_summary /
+// fbw_history keep the raw English value — other code may read it — this maps
+// it to Portuguese purely for the badge text).
+const OUTCOME_LABEL = { complete: "concluída", abandoned: "abandonada" };
+function outcomeLabel(outcome) {
+  if (!outcome) return outcome;
+  if (OUTCOME_LABEL[outcome]) return OUTCOME_LABEL[outcome];
+  if (outcome.startsWith("halt")) return "interrompida";
+  return outcome;
 }
 
 function SummaryCard({ summary, onDismiss }) {
@@ -887,9 +899,9 @@ function SummaryCard({ summary, onDismiss }) {
     <Card>
       <CardContent className="p-3.5 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Last session</span>
+          <span className="text-sm font-medium">Última sessão</span>
           <span className={`text-[10px] rounded-full px-2 py-0.5 ${badge}`}>
-            {summary.outcome}
+            {outcomeLabel(summary.outcome)}
           </span>
         </div>
         <div className="text-xs text-muted-foreground">
@@ -898,14 +910,14 @@ function SummaryCard({ summary, onDismiss }) {
           {fmtMs(summary.durationMs)}
         </div>
         <div className="flex gap-3 text-[11px] text-muted-foreground">
-          <span>seen {summary.processed}</span>
+          <span>vistos {summary.processed}</span>
           <span>👍 {summary.liked}</span>
           <span>❤️ {summary.loved ?? 0}</span>
           <span>➕ {summary.followed ?? 0}</span>
-          <span>skip {summary.skipped}</span>
+          <span>pulados {summary.skipped}</span>
         </div>
         <Button variant="ghost" size="sm" className="h-7 text-xs w-full" onClick={onDismiss}>
-          Dismiss
+          Fechar
         </Button>
       </CardContent>
     </Card>
