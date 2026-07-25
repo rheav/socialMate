@@ -67,6 +67,14 @@ export default defineManifest({
       js: ["src/content/fb/comments-scrape.js"],
       run_at: "document_idle",
     },
+    // FB profile-photos harvester → panel "Fotos" tool (bulk ZIP download).
+    // Message-driven only: it never runs on a timer, so it costs nothing on a FB
+    // tab the user is only warming or scraping comments on.
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/photos-scrape.js"],
+      run_at: "document_idle",
+    },
     // Instagram capture: MAIN-world JSON.parse hook (document_start) + isolated bridge.
     {
       matches: ["*://*.instagram.com/*"],

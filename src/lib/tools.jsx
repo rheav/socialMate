@@ -1,9 +1,10 @@
-import { Flame, ArrowDownUp, Clapperboard, Film, MessageSquare, ListVideo, Library as LibraryIcon, Image as ImageIcon } from "lucide-react";
+import { Flame, ArrowDownUp, Clapperboard, Film, MessageSquare, ListVideo, Library as LibraryIcon, Image as ImageIcon, Images } from "lucide-react";
 import WarmTool from "@/components/tools/WarmTool";
 import IgSortTool from "@/components/tools/IgSortTool";
 import IgStoriesTool from "@/components/tools/IgStoriesTool";
 import FbReelsTool from "@/components/tools/FbReelsTool";
 import FbCommentsTool from "@/components/tools/FbCommentsTool";
+import FbPhotosTool from "@/components/tools/FbPhotosTool";
 import TtSortTool from "@/components/tools/TtSortTool";
 import TtCommentsTool from "@/components/tools/TtCommentsTool";
 import TtStoriesTool from "@/components/tools/TtStoriesTool";
@@ -23,6 +24,9 @@ export const TOOLS = [
   { id: "warm", label: "Aquecer", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool },
   { id: "fb-reels", label: "Ordenar Reels", Icon: Film, platforms: ["facebook"], Panel: FbReelsTool },
   { id: "fb-comments", label: "Comentários", Icon: MessageSquare, platforms: ["facebook"], Panel: FbCommentsTool },
+  // "Fotos" stays one short word on purpose: Facebook now has 4 tools in the
+  // segmented sub-nav, which clips rather than wraps.
+  { id: "fb-photos", label: "Fotos", Icon: Images, platforms: ["facebook"], Panel: FbPhotosTool },
   // "Ordenar" — download is implicit (every card has a download action). Kept short so
   // 5 tools fit the segmented sub-nav without clipping.
   { id: "ig-sort", label: "Ordenar", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool },
