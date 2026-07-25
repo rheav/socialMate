@@ -52,7 +52,7 @@ import {
     // engageChance gates whether a viewed post gets ANY action (save/like/follow);
     // the rest are watch-and-scroll only, so runs read as browsing, not farming.
     BINGE: {
-      name: "Binge Watcher",
+      name: "Maratona",
       likeChance: 0.15,
       followChance: 0.04,
       engageChance: 0.25,
@@ -60,7 +60,7 @@ import {
       watchMax: 1.0,
     },
     CASUAL: {
-      name: "Casual Scroller",
+      name: "Casual",
       likeChance: 0.35,
       followChance: 0.08,
       engageChance: 0.4,
@@ -68,7 +68,7 @@ import {
       watchMax: 0.5,
     },
     ENGAGED: {
-      name: "Engaged User",
+      name: "Engajada",
       likeChance: 0.6,
       followChance: 0.15,
       engageChance: 0.65,
@@ -241,6 +241,56 @@ import {
     console.log("[SW]", entry.msg);
     persist();
   }
+
+  // ---- display-only pt-BR labels for the run log ----
+  // These translate internal codes to Portuguese ONLY at the point they're
+  // rendered into a logLine()/startProgress() message string. The underlying
+  // codes (A.noun, A.skipReason, reaction keys, comment-fail reasons, page
+  // surfaces, S.actions keys) are left untouched everywhere else — they're
+  // also written into the structured telemetry (emit()/runMeta()) and storage,
+  // so changing the values themselves would alter what's persisted/analysed,
+  // not just what's shown.
+  const NOUN_PT = { reel: "reel", video: "vídeo" };
+  const nounPT = (n) => NOUN_PT[n] || n;
+  const REACTION_PT = {
+    like: "curtir",
+    love: "amei",
+    care: "cuidado",
+    haha: "haha",
+    wow: "uau",
+    sad: "triste",
+    angry: "grr",
+  };
+  const reactionPT = (k) => REACTION_PT[k] || k;
+  const SURFACE_PT = {
+    reels: "Reels",
+    search: "pesquisa",
+    hashtag: "hashtag",
+    feed: "feed",
+    explore: "explorar",
+    foryou: "para você",
+    video: "vídeo",
+    unknown: "desconhecida",
+  };
+  const surfacePT = (s) => SURFACE_PT[s] || s;
+  const ADAPTER_LABEL_PT = {
+    reels: "Reels",
+    explore: "explorar",
+    "for-you": "para você",
+    search: "busca",
+  };
+  const adapterLabelPT = (l) => ADAPTER_LABEL_PT[l] || l;
+  const ACTION_PT = { save: "salvar", like: "curtir", follow: "seguir" };
+  const actionPT = (k) => ACTION_PT[k] || k;
+  const SKIP_REASON_PT = { LIVE: "ao vivo", "non-standard": "não padrão" };
+  const skipReasonPT = (r) => SKIP_REASON_PT[r] || r || "não padrão";
+  const COMMENT_FAIL_PT = {
+    no_comment_button: "botão de comentário não encontrado",
+    composer_never_opened: "caixa de comentário não abriu",
+    typing_failed: "falha ao digitar",
+    editor_not_cleared: "editor não foi limpo",
+  };
+  const commentFailPT = (r) => COMMENT_FAIL_PT[r] || r;
 
   // ============================================================
   // RUN TELEMETRY — structured events → JSON file on disk at run end
@@ -537,40 +587,40 @@ import {
       return "captcha";
     const p = platformForHost();
     if (p === "facebook") {
-      if (url.includes("/checkpoint")) return "checkpoint";
+      if (url.includes("/checkpoint")) return "verificação de segurança";
       if (
         document.querySelector('input[name="email"]') &&
         document.querySelector('input[name="pass"]')
       )
-        return "login wall";
+        return "barreira de login";
       if (
         /you'?re temporarily blocked|going too fast|try again later|temporarily restricted|suspicious activity/.test(
           body,
         )
       )
-        return "rate-limit/block";
+        return "limite de taxa/bloqueio";
     } else if (p === "instagram") {
       if (url.includes("/challenge") || url.includes("/accounts/suspended"))
-        return "checkpoint";
+        return "verificação de segurança";
       if (
         document.querySelector('input[name="username"]') &&
         document.querySelector('input[name="password"]')
       )
-        return "login wall";
+        return "barreira de login";
       if (
         /we restrict certain activity|action blocked|try again later|please wait a few minutes|suspicious/.test(
           body,
         )
       )
-        return "rate-limit/block";
+        return "limite de taxa/bloqueio";
     } else if (p === "tiktok") {
-      if (url.includes("/login")) return "login wall";
+      if (url.includes("/login")) return "barreira de login";
       if (
         /too many attempts|verify to continue|you'?re tapping too fast|something went wrong, tap to retry/.test(
           body,
         )
       )
-        return "rate-limit/block";
+        return "limite de taxa/bloqueio";
     }
     return null;
   }
@@ -578,7 +628,7 @@ import {
   function halt(reason) {
     S.haltReason = reason;
     S.isRunning = false;
-    logLine(`🛑 HALTED: ${reason}`);
+    logLine(`🛑 INTERROMPIDO: ${reason}`);
     clearInterval(S.tickTimer);
     emit("halt", { reason, counters: runCounters() });
     logHistory("halt: " + reason);
@@ -591,7 +641,7 @@ import {
     if (found) S.missStreak = 0;
     else {
       S.missStreak += 1;
-      if (S.missStreak >= MISS_LIMIT) halt("selectors not found");
+      if (S.missStreak >= MISS_LIMIT) halt("seletores não encontrados");
     }
     return found;
   }
@@ -670,7 +720,7 @@ import {
   async function reelDwell(A, c) {
     if (S.quickMode) {
       const dwell = rand(3000, 10000);
-      const prog = startProgress("⚡", "quick dwell", dwell);
+      const prog = startProgress("⚡", "espera rápida", dwell);
       const t0 = Date.now();
       while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) {
         tickProgress(prog);
@@ -707,7 +757,7 @@ import {
       dwell = capMs;
       full = false;
     }
-    const label = `dwell${frac != null ? ` (${Math.round(frac * 100)}%)` : full ? " (full)" : ""}`;
+    const label = `assistindo${frac != null ? ` (${Math.round(frac * 100)}%)` : full ? " (completo)" : ""}`;
     const prog = startProgress("👀", label, dwell);
     const t0 = Date.now();
     while (Date.now() - t0 < dwell && S.isRunning && !S.isPaused) {
@@ -746,7 +796,7 @@ import {
     }
     S.breakUntil = now + len;
     emit("break", { plannedMs: len, afterItems: S.processed });
-    const prog = startProgress("☕", "break", len); // counts up in place like dwell
+    const prog = startProgress("☕", "pausa", len); // counts up in place like dwell
     persist();
     while (Date.now() < S.breakUntil && S.isRunning) {
       tickProgress(prog);
@@ -755,7 +805,7 @@ import {
     endProgress(prog);
     S.breakUntil = 0;
     S.nextBreakAt = scheduleNextBreak(prof, Date.now());
-    if (S.isRunning) logLine("▶ back from break");
+    if (S.isRunning) logLine("▶ voltando da pausa");
     persist();
   }
   // Variable-velocity scroll with occasional scroll-up re-reads (human skim, not metronome).
@@ -922,7 +972,7 @@ import {
     if (Math.random() >= 0.045) return;
     const ms = rand(18000, 85000);
     if (S.willEndAt && Date.now() + ms >= S.willEndAt) return;
-    const prog = startProgress("💤", "idle", ms);
+    const prog = startProgress("💤", "inativo", ms);
     const t0 = Date.now();
     while (Date.now() - t0 < ms && S.isRunning && !S.isPaused) {
       tickProgress(prog);
@@ -942,7 +992,7 @@ import {
     await sleep(rand(500, 1500));
     likeBtn.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     likeBtn.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerId: 1 }));
-    logLine("· hovered, didn't react");
+    logLine("· passou o mouse, não reagiu");
     emit("feint", { item: S.itemSeq });
     return true;
   }
@@ -1464,7 +1514,7 @@ import {
     dwell = Math.min(dwell, MAX_DWELL_MS());
     const prog = startProgress(
       "▶",
-      `watching${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
+      `assistindo${frac != null ? ` (${Math.round(frac * 100)}%)` : ""}`,
       dwell,
     );
     const t0 = Date.now();
@@ -1681,7 +1731,7 @@ import {
         (th.minComments && st.comments < th.minComments)
       ) {
         logLine(
-          `· no action — below threshold (${st.likes} likes / ${st.comments} comments)`,
+          `· sem ação — abaixo do limite (${st.likes} curtidas / ${st.comments} comentários)`,
         );
         return;
       }
@@ -1690,7 +1740,7 @@ import {
 
     // Warm-up: lurk the first few posts of a session, no actions.
     if (S.processed < S.warmupPosts) {
-      logLine(`· warm-up browse (${S.processed + 1}/${S.warmupPosts})`);
+      logLine(`· navegação de aquecimento (${S.processed + 1}/${S.warmupPosts})`);
       return;
     }
 
@@ -1698,7 +1748,7 @@ import {
     const engage = engageScale(per.engageChance); // × session mood × curve
     if (Math.random() >= engage) {
       if (!(await maybeFeint(fbBarLikeBtn(p.root))))
-        logLine(`· browsed only (engage ${Math.round(engage * 100)}%)`);
+        logLine(`· apenas navegou (engajamento ${Math.round(engage * 100)}%)`);
       return;
     }
 
@@ -1715,7 +1765,7 @@ import {
         S.spamGuard,
       );
       if (S.spamGuard && spam >= SPAM_MIN) {
-        logLine(`· spam/scam, skip (spam ${spam.toFixed(2)})`);
+        logLine(`· spam/golpe, pulado (spam ${spam.toFixed(2)})`);
         return;
       }
       if (S.relevanceMin > 0 && (S.keyword || "").trim()) {
@@ -1725,45 +1775,45 @@ import {
             per.likeChance * (1 + (score - S.relevanceMin) * 2),
           );
           logLine(
-            `· on-niche (rel ${score.toFixed(2)}) → like ${Math.round(likeChance * 100)}%`,
+            `· dentro do nicho (rel ${score.toFixed(2)}) → curtir ${Math.round(likeChance * 100)}%`,
           );
         } else {
           likeChance =
             per.likeChance * Math.max(0.05, score / S.relevanceMin) * 0.3;
           logLine(
-            `· off-niche (rel ${score.toFixed(2)}) → like ${Math.round(likeChance * 100)}%`,
+            `· fora do nicho (rel ${score.toFixed(2)}) → curtir ${Math.round(likeChance * 100)}%`,
           );
         }
       }
     }
     if (Math.random() >= likeChance) {
-      logLine(`· no react (dice ${Math.round(likeChance * 100)}%)`);
+      logLine(`· sem reação (dado ${Math.round(likeChance * 100)}%)`);
       return;
     }
     // Fresh query — the enumerated node may have been swapped by re-hydration.
     if (fbIsLikedBtn(fbBarLikeBtn(p.root))) {
-      logLine("· already reacted");
+      logLine("· já reagiu");
       return;
     }
 
     // Safety caps.
     if (S.consecLikes >= MAX_CONSEC_LIKES) {
       S.consecLikes = 0;
-      logLine("· react cooldown");
+      logLine("· intervalo de reação");
       await sleep(rand(2000, 4000));
       return;
     }
     const nowT = Date.now();
     S.likeTimes = S.likeTimes.filter((t) => nowT - t < 3600000);
     if (S.likeTimes.length >= MAX_LIKES_PER_HOUR) {
-      logLine("· hourly react cap — skipping");
+      logLine("· limite horário de reações — pulando");
       return;
     }
     if (
       p.authorKey &&
       (S.authorLikes[p.authorKey] || 0) >= MAX_LIKES_PER_AUTHOR
     ) {
-      logLine("· per-author cap — skip");
+      logLine("· limite por autor — pular");
       return;
     }
 
@@ -1783,15 +1833,15 @@ import {
       if (p.authorKey)
         S.authorLikes[p.authorKey] = (S.authorLikes[p.authorKey] || 0) + 1;
       logLine(
-        `${FB_REACTIONS[got].emoji} reacted ${got}${got !== want ? ` (picker missed ${want})` : ""}`,
+        `${FB_REACTIONS[got].emoji} reagiu ${reactionPT(got)}${got !== want ? ` (não achou ${reactionPT(want)})` : ""}`,
       );
     } else {
       S.softFailStreak++;
       logLine(
-        `· reaction did not register (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`,
+        `· reação não registrou (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`,
       );
       if (S.softFailStreak >= SOFT_FAIL_LIMIT)
-        halt("possible soft-block — reactions not registering");
+        halt("possível bloqueio brando — reações não estão sendo registradas");
     }
   }
 
@@ -1812,13 +1862,13 @@ import {
     if (ac.minComments && st.comments < ac.minComments) return;
     if (p.postKey) S.capturedIds.add(p.postKey);
     const acts = [
-      ac.transcribe && "transcribe",
-      ac.download && "download",
-      ac.favorite && "save",
+      ac.transcribe && "transcrever",
+      ac.download && "baixar",
+      ac.favorite && "salvar",
     ]
       .filter(Boolean)
       .join("+");
-    logLine(`⭐ auto-capture (👍${st.likes} 💬${st.comments}) → ${acts}`);
+    logLine(`⭐ captura automática (👍${st.likes} 💬${st.comments}) → ${acts}`);
     try {
       window.dispatchEvent(
         new CustomEvent("__fbw_auto_capture", {
@@ -1838,7 +1888,7 @@ import {
     if (S.loopActive) return;
     S.loopActive = true;
     logLine(
-      `📜 ${label} run started (until ${new Date(S.willEndAt).toTimeString().slice(0, 5)}, warm-up ${S.warmupPosts})`,
+      `📜 sessão de ${label} iniciada (até ${new Date(S.willEndAt).toTimeString().slice(0, 5)}, aquecimento ${S.warmupPosts})`,
     );
     await loadSeen(); // merge cross-session dedup set
     // Preload the relevance model so the first scored post doesn't stall mid-run.
@@ -1883,7 +1933,7 @@ import {
         }
         if (S.englishOnly && !isEnglish(fbGetPostText(p.root))) {
           S.skipped++;
-          logLine("· skip (non-English)");
+          logLine("· pulado (não está em inglês)");
           persist();
           humanScroll();
           await sleep(rand(900, 1800));
@@ -2247,8 +2297,8 @@ import {
       const ok = await A.save(c);
       if (ok) {
         S.saved++;
-        logLine(`🔖 saved ${A.noun}`);
-      } else logLine(`· save ${A.noun}: already saved / unavailable`);
+        logLine(`🔖 ${nounPT(A.noun)} salvo`);
+      } else logLine(`· salvar ${nounPT(A.noun)}: já salvo / indisponível`);
       await sleep(rand(500, 1200));
     }
     const fbReact = A.reactable && platformForHost() === "facebook";
@@ -2267,7 +2317,7 @@ import {
     } else if (S.actions.like) {
       if (S.consecLikes >= MAX_CONSEC_LIKES) {
         S.consecLikes = 0;
-        logLine("· like cooldown");
+        logLine("· intervalo de curtida");
         emit("like_cooldown", { item: S.itemSeq });
         await sleep(rand(2000, 4000));
       } else if (!A.isLiked(c)) {
@@ -2293,7 +2343,7 @@ import {
             S.reactionCounts[got] = (S.reactionCounts[got] || 0) + 1;
             S.consecLikes++;
             logLine(
-              `${FB_REACTIONS[got].emoji} reacted ${got} ${A.noun}${got !== want ? ` (picker missed ${want})` : ""}`,
+              `${FB_REACTIONS[got].emoji} reagiu ${reactionPT(got)} no ${nounPT(A.noun)}${got !== want ? ` (não achou ${reactionPT(want)})` : ""}`,
             );
           }
         } else {
@@ -2313,7 +2363,7 @@ import {
             if (ok) {
               S.liked++;
               S.consecLikes++;
-              logLine(`❤️ liked ${A.noun}`);
+              logLine(`❤️ curtiu o ${nounPT(A.noun)}`);
             }
           }
         }
@@ -2327,7 +2377,7 @@ import {
       if (await A.follow(c)) {
         S.followed++;
         S.consecFollows++;
-        logLine("➕ followed author");
+        logLine("➕ seguiu o autor");
       }
     }
     // Comment (FB reels only) — rare, capped, and only on reels we watched fully.
@@ -2364,7 +2414,7 @@ import {
     const nowT = Date.now();
     S.commentTimes = S.commentTimes.filter((t) => nowT - t < 3600000);
     if (S.commentTimes.length >= MAX_COMMENTS_PER_HOUR) {
-      logLine("· hourly comment cap — skip");
+      logLine("· limite horário de comentários — pular");
       return decline("hourly_cap");
     }
     if (authorKey && (S.authorComments[authorKey] || 0) >= MAX_COMMENTS_PER_AUTHOR)
@@ -2396,14 +2446,14 @@ import {
       if (authorKey)
         S.authorComments[authorKey] = (S.authorComments[authorKey] || 0) + 1;
       S.softFailStreak = 0;
-      logLine(`💬 commented "${text.slice(0, 28)}"`);
+      logLine(`💬 comentou "${text.slice(0, 28)}"`);
     } else {
       S.softFailStreak++;
       logLine(
-        `· comment did not post: ${reason} (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`,
+        `· comentário não foi publicado: ${commentFailPT(reason)} (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`,
       );
       if (S.softFailStreak >= SOFT_FAIL_LIMIT)
-        halt(`possible soft-block — comments not posting (${reason})`);
+        halt(`possível bloqueio brando — comentários não sendo publicados (${commentFailPT(reason)})`);
     }
   }
 
@@ -2411,7 +2461,7 @@ import {
     if (S.loopActive) return;
     S.loopActive = true;
     logLine(
-      `${A.emoji || "🎞️"} ${A.label} run started (until ${new Date(S.willEndAt).toTimeString().slice(0, 5)})`,
+      `${A.emoji || "🎞️"} sessão de ${adapterLabelPT(A.label)} iniciada (até ${new Date(S.willEndAt).toTimeString().slice(0, 5)})`,
     );
     let emptyScrolls = 0,
       endStreak = 0;
@@ -2429,7 +2479,7 @@ import {
             humanScroll();
             await sleep(rand(1200, 2600));
             if (++emptyScrolls > EMPTY_SCROLL_LIMIT) {
-              halt("no videos found");
+              halt("nenhum vídeo encontrado");
             }
           } else {
             note(false);
@@ -2443,7 +2493,7 @@ import {
 
         if (A.shouldSkip && A.shouldSkip(c)) {
           S.skipped++;
-          logLine(`· skip (${A.skipReason || "non-standard"})`);
+          logLine(`· pulado (${skipReasonPT(A.skipReason)})`);
           emit("skip", { item: S.itemSeq, reason: A.skipReason || "non-standard" });
           persist();
           if (!A.advance()) {
@@ -2473,18 +2523,18 @@ import {
         if (!S.isRunning || S.isPaused) continue;
         await doVideoActions(A, c, watchedFull);
         S.processed++;
-        logLine(`✓ ${A.noun} ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
+        logLine(`✓ ${nounPT(A.noun)} ${S.processed}${S.maxItems ? `/${S.maxItems}` : ""}`);
         persist();
         if (!shouldContinue(S)) break;
 
         if ((A.isEnd && A.isEnd()) || !A.advance()) {
           if (A.onEnd && endStreak < 2) {
             endStreak++;
-            logLine("↻ end of results — refreshing");
+            logLine("↻ fim dos resultados — atualizando");
             await A.onEnd();
             return;
           }
-          logLine("⚠️ cannot advance — ending");
+          logLine("⚠️ não foi possível avançar — encerrando");
           break;
         }
         endStreak = 0;
@@ -2499,7 +2549,7 @@ import {
 
   function finishRun() {
     logLine(
-      `✅ run complete — processed ${S.processed}, liked ${S.liked}, loved ${S.loved}, skipped ${S.skipped}`,
+      `✅ sessão concluída — processados ${S.processed}, curtidas ${S.liked}, amei ${S.loved}, pulados ${S.skipped}`,
     );
     S.isRunning = false;
     clearInterval(S.tickTimer);
@@ -2599,7 +2649,7 @@ import {
     } else if (p === "tiktok") {
       videoLoop(S.mode === "A" ? TT_SEARCH : TT_FORYOU);
     } else {
-      logLine("⚠️ unsupported host — nothing to run");
+      logLine("⚠️ site não suportado — nada para executar");
       S.isRunning = false;
       persist();
     }
@@ -2677,7 +2727,7 @@ import {
       return;
     }
     if (S.willEndAt && Date.now() >= S.willEndAt) {
-      logLine("⏲ session time cap reached");
+      logLine("⏲ limite de tempo da sessão atingido");
       finishRun();
     }
   }
@@ -2763,18 +2813,18 @@ import {
     flushEvents();
 
     logLine(
-      `▶️ ${S.platform} · mode ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}m${S.maxItems ? ` · cap ${S.maxItems}` : ""} · ${
+      `▶️ ${S.platform} · modo ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}min${S.maxItems ? ` · limite ${S.maxItems}` : ""} · ${
         Object.entries(S.actions)
           .filter(([, v]) => v)
-          .map(([k]) => k)
-          .join("+") || "observe"
-      } · ${persona().name}${S.browseOnly ? " · 👀browse-only" : ` · mood ${S.sessionIntensity.toFixed(2)}`}${S.quickMode ? " · ⚡quick" : ""}`,
+          .map(([k]) => actionPT(k))
+          .join("+") || "observar"
+      } · ${persona().name}${S.browseOnly ? " · 👀apenas navegação" : ` · humor ${S.sessionIntensity.toFixed(2)}`}${S.quickMode ? " · ⚡rápido" : ""}`,
     );
     persist();
 
     const target = targetUrlForMode();
     if (target) {
-      logLine(`↪ navigating to target surface`);
+      logLine(`↪ navegando até o destino`);
       location.assign(target);
       return;
     }
@@ -2784,7 +2834,7 @@ import {
 
   function stop() {
     if (!S.isRunning) return;
-    logLine("⏹ stopped by user");
+    logLine("⏹ interrompido pelo usuário");
     S.isRunning = false;
     S.isPaused = false;
     clearInterval(S.tickTimer);
@@ -2796,7 +2846,7 @@ import {
   }
   function togglePause() {
     S.isPaused = !S.isPaused;
-    logLine(S.isPaused ? "⏸ paused" : "▶️ resumed");
+    logLine(S.isPaused ? "⏸ pausado" : "▶️ retomado");
     emit(S.isPaused ? "pause" : "resume", {});
     persist();
   }
@@ -2931,12 +2981,12 @@ import {
 
       const target = targetUrlForMode();
       if (target) {
-        logLine("↪ resuming — navigating to target surface");
+        logLine("↪ retomando — navegando até o destino");
         persist();
         location.assign(target);
         return;
       }
-      logLine("🔄 resumed run on " + pageSurface());
+      logLine("🔄 sessão retomada em " + surfacePT(pageSurface()));
       emit("resumed", { surface: pageSurface(), url: location.href });
       runEngine();
       S.tickTimer = setInterval(tick, 1000);

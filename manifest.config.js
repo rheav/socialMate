@@ -5,7 +5,7 @@ export default defineManifest({
   name: "socialMate",
   short_name: "socialMate",
   description:
-    "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
+    "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   version: "0.66.0",
   version_name: "0.66.0 — Pinterest: harvest a whole board through the resource API and bulk-download full-res images + MP4 video (HLS derived)",
   icons: {
@@ -15,7 +15,7 @@ export default defineManifest({
     128: "icons/icon-128.png",
   },
   action: {
-    default_title: "socialMate (open side panel)",
+    default_title: "socialMate (abrir painel lateral)",
     default_icon: {
       16: "icons/icon-16.png",
       32: "icons/icon-32.png",

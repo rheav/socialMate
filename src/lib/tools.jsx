@@ -20,19 +20,19 @@ import { filterToolsForPlatform } from "@/lib/toolsFilter";
 // in the global Library (Transcripts / Saved). The old profile-thumbnail Download
 // panel was dropped to keep the FB surface uncluttered.
 export const TOOLS = [
-  { id: "warm", label: "Warm", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool },
-  { id: "fb-reels", label: "Reels Sort", Icon: Film, platforms: ["facebook"], Panel: FbReelsTool },
-  { id: "fb-comments", label: "Comments", Icon: MessageSquare, platforms: ["facebook"], Panel: FbCommentsTool },
-  // "Sort" — download is implicit (every card has a download action). Kept short so
+  { id: "warm", label: "Aquecer", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool },
+  { id: "fb-reels", label: "Ordenar Reels", Icon: Film, platforms: ["facebook"], Panel: FbReelsTool },
+  { id: "fb-comments", label: "Comentários", Icon: MessageSquare, platforms: ["facebook"], Panel: FbCommentsTool },
+  // "Ordenar" — download is implicit (every card has a download action). Kept short so
   // 5 tools fit the segmented sub-nav without clipping.
-  { id: "ig-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool },
+  { id: "ig-sort", label: "Ordenar", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool },
   { id: "ig-stories", label: "Stories", Icon: Clapperboard, platforms: ["instagram"], Panel: IgStoriesTool },
-  { id: "tt-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["tiktok"], Panel: TtSortTool },
-  { id: "tt-comments", label: "Comments", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
+  { id: "tt-sort", label: "Ordenar", Icon: ArrowDownUp, platforms: ["tiktok"], Panel: TtSortTool },
+  { id: "tt-comments", label: "Comentários", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
   { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool },
   { id: "tt-collections", label: "Playlists", Icon: ListVideo, platforms: ["tiktok"], Panel: TtCollectionsTool },
-  { id: "pin-board", label: "Board", Icon: ImageIcon, platforms: ["pinterest"], Panel: PinBoardTool, requiresTab: true },
-  { id: "library", label: "Library", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool },
+  { id: "pin-board", label: "Pasta", Icon: ImageIcon, platforms: ["pinterest"], Panel: PinBoardTool, requiresTab: true },
+  { id: "library", label: "Biblioteca", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool },
 ];
 
 export { filterToolsForPlatform };

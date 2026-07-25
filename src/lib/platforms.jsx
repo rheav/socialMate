@@ -40,7 +40,7 @@ export function PinterestGlyph(props) {
 const MODE = {
   C: { id: "C", label: "Reels", Icon: Film },
   B: { id: "B", label: "Feed", Icon: Newspaper },
-  A: { id: "A", label: "Keyword", Icon: Search },
+  A: { id: "A", label: "Palavra-chave", Icon: Search },
 };
 
 // Brand gradient per platform, used ONLY for the small platform tiles on the Home
@@ -70,7 +70,7 @@ export const PLATFORMS = {
     // Hashtag (scroll the tag feed and like posts). Feed tab still removed.
     defaultMode: "C",
     modes: [MODE.C, { ...MODE.A, label: "Hashtag" }],
-    keywordPlaceholder: "e.g. tarotreading",
+    keywordPlaceholder: "ex.: tarotreading",
     theme: THEMES.facebook,
   },
   instagram: {
@@ -80,10 +80,10 @@ export const PLATFORMS = {
     defaultMode: "C",
     modes: [
       MODE.C,
-      { ...MODE.B, label: "Explore" },
+      { ...MODE.B, label: "Explorar" },
       { ...MODE.A, label: "Hashtag" },
     ],
-    keywordPlaceholder: "e.g. tarot  or  #tarotreading",
+    keywordPlaceholder: "ex.: tarot  ou  #tarotreading",
     theme: THEMES.instagram,
   },
   tiktok: {
@@ -92,10 +92,10 @@ export const PLATFORMS = {
     Glyph: TikTokGlyph,
     defaultMode: "C",
     modes: [
-      { ...MODE.C, label: "For You" },
-      { ...MODE.A, label: "Search" },
+      { ...MODE.C, label: "Para Você" },
+      { ...MODE.A, label: "Pesquisa" },
     ],
-    keywordPlaceholder: "e.g. tarot  or  #tarottok",
+    keywordPlaceholder: "ex.: tarot  ou  #tarottok",
     theme: THEMES.tiktok,
   },
   pinterest: {
@@ -105,7 +105,7 @@ export const PLATFORMS = {
     // Download-only platform: no Warm engine adapter, so no modes.
     defaultMode: null,
     modes: [],
-    keywordPlaceholder: "e.g. tarot spread",
+    keywordPlaceholder: "ex.: tiragem de tarot",
     theme: THEMES.pinterest,
   },
 };

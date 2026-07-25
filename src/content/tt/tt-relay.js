@@ -431,14 +431,14 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(b); });
       return b;
     };
-    wrap.appendChild(mk("save", "Save to Library", async (b) => {
+    wrap.appendChild(mk("save", "Salvar na Biblioteca", async (b) => {
       const rec = currentRecord(); if (!rec) return flash(b, "err");
       const saved = await ttSave(rec); b.classList.toggle("on", saved); flash(b, "ok");
     }));
-    wrap.appendChild(mk("dl", "Download video", (b) => flash(b, ttDownload(currentRecord() || {}) ? "ok" : "err")));
-    wrap.appendChild(mk("tx", "Transcribe", (b) => flash(b, ttTranscribe(currentRecord() || {}) ? "ok" : "err")));
-    wrap.appendChild(mk("msg", "Scrape comments", async (b) => { await ttScrape(); flash(b, "ok"); }));
-    wrap.appendChild(mk("heart", "Like", (b) => flash(b, ttLike() ? "ok" : "err")));
+    wrap.appendChild(mk("dl", "Baixar vídeo", (b) => flash(b, ttDownload(currentRecord() || {}) ? "ok" : "err")));
+    wrap.appendChild(mk("tx", "Transcrever", (b) => flash(b, ttTranscribe(currentRecord() || {}) ? "ok" : "err")));
+    wrap.appendChild(mk("msg", "Coletar comentários", async (b) => { await ttScrape(); flash(b, "ok"); }));
+    wrap.appendChild(mk("heart", "Curtir", (b) => flash(b, ttLike() ? "ok" : "err")));
     return wrap;
   }
   function maintainOverlay() {

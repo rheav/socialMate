@@ -90,7 +90,7 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
       surface,
     );
     const b = env.data;
-    if (!env.ok || !b?.id) throw new Error(env.error || "board not found");
+    if (!env.ok || !b?.id) throw new Error(env.error || "pasta não encontrada");
     return { id: b.id, name: b.name || surface.slug, url: b.url || `/${surface.username}/${surface.slug}/`, pin_count: b.pin_count ?? null, section_count: b.section_count ?? null };
   }
 
@@ -190,7 +190,7 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
         }
         finalBookmark = bookmark;
       } else {
-        throw new Error("Open a board, a board section, or a search page.");
+        throw new Error("Abra uma pasta, uma subpasta ou uma página de pesquisa.");
       }
       if (reachedEnd) { done = true; lastBookmark = null; }
       else { hitCap = true; lastBookmark = finalBookmark; } // outstanding bookmark — resume point for next Harvest
@@ -206,14 +206,14 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
   async function resolveHls(hlsUrl) {
     const master = await (await fetch(hlsUrl)).text();
     const variants = PIN.parseHlsMaster(master);
-    if (!variants.length) throw new Error("no HLS variants");
+    if (!variants.length) throw new Error("sem variantes HLS");
     for (const url of PIN.mp4CandidatesFromHls(hlsUrl, variants[0].file)) {
       try {
         const r = await fetch(url, { headers: { range: "bytes=0-1023" } });
         if (r.ok || r.status === 206) return url;
       } catch { /* try next */ }
     }
-    throw new Error("no MP4 twin for this HLS stream");
+    throw new Error("sem MP4 correspondente para este stream HLS");
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -266,7 +266,7 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
         try {
           const rec = store.get(String(msg.id));
           const item = rec?.items?.[msg.itemIndex ?? 0];
-          if (!item) throw new Error("unknown pin");
+          if (!item) throw new Error("pin desconhecido");
           sendResponse({ ok: true, url: item.hls ? await resolveHls(item.url) : item.url });
         } catch (e) {
           sendResponse({ ok: false, error: e.message || String(e) });
@@ -358,9 +358,9 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
     if (cached) return cached;
     const surface = { sourceUrl: `/pin/${id}/`, handler: "www/pin/[id].js" };
     const env = await resourceGet("PinResource", { id, field_set_key: "detailed" }, surface);
-    if (!env.ok || !env.data) throw new Error(env.error || "pin not found");
+    if (!env.ok || !env.data) throw new Error(env.error || "pin não encontrado");
     const rec = PIN.pinToRecord(env.data, PIN.surfaceOf(location.href).key);
-    if (!rec.items.length) throw new Error("no downloadable media");
+    if (!rec.items.length) throw new Error("nenhuma mídia disponível para baixar");
     store.set(rec.id, rec);
     return rec;
   }

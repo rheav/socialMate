@@ -114,8 +114,8 @@ export function resourceHeaders({ appVersion, sourceUrl, handler, csrfToken }) {
 
 export function parseEnvelope(json) {
   const rr = json?.resource_response;
-  if (!rr) return { ok: false, error: "empty response", data: null, results: [], bookmark: null, isEnd: true };
-  if (rr.error) return { ok: false, error: rr.error.message || "api error", data: null, results: [], bookmark: null, isEnd: true };
+  if (!rr) return { ok: false, error: "resposta vazia", data: null, results: [], bookmark: null, isEnd: true };
+  if (rr.error) return { ok: false, error: rr.error.message || "erro da API", data: null, results: [], bookmark: null, isEnd: true };
   const data = rr.data ?? null;
   // Board/section feeds return an array; search returns { results: [...] }.
   const results = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];

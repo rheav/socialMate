@@ -487,13 +487,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     const id = rec.code || rec.pk;
     const saveBtn = mk(
       "save",
-      savedSet.has(id) ? "Saved — tap to remove" : "Save to Library",
+      savedSet.has(id) ? "Salvo — toque para remover" : "Salvar na Biblioteca",
       () => ovlSave(rec),
     );
     if (savedSet.has(id)) saveBtn.classList.add("sw-saved");
     wrap.appendChild(saveBtn);
-    wrap.appendChild(mk("dl", "Download media", () => ovlDownload(rec)));
-    wrap.appendChild(mk("img", "Download thumbnail", () => ovlThumb(rec)));
+    wrap.appendChild(mk("dl", "Baixar mídia", () => ovlDownload(rec)));
+    wrap.appendChild(mk("img", "Baixar miniatura", () => ovlThumb(rec)));
     return wrap;
   }
   // Perf-critical: IG mutates the DOM constantly (virtualized feeds), so this
@@ -673,7 +673,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(b); });
       return b;
     };
-    wrap.appendChild(mk("dl", "Download this story", (b) => {
+    wrap.appendChild(mk("dl", "Baixar este story", (b) => {
       const cur = currentStory();
       if (cur && cur.item) { dlStoryItem(cur.item); flash(b); return; }
       const media = activeStoryMedia(); // fallback: photo story with a real src
@@ -682,13 +682,13 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         flash(b);
       }
     }));
-    wrap.appendChild(mk("layers", "Download all in this reel", (b) => {
+    wrap.appendChild(mk("layers", "Baixar tudo deste story", (b) => {
       const cur = currentStory();
       if (!cur || !cur.reel) return;
       for (const it of cur.reel.items.values()) dlStoryItem(it);
       flash(b);
     }));
-    const txBtn = mk("filetext", "Transcribe this story", (b) => {
+    const txBtn = mk("filetext", "Transcrever este story", (b) => {
       const cur = currentStory();
       if (cur && txStoryItem(cur.item)) flash(b);
     });

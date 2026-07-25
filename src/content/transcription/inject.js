@@ -737,8 +737,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     clearTimeout(btn._revert);
     if (!btn.isConnected) return;
     setBtnState(btn, ok ? "ok" : "err");
-    const idleTitle = btn.dataset.kind === "tx" ? "Transcribe video" : "Download video";
-    btn.title = ok ? idleTitle : "Couldn't grab the media — let the video play once, then retry";
+    const idleTitle = btn.dataset.kind === "tx" ? "Transcrever vídeo" : "Baixar vídeo";
+    btn.title = ok ? idleTitle : "Não foi possível capturar a mídia — deixe o vídeo tocar uma vez e tente de novo";
     setTimeout(() => {
       if (btn.isConnected) { setBtnState(btn, "idle"); btn.title = idleTitle; }
     }, 2500);
@@ -993,7 +993,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // scrape engine is in comments-scrape.js (same isolated world) — the button
   // just fires a window event; a progress listener (below) reflects state back.
   function mkCommentBtn() {
-    const b = mkBtn("comment", "Scrape comments", () => {
+    const b = mkBtn("comment", "Coletar comentários", () => {
       window.dispatchEvent(new CustomEvent("__fbwScrapeComments"));
     });
     b.dataset.cm = "1";
@@ -1006,7 +1006,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       if (state === "busy") { b.classList.add("busy"); b.innerHTML = btnIcon("cm"); }
       else if (state === "ok") { b.classList.add("ok"); b.innerHTML = btnIcon("ok"); }
       else b.innerHTML = btnIcon("cm");
-      const t = tip || "Scrape comments";
+      const t = tip || "Coletar comentários";
       b.dataset.tip = t;
       b.title = t;
     }
@@ -1016,15 +1016,15 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     // Reels are portrait + full-bleed: the top-left corner holds FB's mute
     // control, so the rail sits on the right side there; feed videos keep top-left.
     wrap.className = onReel ? "fbw-acts reel" : "fbw-acts";
-    wrap.appendChild(mkBtn("download", "Download video", (b) => btnVideoJob("download", video, b)));
-    wrap.appendChild(mkBtn("transcribe", "Transcribe video", (b) => btnVideoJob("transcribe", video, b)));
+    wrap.appendChild(mkBtn("download", "Baixar vídeo", (b) => btnVideoJob("download", video, b)));
+    wrap.appendChild(mkBtn("transcribe", "Transcrever vídeo", (b) => btnVideoJob("transcribe", video, b)));
     if (commentSurface()) wrap.appendChild(mkCommentBtn());
     return wrap;
   }
   function buildImageRail(img) {
     const wrap = document.createElement("div");
     wrap.className = "fbw-acts";
-    wrap.appendChild(mkBtn("download", "Download photo", (b) => btnImageJob(img, b)));
+    wrap.appendChild(mkBtn("download", "Baixar foto", (b) => btnImageJob(img, b)));
     return wrap;
   }
 
@@ -1285,7 +1285,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     thumbBtn = document.createElement("button");
     thumbBtn.type = "button";
     thumbBtn.className = "fbw-thumbbtn";
-    thumbBtn.innerHTML = `${btnIcon("dl", 15)}<span>Download reel thumbnails</span>`;
+    thumbBtn.innerHTML = `${btnIcon("dl", 15)}<span>Baixar miniaturas dos reels</span>`;
     thumbBtn.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       if (thumbBtn.dataset.busy) return;
@@ -1305,7 +1305,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       for (let i = 0; i < 40 && stable < 3; i++) {
         const before = seen.size;
         window.scrollTo({ top: document.body.scrollHeight });
-        span.textContent = `Collecting… ${seen.size}`;
+        span.textContent = `Coletando… ${seen.size}`;
         await new Promise((r) => setTimeout(r, 1200));
         harvest();
         stable = seen.size === before ? stable + 1 : 0;
@@ -1318,10 +1318,10 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
           type: "FBW_DL_MEDIA", kind: "image", url,
           filename: `socialMate-thumbs/${author}/reel_${id}.jpg`,
         }).catch(() => {});
-        span.textContent = `Downloading ${++done}/${seen.size}`;
+        span.textContent = `Baixando ${++done}/${seen.size}`;
       }
-      span.textContent = `✓ ${seen.size} thumbnails`;
-      setTimeout(() => { if (thumbBtn) { thumbBtn.querySelector("span").textContent = "Download reel thumbnails"; delete thumbBtn.dataset.busy; } }, 3000);
+      span.textContent = `✓ ${seen.size} miniaturas`;
+      setTimeout(() => { if (thumbBtn) { thumbBtn.querySelector("span").textContent = "Baixar miniaturas dos reels"; delete thumbBtn.dataset.busy; } }, 3000);
     });
     document.body.appendChild(thumbBtn);
   }

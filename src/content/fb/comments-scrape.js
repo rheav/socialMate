@@ -355,7 +355,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwCommentsInit) {
       await sleep(jitter(clicked ? 900 : 650));
       const arts = allCommentArticles(); // one query per tick, reused below
       collectFrom(arts);
-      setLabel(`Scraping… ${map.size}`);
+      setLabel(`Coletando… ${map.size}`);
       await flush();
       const n = arts.length;
       if (n === prev && !clicked) stable++;
@@ -369,7 +369,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwCommentsInit) {
       await expandTruncated();
       await sleep(jitter(600));
       collectFrom(allCommentArticles(), true);
-      setLabel(`Scraping… ${map.size}`);
+      setLabel(`Coletando… ${map.size}`);
       await flush();
     }
     // 3) one more load-more sweep in case expanding revealed new tails
@@ -438,9 +438,9 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwCommentsInit) {
   // while running = cancel.
   async function runScrape() {
     if (disabled) return;
-    if (running) { cancelFlag = true; progress("busy", "Stopping…"); return; }
+    if (running) { cancelFlag = true; progress("busy", "Parando…"); return; }
     running = true; cancelFlag = false;
-    progress("busy", "Opening comments…");
+    progress("busy", "Abrindo comentários…");
     try {
       await ensureCommentsOpen();
       harvest._sortMode = await selectAllSort();
@@ -449,9 +449,9 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwCommentsInit) {
       await storeComments(doc);
       const filename = `socialmate-comments/fb-${doc.post_id || "post"}-${stamp()}.json`;
       chrome.runtime.sendMessage({ type: "FBW_DL_JSON", filename, data: doc }).catch(() => {});
-      progress("ok", cancelFlag ? `Stopped · ${doc.count} saved` : `✓ ${doc.count} comments`);
+      progress("ok", cancelFlag ? `Parado · ${doc.count} salvos` : `✓ ${doc.count} comentários`);
     } catch (err) {
-      progress("busy", "Failed — retry");
+      progress("busy", "Falhou — tentar de novo");
       // Drop a half-written live key so the panel doesn't show a stuck "scraping" post.
       try { if (contextAlive()) await chrome.storage.local.set({ fbw_comments_live: null }); } catch {}
       console.warn("[fbw] comment scrape failed", err);
