@@ -67,9 +67,22 @@ export default defineManifest({
       js: ["src/content/fb/comments-scrape.js"],
       run_at: "document_idle",
     },
-    // FB profile-photos harvester → panel "Fotos" tool (bulk ZIP download).
-    // Message-driven only: it never runs on a timer, so it costs nothing on a FB
-    // tab the user is only warming or scraping comments on.
+    // FB profile-photos capture: MAIN-world XHR tee (document_start) + isolated
+    // harvester. The photos-grid GraphQL row carries `viewer_image.uri` — the
+    // FULL, UNCROPPED photo — beside the square `image.uri` crop the tile paints,
+    // so the whole frame is already on the wire while the grid scrolls. Only a
+    // MAIN-world script can patch the page's XMLHttpRequest, which is the
+    // transport the grid actually uses (17 XHR responses, 0 via fetch).
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/photos-capture.js"],
+      run_at: "document_start",
+      world: "MAIN",
+    },
+    // The isolated half: relays the capture, scrolls the grid, answers the
+    // panel's "Fotos" tool (bulk ZIP download). Message-driven only — it never
+    // runs on a timer, so it costs nothing on a FB tab the user is only warming
+    // or scraping comments on.
     {
       matches: ["*://*.facebook.com/*"],
       js: ["src/content/fb/photos-scrape.js"],

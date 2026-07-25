@@ -1,35 +1,42 @@
 // Pure, DOM-free helpers for the FB Photos tool (panel + content script). Unit-tested.
 //
-// WHY this platform needs a DOM walk at all — three dead ends, all verified live
-// on a real profile (2026-07-25), recorded here because every design choice below
-// is a consequence of one of them:
+// ===========================================================================
+// HOW THIS TOOL GETS THE FULL PHOTO — and why it used to be so much harder.
 //
-//  1. A grid tile's <img> is only a 414×414 thumbnail. There is no srcset and no
-//     bigger variant anywhere in the tile's markup.
-//  2. The CDN URL CANNOT be rewritten up to the original. fbcdn signs the
-//     transform: `stp=c0.241.941.941a_dst-jpg_tt6` (plus `cstp`/`ctp` size boxes)
-//     is covered by the `oh=` HMAC, so dropping `stp` or forcing `stp=dst-jpg`
-//     both return 403. This is the opposite of Pinterest (see pinMedia.js), where
-//     the /originals/ path is a plain string swap — do not copy that trick here.
-//  3. The permalink is empty. `fetch("https://www.facebook.com/photo/?fbid=…")`
-//     answers 200 with ~1 MB of HTML containing ZERO `scontent` URLs and no
-//     photo_image/image.uri keys; the same is true of /photo/download/?fbid=…
-//     Facebook renders photo media from GraphQL after hydration, so there is
-//     nothing to scrape out of the server response.
+// Facebook's photos-grid GraphQL row carries TWO renditions of the same photo:
 //
-// What IS left: the theater viewer. Opening a photo loads a genuinely large
-// `<img data-visualcompletion="media-vc-image">` (measured 1122×1402 / 941×1672
-// where the tile was 414×414) and the viewer has a "next photo" control that
-// advances the whole set without a page load. photos-scrape.js drives that; the
-// helpers here are the parts of it that can be tested without a browser.
+//   image.uri        → the SQUARE CROP the grid tile paints, e.g.
+//                      `stp=c0.241.941.941a_dst-jpg_tt6` — a 941×941 square cut
+//                      out of a 941×1672 original. The 241 px off the top and
+//                      the ~490 off the bottom are physically absent from the
+//                      bytes fbcdn serves.
+//   viewer_image.uri → the FULL, UNCROPPED photo, e.g. `stp=dst-jpg_tt6`, with
+//                      the real `width`/`height` right beside it.
 //
-// …AND THE SECOND MODE. The theater walk is the only way to get the ORIGINAL
-// pixels, but it is also the slow, fragile, tab-navigating part of the tool, and
-// a lot of work (OCR / reading the text baked into a post) is perfectly happy
-// with the 414×414 tile image. So there is a thumbnail-only mode that just
-// scrolls the grid and keeps each tile's own `img.src`. Its ONE honesty problem
-// is recorded in parseCropFromUrl below: most thumbnails are square CROPS, not
-// shrinks, and the crop is signed so it cannot be undone.
+// src/content/fb/photos-capture.js tees those rows out of the page's own XHR
+// traffic (plus the server-rendered hydration blocks that carry the first grid
+// page), so the whole frame arrives while the grid is merely scrolling.
+// Measured 2026-07-25 on the reference profile: 43 of 43 photos resolved, no
+// crop token on any captured URI, one fetched file decoding to exactly the
+// 941×1672 the row reported.
+//
+// This replaced a much worse design that opened every photo in the theater
+// lightbox to read the big <img> out of it (~57 s for 43 photos, and it drove
+// the user's tab). Two dead ends from that era are still worth recording so
+// nobody re-tries them:
+//   • The CDN URL cannot be rewritten up. fbcdn signs the transform: `stp` is
+//     covered by the `oh=` HMAC, so dropping it or forcing `stp=dst-jpg` both
+//     answer 403. This is the opposite of Pinterest (see pinMedia.js), where the
+//     /originals/ path is a plain string swap — do not copy that trick here.
+//     It is also why a crop can never be undone once it is in the URL.
+//   • The permalink is empty. GET /photo/?fbid=… answers 200 with ~1 MB of HTML
+//     containing ZERO `scontent` URLs (same for /photo/download/?fbid=…),
+//     because Facebook renders photo media from GraphQL after hydration.
+//
+// A photo whose GraphQL row was never captured has NO full URL, and nothing here
+// substitutes the cropped thumbnail for it. It stays unresolved, it is counted,
+// the panel says so, and the ZIP carries a text list of what is missing.
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // URL / identity
@@ -38,14 +45,15 @@
 // Tile hrefs come in two shapes on the same page:
 //   /photo.php?fbid=<id>&set=pb.<ownerId>.-2207520000&type=3   (grid tiles)
 //   /photo/?fbid=<id>&set=a.<albumId>                          (cover / album)
-// Both carry fbid, which is the only stable per-photo identifier we get.
+// Both carry fbid, which is the only stable per-photo identifier we get — and it
+// is the same value the GraphQL row calls `id`, which is what joins the two.
 export function fbidFromHref(href) {
   const m = String(href || "").match(/[?&#]fbid=(\d+)/);
   return m ? m[1] : null;
 }
 
-// The photo "set" a tile belongs to. The theater's next/previous controls walk
-// THIS set, so it also tells us which stream a walk is currently traversing.
+// The photo "set" a tile belongs to. Only used to rebuild a permalink now that
+// nothing walks the set.
 export function setFromHref(href) {
   const m = String(href || "").match(/[?&#]set=([^&#]+)/);
   return m ? decodeURIComponent(m[1]) : null;
@@ -87,8 +95,8 @@ export function ownerNameFromTitle(title) {
 
 // The photos surface, in any of its tab flavours (sk=photos, photos_by,
 // photos_of, photos_albums) plus the vanity /<name>/photos path. `/photo/` and
-// `/photo.php` are the theater — deliberately NOT a match, since the walk sends
-// the page there and must still know it started from a grid.
+// `/photo.php` are the theater viewer — deliberately NOT a match: the harvest
+// scrolls a grid, and a lone photo page has no grid to scroll.
 export function isPhotosSurface(href) {
   try {
     const u = new URL(String(href), "https://www.facebook.com");
@@ -111,102 +119,50 @@ export function photoPermalink(fbid, set) {
 
 // Every rendition of one photo shares the same fbcdn filename stem —
 // "<uploadId>_<mediaId>_<hash>" in ".../753953991_122111787363372141_5417810366950726345_n.jpg".
-// Only the query string (the signed size transform) differs. That makes the stem
-// the join key for "all candidate renditions of the photo on screen right now":
-// the 414×414 grid tile and the 1254×1254 theater image share it, so pickBest()
-// can compare them. NOTE the stem's media id is NOT the fbid (they differ by a
-// small constant on this account) — never use it as a photo identifier.
+// Only the query string (the signed transform) differs, so the stem joins the
+// grid tile's cropped <img src> to the captured `viewer_image.uri` even if
+// Facebook ever stops using the fbid as the GraphQL node id. NOTE the stem's
+// media id is NOT the fbid (they differ by a small constant) — it is a join key,
+// never a photo identifier.
 export function photoBaseFromUrl(url) {
   const m = String(url || "").match(/\/(\d+_\d+_\d+)_[a-z]\.(?:jpg|jpeg|png|webp|gif)/i);
   return m ? m[1] : null;
-}
-
-// Pixel box encoded in an fbcdn URL, when present. `cstp=mx941x1672` /
-// `ctp=s941x1672` are the theater's requested max box; `stp=dst-jpg_s960x960` is
-// the older form. Used as a size hint for a candidate whose <img> has not decoded
-// yet (naturalWidth is 0 until it does).
-export function parseBoxFromUrl(url) {
-  const s = String(url || "");
-  const m =
-    s.match(/[?&]cstp=mx(\d+)x(\d+)/) ||
-    s.match(/[?&]ctp=s(\d+)x(\d+)/) ||
-    s.match(/[?&]stp=[^&]*?_s(\d+)x(\d+)/);
-  return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
-}
-
-// The CROP rectangle baked into a thumbnail's `stp`, when there is one.
-//
-// THIS IS THE HONESTY SWITCH FOR THE THUMBNAIL-ONLY MODE. Measured on a live
-// profile (2026-07-25): 34 of the 42 tiles that carried an <img> — 81% — had a
-// crop token, e.g. `stp=c0.241.941.941a_dst-jpg_tt6`, which is a 941×941 SQUARE
-// taken out of a 941×1672 original. The top 241 px and the bottom ~490 px are
-// physically absent from the bytes fbcdn serves: any text up there is simply not
-// in the file. The other 8 were plain `stp=dst-jpg_tt6` (no crop) and the cover
-// photo was `stp=dst-png` at 1945×720 — also uncropped, just a wide tile.
-//
-// It cannot be undone by rewriting the URL: `stp` is covered by the `oh=` HMAC,
-// so dropping it or swapping it for `dst-jpg` both answer 403 (verified). The
-// only recourse is the theater walk, i.e. the other mode.
-//
-// Presence of the token is therefore also the CHEAP test for "is this tile a
-// whole frame?" — no decode, no extra request, just a regex on the src. Absent
-// token ⇒ the tile is the whole photo, scaled down; present ⇒ pixels are gone.
-// (A `c0.0.w.ha` box is still reported as a crop: the URL never says how big the
-// original was, so "the crop happens to cover everything" is not knowable here,
-// and over-reporting is the safe direction for a warning.)
-//
-// Returns {x, y, width, height} or null (no stp, no crop token, or a malformed /
-// degenerate box).
-export function parseCropFromUrl(url) {
-  const stp = String(url || "").match(/[?&]stp=([^&]*)/);
-  if (!stp) return null;
-  const m = stp[1].match(/(?:^|_)c(\d+)\.(\d+)\.(\d+)\.(\d+)a(?:_|$)/);
-  if (!m) return null;
-  const box = { x: Number(m[1]), y: Number(m[2]), width: Number(m[3]), height: Number(m[4]) };
-  return box.width > 0 && box.height > 0 ? box : null;
-}
-
-// Per-photo "is what we would download a cropped thumbnail?". A record that has
-// a full-res URL is never cropped — the theater image is the whole frame. The
-// flags the content script stamps on the record win, and the thumb URL is the
-// fallback so a record rehydrated from anywhere still answers correctly.
-export function isCroppedThumb(rec) {
-  if (!rec || rec.full) return false;
-  if (rec.crop) return true;
-  if (typeof rec.cropped === "boolean") return rec.cropped;
-  return !!parseCropFromUrl(rec.thumb);
-}
-
-// Largest candidate wins. `candidates` are {url, width, height}; a candidate with
-// no usable dimensions falls back to the URL's size box, and failing that counts
-// as area 0 — still selectable when it is all we have (the first such candidate
-// wins, so capture order decides). Returns a normalised {url, width, height}.
-export function pickBest(candidates) {
-  let best = null;
-  let bestArea = -1;
-  for (const c of candidates || []) {
-    if (!c || !c.url) continue;
-    let w = Number(c.width) || 0;
-    let h = Number(c.height) || 0;
-    if (!w || !h) {
-      const box = parseBoxFromUrl(c.url);
-      if (box) { w = box.width; h = box.height; }
-    }
-    const area = w * h;
-    if (area > bestArea) { best = { url: c.url, width: w || null, height: h || null }; bestArea = area; }
-  }
-  return best;
 }
 
 // ---------------------------------------------------------------------------
 // records
 // ---------------------------------------------------------------------------
 
+// Fill each grid record's full-image fields from the captured GraphQL rows.
+// Join order is deliberate: the node `id` IS the tile's fbid (verified live,
+// 35/35 captured ids matched a tile), and the thumbnail's fbcdn stem is the
+// fallback for the day that stops being true. A record that already has `full`
+// is left alone, and a record with no match keeps `full: null` — an unresolved
+// photo is reported, never papered over with its crop.
+//
+// `records` is not mutated; the merged copies are new objects.
+export function mergeCaptured(records, captured) {
+  const byId = new Map();
+  const byStem = new Map();
+  for (const c of captured || []) {
+    if (!c || !c.full || c.id == null) continue;
+    const id = String(c.id);
+    if (!byId.has(id)) byId.set(id, c);
+    const stem = photoBaseFromUrl(c.thumb) || photoBaseFromUrl(c.full);
+    if (stem && !byStem.has(stem)) byStem.set(stem, c);
+  }
+  return (records || []).map((r) => {
+    if (!r || r.full) return r;
+    const stem = photoBaseFromUrl(r.thumb);
+    const hit = byId.get(String(r.fbid)) || (stem ? byStem.get(stem) : null) || null;
+    if (!hit) return r;
+    return { ...r, full: hit.full, width: hit.width ?? null, height: hit.height ?? null };
+  });
+}
+
 // Order-preserving dedupe by fbid. First sighting fixes the position; later
-// sightings only FILL IN fields the first one left null. That is exactly the
-// lifecycle here: the grid scan contributes {thumb, set}, the theater walk later
-// contributes {full, width, height} for the same fbid, and neither should clobber
-// the other.
+// sightings only FILL IN fields the first one left null — a re-scan of the grid
+// must not clobber a `full` that a capture already supplied.
 export function dedupeByFbid(records) {
   const out = [];
   const at = new Map();
@@ -232,53 +188,28 @@ export function summarize(records) {
   return { total: list.length, resolved, pending: list.length - resolved };
 }
 
-// How many of the collected photos would ship as a THUMBNAIL, and how many of
-// those are square crops. This is the number the panel has to show BEFORE the
-// download button is pressed — see parseCropFromUrl for why it matters.
-export function thumbCropStats(records) {
-  let total = 0;
-  let cropped = 0;
-  for (const r of records || []) {
-    if (!r || r.full || !r.thumb) continue; // a resolved photo ships whole
-    total++;
-    if (isCroppedThumb(r)) cropped++;
-  }
-  return { total, cropped, whole: total - cropped };
+// The photos that never got a `viewer_image` URL. They are the tool's one
+// honesty problem, so they get a first-class accessor rather than being derived
+// ad hoc at each call site.
+export function unresolvedPhotos(records) {
+  return (records || []).filter((r) => r && !r.full);
 }
 
-// The sentence the panel prints for those stats. It lives here, not in the JSX,
-// so the wording is unit-tested along with the counting — this is the warning
-// that stops the tool from quietly handing over half a photo.
-export function cropNotice(stats) {
-  const total = stats?.total || 0;
-  const cropped = stats?.cropped || 0;
-  if (!total) return null;
-  if (!cropped) return `Nenhuma das ${total} miniatura(s) está recortada — são quadros inteiros.`;
-  return (
-    `${cropped} de ${total} miniatura(s) vêm recortadas em quadrado: o que ficou fora do quadro ` +
-    `não está na imagem (texto no topo ou na base pode faltar). Para a foto inteira, colete no modo alta resolução.`
-  );
+// Which URL a run would download for one record: the full frame or nothing. The
+// cropped thumbnail is NOT a fallback — shipping it as the photo is exactly the
+// defect this tool was rebuilt to remove.
+export function downloadUrlFor(rec) {
+  return (rec && rec.full) || null;
 }
 
-// Which URL a run would actually download for one record. In "full" mode only
-// the theater rendition counts. In "thumbs" mode the tile's own image IS the
-// deliverable, so it stands in whenever no full-res URL was captured.
-export function downloadUrlFor(rec, mode = "full") {
-  if (!rec) return null;
-  if (rec.full) return rec.full;
-  return mode === "thumbs" ? rec.thumb || null : null;
-}
-
-// What a ZIP run will actually contain. Each entry carries the `url` that will be
-// fetched and `fromThumb` (a cropped-thumbnail warning applies to it); the batch
-// is capped BOTH by a photo count and by an estimated byte budget, and everything
-// left over is reported as `skipped` so the UI can say so out loud instead of
-// silently truncating.
-export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avgBytes = 0, mode = "full" } = {}) {
+// What a ZIP run will actually contain. The batch is capped BOTH by a photo
+// count and by an estimated byte budget, and everything left over is reported
+// as `skipped` / `unresolved` so the UI can say so out loud.
+export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avgBytes = 0 } = {}) {
   const ready = [];
   for (const r of records || []) {
-    const url = downloadUrlFor(r, mode);
-    if (url) ready.push({ ...r, url, fromThumb: !r.full });
+    const url = downloadUrlFor(r);
+    if (url) ready.push({ ...r, url });
   }
   const byBytes = avgBytes > 0 && maxBytes !== Infinity ? Math.max(1, Math.floor(maxBytes / avgBytes)) : Infinity;
   const limit = Math.min(maxCount, byBytes);
@@ -288,6 +219,27 @@ export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avg
     skipped: ready.length - batch.length,
     unresolved: (records || []).length - ready.length,
   };
+}
+
+// A plain-text list of the photos the archive does NOT contain, written into the
+// archive itself. A note in the panel scrolls away; a file inside the ZIP is
+// still there next month, when the only remaining question is "did I get all of
+// them?". Returns null when nothing is missing, so the caller adds no entry.
+export function unresolvedManifest(records, owner) {
+  const missing = unresolvedPhotos(records);
+  if (!missing.length) return null;
+  const lines = [
+    `Fotos sem a imagem inteira: ${missing.length} de ${(records || []).length}`,
+    owner ? `Perfil: ${owner}` : null,
+    "",
+    "Estas fotos NÃO estão neste ZIP. O Facebook entrega a imagem sem recorte",
+    "(viewer_image) junto com a grade; nestas o dado não foi capturado — role a",
+    "aba Fotos de novo e colete outra vez. A miniatura da grade existe, mas é um",
+    "recorte quadrado e não seria a foto inteira, então não foi incluída.",
+    "",
+    ...missing.map((r) => `${r.fbid}\t${r.permalink || photoPermalink(r.fbid, r.set) || ""}`),
+  ];
+  return lines.filter((l) => l != null).join("\n") + "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -300,43 +252,37 @@ export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avg
 // mirrors harvestCap verbatim (it cannot import; see its header).
 // ---------------------------------------------------------------------------
 
-export const HARVEST_CAPS = { photos: 300, scrolls: 60, steps: 420 };
+export const HARVEST_CAPS = { photos: 300, scrolls: 60 };
 
 // Returns the cap that has bitten, or null while there is budget left.
-//   photos  — the store is full (both modes: a thumbnail run grows it by
-//             scrolling, a full-res run grows it by walking).
-//   steps   — too many theater advances; guards a set that loops forever.
+//   photos  — the store is full.
 //   scroll  — the scroll budget ran out while the grid was STILL GROWING.
 //             `growing:false` means the grid simply ended, which is not a cap.
-export function harvestCap({ photos = 0, steps = 0, scrolls = 0, growing = false } = {}, caps = HARVEST_CAPS) {
+export function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HARVEST_CAPS) {
   if (photos >= caps.photos) return "photos";
-  if (steps >= caps.steps) return "steps";
   if (scrolls >= caps.scrolls && growing) return "scroll";
   return null;
 }
 
 // A cap that bit is always named out loud, and always with the cap that actually
-// stopped the run — the grid scroll and the photo walk have different budgets
-// and "collect again" only helps for some of them. In thumbnail mode a repeat
-// collect would re-read the same first `photos` tiles, so that case gets its own
-// (accurate) advice instead.
-export function capMessage(reason, caps = HARVEST_CAPS, mode = "full") {
+// stopped the run — the two have different budgets and different ways out.
+export function capMessage(reason, caps = HARVEST_CAPS) {
   if (reason === "scroll")
     return `a grade ainda estava carregando no limite de ${caps.scrolls} rolagens — colete de novo para pegar o resto`;
-  if (reason === "steps")
-    return `parado no limite de ${caps.steps} aberturas de foto — colete de novo para continuar`;
-  return mode === "thumbs"
-    ? `parado no limite de ${caps.photos} fotos por coleta — baixe estas e limpe a lista para pegar o resto`
-    : `parado no limite de ${caps.photos} fotos por coleta — colete de novo para continuar`;
+  return `parado no limite de ${caps.photos} fotos por coleta — baixe estas e limpe a lista para pegar o resto`;
 }
+
+// Name of the manifest entry inside the archive. Leading "_" so it sorts to the
+// top of the file list, where a "some are missing" note has to be seen.
+export const UNRESOLVED_ENTRY = "_fotos-nao-resolvidas.txt";
 
 // Everything a finished (or truncated) ZIP run has to admit to, in one pt-BR
 // line. Same rule as the harvest caps: a limit that silently drops photos is the
 // defect, so each of these branches has a test.
-export function zipNotes({ skipped = 0, unresolved = 0, stoppedAt = null, failed = 0, maxCount = 0, maxBytes = 0, mode = "full" } = {}) {
+export function zipNotes({ skipped = 0, unresolved = 0, stoppedAt = null, failed = 0, maxCount = 0, maxBytes = 0 } = {}) {
   const parts = [];
   if (skipped) parts.push(`${skipped} foto(s) ficaram de fora do limite de ${maxCount} por ZIP`);
-  if (unresolved) parts.push(mode === "thumbs" ? `${unresolved} sem imagem nenhuma` : `${unresolved} sem resolução alta ainda`);
+  if (unresolved) parts.push(`${unresolved} sem a imagem inteira — listadas em ${UNRESOLVED_ENTRY}`);
   if (stoppedAt != null) parts.push(`parou em ${stoppedAt} — limite de ${fmtBytes(maxBytes)} por ZIP`);
   if (failed) parts.push(`${failed} falharam ao baixar`);
   return parts.join(" · ") || null;

@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square, RotateCw, FileArchive } from "lucide-react";
-import { ToolBar, ActionButton, ToolSelect } from "@/components/ui/ToolBar";
+import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { startPolling } from "@/lib/poll";
 import {
   summarize,
   selectForZip,
-  downloadUrlFor,
-  isCroppedThumb,
-  thumbCropStats,
-  cropNotice,
+  unresolvedManifest,
+  UNRESOLVED_ENTRY,
   capMessage,
   zipNotes,
   filenameFor,
@@ -29,9 +27,14 @@ import { ZipBuilder } from "@/lib/zipWriter";
 // it has chrome.downloads, and because *://*.fbcdn.net/* is in host_permissions
 // its fetch() of a photo bypasses page CORS. Verified live: an extension-page
 // fetch of a signed scontent URL returns 200 image/jpeg.
+//
+// WHAT IT DOWNLOADS: `rec.full`, the `viewer_image.uri` the MAIN-world capture
+// read out of Facebook's own GraphQL traffic — the UNCROPPED photo. The grid
+// tile's `rec.thumb` is a square crop and is only ever rendered as a preview
+// here; it is never a download fallback. See src/lib/fbPhotos.js.
 
 // Caps. Both are shown in the UI whenever they bite — this tool never truncates
-// silently. 150 photos at Facebook's theater resolution is roughly 30–80 MB; the
+// silently. 150 photos at Facebook's viewer resolution is roughly 30–80 MB; the
 // byte budget is the real guard, since the count says nothing about size.
 const MAX_ZIP_PHOTOS = 150;
 const MAX_ZIP_BYTES = 400 * 1024 * 1024;
@@ -39,32 +42,12 @@ const MAX_ZIP_BYTES = 400 * 1024 * 1024;
 // happily run these in parallel, but fbcdn starts refusing under a burst.
 const FETCH_GAP_MS = 400;
 
-// The two collection modes, and why the fast one is the default.
-//
-// "thumbs" only scrolls the grid and keeps each tile's own <img src> — no
-// clicks, no theater, no tab navigation. It is what most work here actually
-// needs (OCR / reading the text baked into a post reads fine off a 414px tile).
-// Its cost is honesty: most tiles are square CROPS of the original, which
-// fbPhotos.js explains and the panel states out loud before the ZIP button.
-//
-// "full" walks the theater to get the whole frame at ~1000px. Same result the
-// tool always produced, now opt-in, because it navigates the user's tab and
-// costs a click + a network wait per photo.
-const MODES = [
-  { value: "thumbs", label: "Somente miniaturas (rápido)", short: "Miniaturas" },
-  { value: "full", label: "Alta resolução (lento)", short: "Alta res." },
-];
+const TEXT = new TextEncoder();
 
-// One tile's whole story in a hover string. The crop box is the interesting part
-// — "941×941 a partir de (0, 241)" is literally which pixels survived.
+// One tile's whole story in a hover string.
 function tileTitle(rec) {
   if (rec.full) return `${rec.width || "?"}×${rec.height || "?"} — foto inteira · abrir no Facebook`;
-  const crop = rec.crop;
-  if (isCroppedThumb(rec))
-    return crop
-      ? `miniatura recortada: ${crop.width}×${crop.height} a partir de (${crop.x}, ${crop.y}) da original — abrir no Facebook`
-      : "miniatura recortada — abrir no Facebook";
-  return "miniatura inteira (sem recorte) — abrir no Facebook";
+  return "sem a imagem inteira: só a miniatura recortada da grade · abrir no Facebook";
 }
 
 export default function FbPhotosTool() {
@@ -73,8 +56,7 @@ export default function FbPhotosTool() {
   const tabId = useRef(null);
 
   const [records, setRecords] = useState([]);
-  const [mode, setMode] = useState("thumbs");
-  const [state, setState] = useState({ scraping: false, phase: "idle", scrolls: 0, steps: 0, hitCap: false, capReason: null, error: null, owner: null, caps: null });
+  const [state, setState] = useState({ scraping: false, phase: "idle", scrolls: 0, hitCap: false, capReason: null, error: null, owner: null, caps: null });
   const [zip, setZip] = useState({ running: false, done: 0, total: 0, bytes: 0, note: null, error: null });
 
   // Mirrors for the 1s poll's change check — refs so the callback never has to be
@@ -114,7 +96,6 @@ export default function FbPhotosTool() {
       scraping: !!res.scraping,
       phase: res.phase || "idle",
       scrolls: res.scrolls || 0,
-      steps: res.steps || 0,
       hitCap: !!res.hitCap,
       capReason: res.capReason || null,
       error: res.error || null,
@@ -124,13 +105,13 @@ export default function FbPhotosTool() {
     const prev = stateRef.current;
     // A profile can hold hundreds of tiles; re-rendering the whole grid every
     // second when nothing moved is pure waste. `resolved` is in the signature
-    // because full-res URLs land one at a time while the count stays put.
+    // because full URLs land as the capture relays them, while the count sits still.
     const sameLen = recordsRef.current.length === next.length;
     const sameResolved = summarize(recordsRef.current).resolved === summarize(next).resolved;
     if (
       sameLen && sameResolved &&
       prev.scraping === ns.scraping && prev.phase === ns.phase && prev.scrolls === ns.scrolls &&
-      prev.steps === ns.steps && prev.hitCap === ns.hitCap && prev.capReason === ns.capReason &&
+      prev.hitCap === ns.hitCap && prev.capReason === ns.capReason &&
       prev.error === ns.error && prev.owner === ns.owner
     )
       return;
@@ -147,9 +128,9 @@ export default function FbPhotosTool() {
 
   const scrape = useCallback(async () => {
     setZip({ running: false, done: 0, total: 0, bytes: 0, note: null, error: null });
-    await send({ type: "FBW_FBPHOTOS_SCRAPE", mode });
+    await send({ type: "FBW_FBPHOTOS_SCRAPE" });
     pullState();
-  }, [send, pullState, mode]);
+  }, [send, pullState]);
 
   const stop = useCallback(async () => {
     await send({ type: "FBW_FBPHOTOS_STOP" });
@@ -165,18 +146,14 @@ export default function FbPhotosTool() {
   }, [send, pullState]);
 
   const stats = summarize(records);
-  // How many photos the ZIP button would actually write, under the CURRENT mode:
-  // in "thumbs" a tile-only record counts, in "full" it does not.
-  const ready = records.reduce((n, r) => n + (downloadUrlFor(r, mode) ? 1 : 0), 0);
-  const crops = thumbCropStats(records);
   const owner = state.owner || ctx?.owner || ctx?.ownerKey || null;
 
   async function downloadZip() {
-    const { batch, skipped, unresolved } = selectForZip(records, { maxCount: MAX_ZIP_PHOTOS, mode });
+    const { batch, skipped, unresolved } = selectForZip(records, { maxCount: MAX_ZIP_PHOTOS });
     if (!batch.length) return;
 
     const builder = new ZipBuilder({ date: new Date() });
-    const openingNote = zipNotes({ skipped, unresolved, maxCount: MAX_ZIP_PHOTOS, mode });
+    const openingNote = zipNotes({ skipped, unresolved, maxCount: MAX_ZIP_PHOTOS });
     setZip({ running: true, done: 0, total: batch.length, bytes: 0, note: openingNote, error: null });
 
     let bytes = 0;
@@ -189,7 +166,8 @@ export default function FbPhotosTool() {
         // past the memory a side panel should hold long before 150 files do.
         if (bytes >= MAX_ZIP_BYTES) { stoppedAt = i; break; }
         try {
-          // `rec.url` — selectForZip already resolved full-vs-thumb for the mode.
+          // `rec.url` is always the uncropped viewer_image — selectForZip never
+          // falls back to the tile's crop.
           const res = await fetch(rec.url);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = new Uint8Array(await res.arrayBuffer());
@@ -203,6 +181,11 @@ export default function FbPhotosTool() {
       }
 
       if (!builder.count) throw new Error("nenhuma foto pôde ser baixada");
+      // The photos this run could NOT resolve go into the archive as a text list,
+      // so the gap travels with the download instead of only living in a panel
+      // line the user will have closed by tomorrow.
+      const manifest = unresolvedManifest(records, owner);
+      if (manifest) builder.add(UNRESOLVED_ENTRY, TEXT.encode(manifest));
       // finish() returns the parts array; handing it straight to Blob lets Chrome
       // spill the archive to disk instead of materialising one giant ArrayBuffer.
       const blob = new Blob(builder.finish(), { type: "application/zip" });
@@ -225,7 +208,7 @@ export default function FbPhotosTool() {
         ...z,
         running: false,
         bytes,
-        note: zipNotes({ skipped, unresolved, stoppedAt, failed, maxCount: MAX_ZIP_PHOTOS, maxBytes: MAX_ZIP_BYTES, mode }),
+        note: zipNotes({ skipped, unresolved, stoppedAt, failed, maxCount: MAX_ZIP_PHOTOS, maxBytes: MAX_ZIP_BYTES }),
       }));
     } catch (e) {
       setZip((z) => ({ ...z, running: false, error: e.message || String(e) }));
@@ -252,25 +235,9 @@ export default function FbPhotosTool() {
         </div>
       </div>
 
-      {/* The mode gets a row to itself, ABOVE the button that acts on it: it
-          decides whether "Coletar" takes ~10 s or several minutes and whether the
-          user's tab gets navigated, so it must be readable at any panel width
-          rather than squeezed in beside three buttons. Alone in the row the
-          select keeps its full label down to a 260px panel. */}
-      <ToolBar>
-        <ToolSelect
-          value={mode}
-          onValueChange={setMode}
-          options={MODES}
-          label="Modo de coleta"
-          disabled={state.scraping || zip.running}
-        />
-      </ToolBar>
-
-      {/* Two rows rather than one: four controls on a single line would put the
-          ZIP button's own count behind the icon-only collapse at any realistic
-          panel width, and "how many will actually go in the archive" is the one
-          number the user needs before pressing it. */}
+      {/* One row, two controls. There is no collection mode any more: the full
+          image rides along with the grid, so "fast" and "high resolution" are the
+          same run. */}
       <ToolBar>
         <ActionButton
           className="basis-0 grow"
@@ -279,9 +246,7 @@ export default function FbPhotosTool() {
           hint={
             state.scraping
               ? "Parar a coleta em andamento"
-              : mode === "thumbs"
-                ? "Rolar a grade e guardar a miniatura de cada foto — rápido, sem abrir foto nenhuma"
-                : "Rolar a grade e abrir cada foto para pegar a versão em alta resolução"
+              : "Rolar a grade e guardar a foto inteira de cada miniatura — sem abrir foto nenhuma, sem sair da aba"
           }
           onClick={state.scraping ? stop : scrape}
           disabled={zip.running}
@@ -297,18 +262,13 @@ export default function FbPhotosTool() {
         />
       </ToolBar>
 
-      {/* The crop warning sits ABOVE the download button on purpose: a square
-          thumbnail is missing pixels that no later step can recover, so the user
-          has to see that before pressing, not in a tooltip afterwards. */}
-      {mode === "thumbs" && crops.total ? (
-        <div
-          className={
-            crops.cropped
-              ? "rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700"
-              : "rounded-md bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-700"
-          }
-        >
-          {cropNotice(crops)}
+      {/* The one thing that can still go wrong, stated BEFORE the download
+          button: a photo whose GraphQL row was never captured has no full image,
+          and the tool will not hand over its square crop instead. */}
+      {stats.pending ? (
+        <div className="rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700">
+          {stats.pending} de {stats.total} foto(s) sem a imagem inteira — ficam de fora do ZIP (e listadas nele em{" "}
+          {UNRESOLVED_ENTRY}). Colete de novo para tentar resolvê-las.
         </div>
       ) : null}
 
@@ -319,29 +279,24 @@ export default function FbPhotosTool() {
         <ActionButton
           className="basis-0 grow"
           icon={FileArchive}
-          label={zip.running ? `Compactando… ${zip.done}/${zip.total}` : `Baixar tudo (ZIP) · ${ready}`}
-          hint={
-            mode === "thumbs"
-              ? `Baixar ${ready} imagem(ns) — miniaturas, ${crops.cropped} recortada(s) — em um único ZIP`
-              : `Baixar ${ready} foto(s) em alta resolução como um único arquivo ZIP`
-          }
+          label={zip.running ? `Compactando… ${zip.done}/${zip.total}` : `Baixar tudo (ZIP) · ${stats.resolved}`}
+          hint={`Baixar ${stats.resolved} foto(s) inteiras (sem recorte) em um único arquivo ZIP`}
           variant="secondary"
           onClick={downloadZip}
-          disabled={zip.running || state.scraping || !ready}
+          disabled={zip.running || state.scraping || !stats.resolved}
         />
       </ToolBar>
 
       <div className="text-[11px] text-muted-foreground">
-        {stats.total} foto(s) ·{" "}
-        {mode === "thumbs" ? `${ready} pronta(s) para baixar` : `${stats.resolved} em alta resolução`}
+        {stats.total} foto(s) · {stats.resolved} inteira(s)
         {state.scraping
-          ? state.phase === "walking"
-            ? ` · abrindo fotos (${state.steps})`
+          ? state.phase === "resolving"
+            ? " · resolvendo o que faltou"
             : ` · rolando a grade (${state.scrolls})`
           : state.phase === "done"
             ? " · concluído"
             : ""}
-        {state.hitCap && state.caps ? ` · ${capMessage(state.capReason, state.caps, mode)}` : ""}
+        {state.hitCap && state.caps ? ` · ${capMessage(state.capReason, state.caps)}` : ""}
       </div>
 
       {state.error ? (
@@ -359,10 +314,9 @@ export default function FbPhotosTool() {
         </div>
       ) : null}
 
-      {/* Per-photo state, including the crop: the badge says which of the three
-          things this tile is, and the box (x, y, w, h) that fbcdn cut it with
-          rides along in the title so the fact is inspectable per photo, not just
-          as a count. */}
+      {/* Per-photo state: the badge is the photo's real size once the full image
+          is in hand, and an explicit "sem original" when it is not — the two
+          cases must never look alike. */}
       <div className="grid grid-cols-3 gap-1.5">
         {records.map((rec) => (
           <a
@@ -378,15 +332,11 @@ export default function FbPhotosTool() {
             ) : null}
             {rec.full ? (
               <span className="absolute right-1 top-1 rounded bg-emerald-500/85 px-1 text-[9px] font-semibold text-white">
-                {rec.width ? `${rec.width}px` : "HD"}
-              </span>
-            ) : isCroppedThumb(rec) ? (
-              <span className="absolute right-1 top-1 rounded bg-amber-500/90 px-1 text-[9px] font-semibold text-white">
-                corte
+                {rec.width && rec.height ? `${rec.width}×${rec.height}` : "inteira"}
               </span>
             ) : (
-              <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[9px] font-semibold text-white">
-                mini
+              <span className="absolute right-1 top-1 rounded bg-amber-500/90 px-1 text-[9px] font-semibold text-white">
+                sem original
               </span>
             )}
           </a>
