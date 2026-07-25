@@ -62,82 +62,154 @@ const HIDE_WHEN_NARROW = "@max-[308px]/toolbar:hidden @max-[390px]/toolbardense:
 const SHOW_WHEN_NARROW = "@min-[308.05px]/toolbar:hidden @min-[390.05px]/toolbardense:hidden";
 const TIGHTEN_WHEN_NARROW = "@max-[308px]/toolbar:px-2 @max-[390px]/toolbardense:px-2";
 
+// ============================================================================
+// TOOLTIPS FOR THE ICON-ONLY STATE  (styles: src/index.css, `.sw-tip`)
+//
+// WHY THE TOOLTIP IS CSS AND NOT A REACT COMPONENT
+// Whether a control still shows its text label is decided ENTIRELY by the
+// container query above (`HIDE_WHEN_NARROW`). React never sees that — it is a
+// CSS media-ish condition on the row's own width. Driving a JS tooltip off a
+// ResizeObserver would create a SECOND source of truth for the one fact that
+// matters ("is the label visible right now?"), and the two can disagree: while
+// the panel is being dragged, on the first paint before the observer fires, or
+// whenever a future change moves one threshold and not the other.
+//
+// So the tooltip rides on a carrier <span> rendered with `SHOW_WHEN_NARROW` —
+// the EXACT complement of the query that hides the label, already defined above
+// and already used by ToolSelect. In every width where the label is visible the
+// carrier is `display:none`, and a `display:none` element generates no `::after`
+// box, so there is nothing to show. Label visible ⇔ no tooltip, by construction,
+// with zero JS and no second copy of the thresholds.
+//
+// WHY THE NATIVE `title` IS GONE
+// It was the previous tooltip, and it fired at EVERY width — including the wide
+// one where the label is sitting right there next to the icon. That is noise,
+// and `title` can't be conditioned on a container query. `aria-label` stays on
+// every control, so the accessible name is unchanged.
+// ============================================================================
+
+// The carrier is a SIBLING of its control, never a child, for two reasons:
+//   • It is `position: absolute`, and abspos children are skipped by flex/grid
+//     layout, so it adds no item and no `gap` to the row. As a child it would
+//     have done the same, but…
+//   • …button.jsx sets `active:scale-[0.985]`, and a non-`none` `scale` turns
+//     the button into a containing block. A carrier INSIDE the button would
+//     therefore re-anchor from the row to the button for the duration of every
+//     click — the bubble would visibly jump and re-wrap mid-press. Outside, its
+//     containing block is always the row (ToolBar marks it `relative`).
+// `when` is the container-query gate; omitted means "always" (a control that is
+// icon-only at every width).
+function TipCarrier({ text, when }) {
+  if (!text) return null;
+  return <span aria-hidden="true" data-sw-tip={text} className={cn("sw-tip", when)} />;
+}
+
 // A tool's control row: establishes the container and lays the controls out on
 // one non-wrapping line that is allowed to shrink (`min-w-0`).
 //
 // `className` is merged onto the inner row, so a caller can swap the layout
 // wholesale (e.g. `grid grid-cols-2 …` — twMerge drops the default `flex`)
 // while still getting the container.
+//
+// `relative z-20` on the OUTER box (the one callers cannot restyle) is what
+// makes the tooltips safe: it is the carriers' containing block, so a bubble
+// clamped to `max-width: 100%` is clamped to the ROW's width and can never
+// reach the panel edge at any panel size — a geometric guarantee rather than a
+// pixel budget that a future 5-control row would silently break. `z-20` lifts
+// the row above whatever follows it (the modals in the tool panels are z-50 and
+// still win). Note the container already established a stacking context:
+// `container-type` implies `contain: layout`.
+//
+// `sw-toolbar-shell` exists so index.css can raise THIS row above the next one
+// while it is being pointed at: two stacked ToolBars both sit at z-20, and on a
+// tie the later one wins, which would let the row below paint over the bubble.
 export function ToolBar({ dense, className, children, ...props }) {
   return (
     <div
-      className={dense ? "@container/toolbardense w-full min-w-0" : "@container/toolbar w-full min-w-0"}
+      className={
+        dense
+          ? "sw-toolbar-shell @container/toolbardense relative z-20 w-full min-w-0"
+          : "sw-toolbar-shell @container/toolbar relative z-20 w-full min-w-0"
+      }
       {...props}
     >
-      <div className={cn("flex min-w-0 items-center gap-1.5", className)}>{children}</div>
+      <div className={cn("sw-toolbar flex min-w-0 items-center gap-1.5", className)}>{children}</div>
     </div>
   );
 }
 
 // An action button that keeps its icon and drops its label once the row gets
-// narrow. `label` is ALWAYS exposed as both `title` and `aria-label`, so the
-// icon-only form still explains itself on hover and still has an accessible
-// name. `hint` (optional) supplies longer tooltip prose; the accessible name
-// stays the label so the two never disagree.
+// narrow. `label` is ALWAYS the `aria-label`, so the icon-only form still has an
+// accessible name. `hint` (optional) supplies longer tooltip prose; the
+// accessible name stays the label so the two never disagree.
+//
+// It returns a FRAGMENT: the button plus its tooltip carrier, which is out of
+// flow and therefore invisible to the row's flex/grid layout. Callers are
+// unaffected — `<ActionButton icon={X} label="…" hint="…" />` is unchanged, and
+// so is the `basis-0 grow` trap documented below.
 export const ActionButton = React.forwardRef(function ActionButton(
   { icon: Icon, label, hint, iconClassName, className, size = "sm", ...props },
   ref,
 ) {
   return (
-    <Button
-      ref={ref}
-      size={size}
-      title={hint || label}
-      aria-label={label}
-      className={cn(
-        // min-w-0: flex items default to min-width:auto, which pins a button to
-        // its label's width and pushes the row past the panel edge; with it the
-        // label's `truncate` can actually engage. shrink-0 then keeps the button
-        // at its (already small) content size so the row's flexible member —
-        // normally the ToolSelect — absorbs the squeeze instead.
-        //
-        // Callers that want a button to FILL the row must pass `basis-0 grow`,
-        // not `flex-1`: `flex-1` and `shrink-0` land in different tailwind-merge
-        // groups, so both would survive the merge and the winner would depend on
-        // Tailwind's stylesheet order rather than on this call site.
-        //
-        // Padding tightens once the label is gone, so an icon-only button is a
-        // tidy square-ish target.
-        "min-w-0 shrink-0",
-        TIGHTEN_WHEN_NARROW,
-        className,
-      )}
-      {...props}
-    >
-      {Icon ? <Icon className={cn("size-3.5 shrink-0", iconClassName)} /> : null}
-      <span className={cn("truncate", HIDE_WHEN_NARROW)}>{label}</span>
-    </Button>
+    <>
+      <Button
+        ref={ref}
+        size={size}
+        aria-label={label}
+        className={cn(
+          // min-w-0: flex items default to min-width:auto, which pins a button to
+          // its label's width and pushes the row past the panel edge; with it the
+          // label's `truncate` can actually engage. shrink-0 then keeps the button
+          // at its (already small) content size so the row's flexible member —
+          // normally the ToolSelect — absorbs the squeeze instead.
+          //
+          // Callers that want a button to FILL the row must pass `basis-0 grow`,
+          // not `flex-1`: `flex-1` and `shrink-0` land in different tailwind-merge
+          // groups, so both would survive the merge and the winner would depend on
+          // Tailwind's stylesheet order rather than on this call site.
+          //
+          // Padding tightens once the label is gone, so an icon-only button is a
+          // tidy square-ish target.
+          "min-w-0 shrink-0",
+          TIGHTEN_WHEN_NARROW,
+          className,
+        )}
+        {...props}
+      >
+        {Icon ? <Icon className={cn("size-3.5 shrink-0", iconClassName)} /> : null}
+        <span className={cn("truncate", HIDE_WHEN_NARROW)}>{label}</span>
+      </Button>
+      {/* Gated by the complement of the query on the label span above, so the
+          two states can never both be on. */}
+      <TipCarrier text={hint || label} when={SHOW_WHEN_NARROW} />
+    </>
   );
 });
 
 // A square icon-only control for a toolbar — no label at any width, same
-// accessibility contract as ActionButton (title + aria-label always set).
+// accessibility contract as ActionButton (aria-label always set). Because it is
+// icon-only EVERYWHERE, its tooltip carrier is ungated: there is no width at
+// which the text is already on screen, so there is no width at which the tooltip
+// would be redundant.
 export const ToolIconButton = React.forwardRef(function ToolIconButton(
   { icon: Icon, label, hint, iconClassName, children, className, variant = "outline", ...props },
   ref,
 ) {
   return (
-    <Button
-      ref={ref}
-      size="sm"
-      variant={variant}
-      title={hint || label}
-      aria-label={label}
-      className={cn("size-8 shrink-0 p-0", className)}
-      {...props}
-    >
-      {children || (Icon ? <Icon className={cn("size-3.5 shrink-0", iconClassName)} /> : null)}
-    </Button>
+    <>
+      <Button
+        ref={ref}
+        size="sm"
+        variant={variant}
+        aria-label={label}
+        className={cn("size-8 shrink-0 p-0", className)}
+        {...props}
+      >
+        {children || (Icon ? <Icon className={cn("size-3.5 shrink-0", iconClassName)} /> : null)}
+      </Button>
+      <TipCarrier text={hint || label} />
+    </>
   );
 });
 
@@ -152,6 +224,14 @@ export const ToolIconButton = React.forwardRef(function ToolIconButton(
 //     trigger text changes — the option list, values and onChange are untouched.
 //
 // `options`: [{ value, label, short? }]; `short` defaults to `label`.
+//
+// It gets the same tooltip treatment as the buttons: below the threshold the
+// trigger is showing an ABBREVIATED word ("Pasta" for "Ordem da pasta"), so the
+// full text — and the `label` that names what is being chosen, which the trigger
+// never shows — is exactly the thing the user has lost. Above the threshold the
+// full option text is on screen, so the carrier is gone and there is no tooltip.
+// Select.Root renders no DOM of its own, so the carrier lands in the row as the
+// trigger's next sibling, which is what the CSS expects.
 export function ToolSelect({ value, onValueChange, options, label, className, ...props }) {
   const current = options.find((o) => o.value === value);
   const full = current ? current.label : "";
@@ -160,7 +240,6 @@ export function ToolSelect({ value, onValueChange, options, label, className, ..
     <Select value={value} onValueChange={onValueChange} {...props}>
       <SelectTrigger
         className={cn("h-8 min-w-0 flex-1 gap-1 px-2 text-xs", className)}
-        title={label ? `${label}: ${full}` : full}
         aria-label={label || full}
       >
         {/* Radix renders the selected item's text by default; passing children
@@ -171,6 +250,7 @@ export function ToolSelect({ value, onValueChange, options, label, className, ..
           <span className={cn("block truncate", SHOW_WHEN_NARROW)}>{short}</span>
         </SelectValue>
       </SelectTrigger>
+      <TipCarrier text={label ? `${label}: ${full}` : full} when={SHOW_WHEN_NARROW} />
       <SelectContent>
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
