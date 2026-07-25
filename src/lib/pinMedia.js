@@ -121,3 +121,212 @@ export function boardFeedOptions(board, bookmark) {
   if (bookmark) o.bookmarks = [bookmark];
   return o;
 }
+
+// ---------------------------------------------------------------------------
+// Media resolution
+// ---------------------------------------------------------------------------
+// Direct-MP4 qualities in preference order, then the HLS-only ones. ~80% of
+// Pinterest video pins expose ONLY HLS, so the hls flag is the common path and
+// pin-api.js resolves those to a real MP4 before download.
+const MP4_QUALITIES = ["V_720P", "V_EXP7", "V_EXP6", "V_EXP5", "V_EXP4", "V_EXP3", "V_HEVC_MP4_T1"];
+const HLS_QUALITIES = ["V_HLSV4", "V_HLSV3_MOBILE"];
+
+function pickVideo(videoList) {
+  if (!videoList) return null;
+  for (const q of MP4_QUALITIES) {
+    const v = videoList[q];
+    if (v?.url && v.url.includes(".mp4"))
+      return { kind: "video", url: v.url, hls: false, width: v.width ?? null, height: v.height ?? null, duration: v.duration ?? null, thumb: v.thumbnail || null };
+  }
+  // Highest-resolution HLS wins; it is only a pointer — the real MP4 is derived later.
+  let best = null;
+  for (const q of HLS_QUALITIES) {
+    const v = videoList[q];
+    if (!v?.url) continue;
+    const area = (v.width || 0) * (v.height || 0);
+    if (!best || area > best.area) best = { area, v };
+  }
+  if (!best) return null;
+  const v = best.v;
+  return { kind: "video", url: v.url, hls: true, width: v.width ?? null, height: v.height ?? null, duration: v.duration ?? null, thumb: v.thumbnail || null };
+}
+
+function pickImage(images) {
+  const o = images?.orig;
+  // Only images.orig is trustworthy. Rewriting /236x/ -> /originals/ 403s whenever
+  // the original's extension differs from the thumbnail's (png vs jpg) — verified.
+  if (o?.url) return { kind: "image", url: o.url, hls: false, width: o.width ?? null, height: o.height ?? null, duration: null, thumb: null };
+  const f = images?.["736x"] || images?.["474x"] || images?.["236x"];
+  return f?.url ? { kind: "image", url: f.url, hls: false, width: f.width ?? null, height: f.height ?? null, duration: null, thumb: null } : null;
+}
+
+// Every downloadable asset on a pin, in page order. Idea Pins can hold several.
+export function mediaItems(pin) {
+  if (!pin || typeof pin !== "object") return [];
+  const out = [];
+  const pages = pin.story_pin_data?.pages;
+  if (Array.isArray(pages) && pages.length) {
+    for (const page of pages) {
+      let got = null;
+      for (const b of page?.blocks || []) {
+        if (b?.video?.video_list) got = pickVideo(b.video.video_list);
+        else if (b?.image?.images) got = pickImage(b.image.images);
+        if (got) break;
+      }
+      if (!got && page?.image?.images) got = pickImage(page.image.images);
+      if (got) out.push(got);
+    }
+    if (out.length) return out;
+  }
+  const v = pickVideo(pin.videos?.video_list);
+  if (v) return [v];
+  const i = pickImage(pin.images);
+  return i ? [i] : [];
+}
+
+// ---------------------------------------------------------------------------
+// HLS -> MP4
+// ---------------------------------------------------------------------------
+// Guessing MP4 paths from the signature (what Pin-Kit does) fails — 0/12 candidates
+// hit. The variant FILENAME must come from the master manifest, because the suffix
+// varies per pin (_360w, _720w, ...). With the real filename, swapping the directory
+// /hls/ -> /expMp4/ works: verified 3/3 on live pins.
+export function parseHlsMaster(text) {
+  if (!text || typeof text !== "string") return [];
+  const lines = text.split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue;
+    const file = (lines[i + 1] || "").trim();
+    if (!file || file.startsWith("#")) continue;
+    out.push({
+      bandwidth: Number(lines[i].match(/BANDWIDTH=(\d+)/)?.[1] || 0),
+      resolution: lines[i].match(/RESOLUTION=([\dx]+)/)?.[1] || null,
+      file,
+    });
+  }
+  return out.sort((a, b) => b.bandwidth - a.bandwidth);
+}
+
+export function mp4CandidatesFromHls(hlsUrl, variantFile) {
+  const url = String(hlsUrl || "");
+  if (!url.includes("/hls/") || !variantFile) return [];
+  const baseDir = url.replace(/[^/]+$/, "");
+  const mp4Name = variantFile.replace(/\.m3u8$/, ".mp4");
+  return ["expMp4", "hevcMp4V3"].map((dir) => baseDir.replace("/hls/", `/${dir}/`) + mp4Name);
+}
+
+// ---------------------------------------------------------------------------
+// Records
+// ---------------------------------------------------------------------------
+function mediaTypeOf(pin) {
+  if (pin?.story_pin_data) return "idea";
+  if (pin?.videos?.video_list) return "video";
+  return "image";
+}
+
+// Pinterest sends created_at as an HTTP date string, not a unix stamp.
+function createdAtUnix(pin) {
+  const t = Date.parse(pin?.created_at || "");
+  return Number.isNaN(t) ? null : Math.floor(t / 1000);
+}
+
+export function pinToRecord(pin, surfaceKey) {
+  const items = mediaItems(pin);
+  const thumb =
+    pin?.images?.["236x"]?.url ||
+    pin?.images?.["474x"]?.url ||
+    items.find((i) => i.thumb)?.thumb ||
+    items.find((i) => i.kind === "image")?.url ||
+    null;
+  return {
+    id: String(pin?.id ?? ""),
+    title: pin?.grid_title || pin?.title || "",
+    description: (pin?.description || "").slice(0, 500),
+    link: pin?.link || null,
+    username: pin?.pinner?.username || pin?.native_creator?.username || "",
+    fullName: pin?.pinner?.full_name || "",
+    thumb,
+    items,
+    mediaType: mediaTypeOf(pin),
+    count: items.length,
+    saves: pin?.repin_count ?? null,
+    comments: pin?.comment_count ?? null,
+    created_at: createdAtUnix(pin),
+    dominantColor: pin?.dominant_color || null,
+    permalink: pin?.id ? `https://www.pinterest.com/pin/${pin.id}/` : null,
+    surface: surfaceKey || null,
+  };
+}
+
+export function recordToCard(rec) {
+  return {
+    id: rec.id,
+    title: rec.title,
+    thumb: rec.thumb,
+    username: rec.username || "unknown",
+    saves: rec.saves ?? null,
+    comments: rec.comments ?? null,
+    date: fmtDate(rec.created_at),
+    mediaType: rec.mediaType,
+    count: rec.count,
+    permalink: rec.permalink,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Filenames + formatting
+// ---------------------------------------------------------------------------
+export function sanitizeFilenamePart(s) {
+  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+/g, "").slice(0, 40);
+}
+
+export function filenameFor(rec, ext, idx) {
+  const base = `pin-${sanitizeFilenamePart(rec.username) || "pinterest"}-${rec.id || Date.now()}`;
+  return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+}
+
+export function extFromUrl(url, kind) {
+  const m = String(url || "").match(/\.(mp4|mov|webm|jpg|jpeg|png|webp|gif)(\?|$)/i);
+  if (m) { const e = m[1].toLowerCase(); return e === "jpeg" ? "jpg" : e; }
+  return kind === "video" ? "mp4" : "jpg";
+}
+
+export function fmtCount(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+export function fmtDate(unixSeconds) {
+  if (!unixSeconds) return "";
+  const d = new Date(unixSeconds * 1000);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Sorting — Pinterest exposes no view count, so there is no engagement rate.
+// ---------------------------------------------------------------------------
+const METRIC = {
+  saves: (r) => r.saves,
+  comments: (r) => r.comments,
+  date: (r) => r.created_at,
+};
+
+export function sortComparator(key, dir = "desc") {
+  const get = METRIC[key] || METRIC.saves;
+  const sign = dir === "asc" ? 1 : -1;
+  return (a, b) => {
+    const av = get(a), bv = get(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;   // missing metrics sort last in BOTH directions
+    if (bv == null) return -1;
+    return (av - bv) * sign;
+  };
+}
+
+export function sortRecords(records, key, dir) {
+  if (key === "default") return [...records];
+  return [...records].sort(sortComparator(key, dir));
+}
