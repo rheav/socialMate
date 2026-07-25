@@ -87,7 +87,12 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
   const c = it.counts || {};
   const hasCounts = c.like || c.comment || c.share || c.views;
   const base = it.platform === "instagram" ? "https://www.instagram.com" : "https://www.facebook.com";
-  const profUrl = it.author?.url ? `${base}${it.author.url.startsWith("/") ? "" : "/"}${it.author.url}` : null;
+  // author.url comes in two shapes: FB/IG store a relative path (needs an origin
+  // prepended above), while Pinterest/TikTok already store a full absolute URL —
+  // prepending an origin to those would nest one URL inside another and produce a
+  // dead link. Pass absolute URLs through unchanged.
+  const isAbsolute = /^https?:\/\//.test(it.author?.url || "");
+  const profUrl = it.author?.url ? (isAbsolute ? it.author.url : `${base}${it.author.url.startsWith("/") ? "" : "/"}${it.author.url}`) : null;
   // Link back to the original reel/video: the stored sourceUrl, or reconstruct
   // one from the id for older records (FB reels key by their reel id).
   const srcUrl =
