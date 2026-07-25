@@ -3,7 +3,7 @@ import { Download, RotateCw, Play, Image as ImageIcon, Film, Layers } from "luci
 import { Button } from "@/components/ui/button";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { startPolling } from "@/lib/poll";
-import { sortRecords, recordToCard, fmtCount } from "@/lib/pinMedia";
+import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
 
 const MAX_PAGES = 40; // ~1000 pins per run — surfaced in the UI, never a silent cap.
 
@@ -73,6 +73,48 @@ export default function PinBoardTool() {
 
   const sorted = sortRecords(records, sortKey, "desc");
 
+  const [busy, setBusy] = useState({});
+  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  const bg = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
+
+  async function downloadRecord(rec) {
+    setStatus(rec.id, "downloading");
+    try {
+      const multi = rec.items.length > 1;
+      for (let i = 0; i < rec.items.length; i++) {
+        const item = rec.items[i];
+        let url = item.url;
+        // ~80% of Pinterest videos are HLS-only. The content script derives a real
+        // MP4 from the master manifest; a plain .m3u8 would download as a useless
+        // text playlist.
+        if (item.kind === "video" && item.hls) {
+          const r = await send({ type: "FBW_PIN_RESOLVE", id: rec.id, itemIndex: i });
+          if (!r?.ok) throw new Error(r?.error || "could not resolve video");
+          url = r.url;
+        }
+        const ext = extFromUrl(url, item.kind);
+        await bg({
+          type: "FBW_DL_MEDIA",
+          kind: item.kind,
+          url,
+          filename: filenameFor(rec, ext, multi ? i + 1 : null),
+        });
+      }
+      setStatus(rec.id, "done");
+    } catch {
+      setStatus(rec.id, "error");
+    }
+  }
+
+  // Serial with a 400 ms gap, matching IgSortTool/TtSortTool. Chrome will happily
+  // accept parallel downloads, but Pinterest's CDN starts refusing under a burst.
+  async function downloadAll() {
+    for (const rec of sorted) {
+      await downloadRecord(rec);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+
   if (noTab)
     return <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">Open Pinterest in a tab (logged in), then reopen this panel.</div>;
 
@@ -94,6 +136,9 @@ export default function PinBoardTool() {
         </Button>
         <Button variant="outline" size="sm" onClick={clear} disabled={state.harvesting}>
           <RotateCw className="size-3.5" /> Clear
+        </Button>
+        <Button variant="secondary" size="sm" onClick={downloadAll} disabled={!records.length || state.harvesting}>
+          <Download className="size-3.5" /> All ({records.length})
         </Button>
         <select
           className="ml-auto rounded-md border border-border bg-background px-1.5 py-1 text-[11px]"
@@ -122,6 +167,14 @@ export default function PinBoardTool() {
           const Badge = card.mediaType === "video" ? Film : card.mediaType === "idea" ? Layers : ImageIcon;
           return (
             <div key={card.id} className="group relative aspect-[3/4] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
+              <button
+                onClick={() => downloadRecord(rec)}
+                disabled={busy[rec.id] === "downloading"}
+                className="absolute left-1 top-1 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
+                title={rec.items.length > 1 ? `Download ${rec.items.length} assets` : "Download"}
+              >
+                <Download className={"size-3.5 " + (busy[rec.id] === "done" ? "text-emerald-400" : busy[rec.id] === "error" ? "text-red-400" : "")} />
+              </button>
               {card.thumb ? (
                 <img src={card.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
               ) : null}
