@@ -1,4 +1,4 @@
-import { Flame, ArrowDownUp, Clapperboard, Film, MessageSquare, ListVideo, Library as LibraryIcon } from "lucide-react";
+import { Flame, ArrowDownUp, Clapperboard, Film, MessageSquare, ListVideo, Library as LibraryIcon, Image as ImageIcon } from "lucide-react";
 import WarmTool from "@/components/tools/WarmTool";
 import IgSortTool from "@/components/tools/IgSortTool";
 import IgStoriesTool from "@/components/tools/IgStoriesTool";
@@ -8,6 +8,7 @@ import TtSortTool from "@/components/tools/TtSortTool";
 import TtCommentsTool from "@/components/tools/TtCommentsTool";
 import TtStoriesTool from "@/components/tools/TtStoriesTool";
 import TtCollectionsTool from "@/components/tools/TtCollectionsTool";
+import PinBoardTool from "@/components/tools/PinBoardTool";
 import LibraryTool from "@/components/tools/LibraryTool";
 import { filterToolsForPlatform } from "@/lib/toolsFilter";
 
@@ -30,6 +31,7 @@ export const TOOLS = [
   { id: "tt-comments", label: "Comments", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
   { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool },
   { id: "tt-collections", label: "Playlists", Icon: ListVideo, platforms: ["tiktok"], Panel: TtCollectionsTool },
+  { id: "pin-board", label: "Board", Icon: ImageIcon, platforms: ["pinterest"], Panel: PinBoardTool, requiresTab: true },
   { id: "library", label: "Library", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool },
 ];
 

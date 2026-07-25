@@ -4,6 +4,10 @@ export const PLATFORM_HOST = {
   facebook: { re: /(^|\.)facebook\.com$/, glob: ["*://*.facebook.com/*"] },
   instagram: { re: /(^|\.)instagram\.com$/, glob: ["*://*.instagram.com/*"] },
   tiktok: { re: /(^|\.)tiktok\.com$/, glob: ["*://*.tiktok.com/*"] },
+  // Looser than the siblings above: Pinterest runs country domains (br.pinterest.com,
+  // pinterest.co.uk). The glob stays .com-only because that's what host_permissions
+  // grants — widen both together if a non-.com TLD is ever needed.
+  pinterest: { re: /(^|\.)pinterest\.[a-z.]+$/, glob: ["*://*.pinterest.com/*"] },
 };
 
 export const matchesPlatform = (platform, url) => {
