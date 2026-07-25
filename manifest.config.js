@@ -36,6 +36,9 @@ export default defineManifest({
     "*://*.tiktok.com/*",
     "*://*.fbcdn.net/*",
     "*://*.cdninstagram.com/*",
+    "*://*.pinterest.com/*",
+    // Pin images are downloaded by fetching them in the SW (FBW_DL_MEDIA kind:"image").
+    "*://*.pinimg.com/*",
   ],
   content_scripts: [
     {
@@ -88,6 +91,14 @@ export default defineManifest({
     {
       matches: ["*://*.tiktok.com/*"],
       js: ["src/content/tt/tt-relay.js"],
+      run_at: "document_idle",
+    },
+    // Pinterest: single ISOLATED script, no MAIN-world hook. Pinterest's /resource/*
+    // API is unsigned + cookie-auth, so we call it directly and paginate whole boards
+    // instead of scraping whatever the user happened to scroll past.
+    {
+      matches: ["*://*.pinterest.com/*"],
+      js: ["src/content/pin/pin-api.js"],
       run_at: "document_idle",
     },
   ],
