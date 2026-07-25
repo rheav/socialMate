@@ -136,23 +136,43 @@ async function waitForPing(tabId, attempts, delayMs) {
 // cannot reach: one open since before the extension had its host permission, or
 // one Chrome discarded. A reload re-runs the manifest's content scripts by
 // itself, so afterwards we only wait for one of them to answer.
-async function reviveTab(tabId) {
+//
+// WHY THE LADDER TAKES ITS STEPS AS AN ARGUMENT. Only the `alive` rung is
+// reachable on demand in a real browser: Chrome heals the tab before the
+// fallbacks can run — a discarded tab resurrects on the very first sendMessage,
+// and an extension reload re-injects every content script from onInstalled. Three
+// live attempts to force `inject`/`reload` all came back `alive`. So the rungs
+// below it are covered by unit tests instead (src/background.test.js), which
+// hand in fake steps. `steps` is the ONLY change from the previous shape; the
+// order, the retry counts and every return value are byte-for-byte the same.
+export async function reviveWith(steps, tabId) {
   if (tabId == null) return { ok: false, error: "nenhuma aba para reconectar" };
-  if (await pingTab(tabId)) return { ok: true, method: "alive" };
+  if (await steps.ping(tabId)) return { ok: true, method: "alive" };
   try {
-    await reinjectContentScripts(tabId);
+    await steps.reinject(tabId);
   } catch {
     /* fall through to the reload path */
   }
-  if (await waitForPing(tabId, 6, 250)) return { ok: true, method: "inject" };
+  if (await steps.waitForPing(tabId, 6, 250)) return { ok: true, method: "inject" };
   try {
-    await chrome.tabs.reload(tabId);
+    await steps.reload(tabId);
   } catch (e) {
     return { ok: false, error: e.message };
   }
   // ≤10s covers a cold facebook.com load on a slow connection.
-  if (await waitForPing(tabId, 20, 500)) return { ok: true, method: "reload" };
+  if (await steps.waitForPing(tabId, 20, 500)) return { ok: true, method: "reload" };
   return { ok: false, error: "a aba não respondeu depois de recarregar" };
+}
+
+const REVIVE_STEPS = {
+  ping: (tabId) => pingTab(tabId),
+  reinject: (tabId) => reinjectContentScripts(tabId),
+  waitForPing: (tabId, attempts, delayMs) => waitForPing(tabId, attempts, delayMs),
+  reload: (tabId) => chrome.tabs.reload(tabId),
+};
+
+function reviveTab(tabId) {
+  return reviveWith(REVIVE_STEPS, tabId);
 }
 
 // Recovery succeeded → the stale-tab hint is provably wrong, so retire it. This

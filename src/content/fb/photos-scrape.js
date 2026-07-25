@@ -1,15 +1,29 @@
 // FB profile-photos harvester — isolated content script.
 //
-// Collects every photo tile on a profile's Photos tab and then resolves each one
-// to a FULL-RESOLUTION fbcdn URL, which the side panel's "Fotos" tool packs into
-// a ZIP. No on-page UI; everything is driven by FBW_FBPHOTOS_* messages from the
-// panel, mirroring the request/response shape of src/content/pin/pin-api.js.
+// Collects every photo tile on a profile's Photos tab, in ONE OF TWO MODES, and
+// hands the result to the side panel's "Fotos" tool, which packs it into a ZIP.
+// No on-page UI; everything is driven by FBW_FBPHOTOS_* messages from the panel,
+// mirroring the request/response shape of src/content/pin/pin-api.js.
 //
-// WHY this has to automate the page instead of reading an API (all verified live
-// on a real profile, 2026-07-25 — see src/lib/fbPhotos.js for the long version):
+//   mode "thumbs" (default, fast) — scroll the grid, keep each tile's own
+//     img.src, stop. No clicks, no theater, no tab navigation, no per-photo
+//     delay: the run costs exactly what paging the grid costs. The images are
+//     414×414 and MOST OF THEM ARE SQUARE CROPS (measured: 34 of 42 tiles on the
+//     reference profile) — see parseCropFromUrl below; the panel warns before
+//     the user downloads.
+//
+//   mode "full" (slow) — everything above, then open each photo in the theater
+//     and read the large rendition out of it. This is the only way to get the
+//     original framing and the original pixels, and it costs a click plus a
+//     network wait per photo.
+//
+// WHY full-res has to automate the page instead of reading an API (all verified
+// live on a real profile, 2026-07-25 — see src/lib/fbPhotos.js for the long
+// version):
 //   • a grid tile's <img> is a 414×414 thumbnail, with no srcset;
 //   • the CDN URL cannot be widened — fbcdn signs the `stp=` transform inside the
-//     `oh=` HMAC, so dropping it or forcing `stp=dst-jpg` both answer 403;
+//     `oh=` HMAC, so dropping it or forcing `stp=dst-jpg` both answer 403. That
+//     is also why a crop cannot be undone: it lives in the same signed `stp`;
 //   • the permalink is useless — GET /photo/?fbid=… returns ~1 MB of HTML with
 //     ZERO `scontent` URLs (same for /photo/download/?fbid=…), because Facebook
 //     fetches photo media over GraphQL after hydration.
@@ -95,6 +109,28 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
       s.match(/[?&]cstp=mx(\d+)x(\d+)/) || s.match(/[?&]ctp=s(\d+)x(\d+)/) || s.match(/[?&]stp=[^&]*?_s(\d+)x(\d+)/);
     return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
   }
+  // The crop rectangle a thumbnail was cut with, e.g. `stp=c0.241.941.941a_…` =
+  // a 941×941 square out of a 941×1672 original, so 241 px off the top and ~490
+  // off the bottom are NOT IN THE FILE. Signed inside `oh=`, so it cannot be
+  // rewritten away — the panel's job is to say so, not to try to fix it. Absence
+  // of the token is the cheap "this tile is the whole frame" test.
+  function parseCropFromUrl(url) {
+    const stp = String(url || "").match(/[?&]stp=([^&]*)/);
+    if (!stp) return null;
+    const m = stp[1].match(/(?:^|_)c(\d+)\.(\d+)\.(\d+)\.(\d+)a(?:_|$)/);
+    if (!m) return null;
+    const box = { x: Number(m[1]), y: Number(m[2]), width: Number(m[3]), height: Number(m[4]) };
+    return box.width > 0 && box.height > 0 ? box : null;
+  }
+  // Which cap has bitten, or null. Mirrors fbPhotos.js `harvestCap` — the caps
+  // themselves are unreachable on a real profile (43 photos against 300), so the
+  // exported twin is where they are actually exercised.
+  function harvestCap({ photos = 0, steps = 0, scrolls = 0, growing = false }) {
+    if (photos >= MAX_PHOTOS) return "photos";
+    if (steps >= MAX_STEPS) return "steps";
+    if (scrolls >= MAX_SCROLLS && growing) return "scroll";
+    return null;
+  }
   function pickBest(candidates) {
     let best = null;
     let bestArea = -1;
@@ -123,9 +159,14 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
   // ============================================================
   // live state (read by FBW_FBPHOTOS_STATE)
   // ============================================================
-  let store = new Map(); // fbid -> { fbid, set, thumb, full, width, height, permalink }
+  // fbid -> { fbid, set, thumb, crop, cropped, full, width, height, permalink }
+  // `crop`/`cropped` describe the THUMBNAIL only; a record that reaches `full`
+  // carries the whole frame and the flags stop applying (the panel checks `full`
+  // first, exactly like fbPhotos.js isCroppedThumb does).
+  let store = new Map();
   let scraping = false;
   let cancelFlag = false;
+  let mode = "thumbs";   // thumbs (fast, grid only) | full (theater walk)
   let phase = "idle";    // idle | scrolling | walking | done
   let scrolls = 0;
   let steps = 0;
@@ -138,7 +179,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
   const ownerName = () => ownerNameFromTitle(document.title);
 
   function upsert(fbid, patch) {
-    const cur = store.get(fbid) || { fbid, set: null, thumb: null, full: null, width: null, height: null, permalink: null };
+    const cur = store.get(fbid) || { fbid, set: null, thumb: null, crop: null, cropped: null, full: null, width: null, height: null, permalink: null };
     for (const k of Object.keys(patch)) if (patch[k] != null) cur[k] = patch[k];
     if (!cur.permalink && cur.fbid) {
       cur.permalink = `https://www.facebook.com/photo/?fbid=${cur.fbid}` + (cur.set ? `&set=${encodeURIComponent(cur.set)}` : "");
@@ -174,7 +215,18 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
 
   function ingestTiles() {
     const tiles = scanTiles();
-    for (const t of tiles) upsert(t.fbid, { set: t.set, thumb: t.thumb });
+    for (const t of tiles) {
+      // The photo cap has to bite HERE for a thumbnail-only run: that mode never
+      // opens the theater, so the store is the only thing that grows and the
+      // walk's own cap check would never run. Reported, never silent.
+      if (!store.has(t.fbid) && harvestCap({ photos: store.size })) {
+        hitCap = true;
+        capReason = "photos";
+        break;
+      }
+      const crop = t.thumb ? parseCropFromUrl(t.thumb) : null;
+      upsert(t.fbid, { set: t.set, thumb: t.thumb, crop, cropped: t.thumb ? !!crop : null });
+    }
     return tiles.length;
   }
 
@@ -188,14 +240,17 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
     let prev = -1;
     for (scrolls = 0; scrolls < MAX_SCROLLS && stable < SCROLL_STABLE; scrolls++) {
       if (cancelFlag || gen !== generation) break;
+      if (hitCap && capReason === "photos") break; // the store filled up mid-scroll
       window.scrollTo({ top: document.body.scrollHeight });
       await sleep(SCROLL_STEP_MS);
       const n = ingestTiles();
       stable = n === prev ? stable + 1 : 0;
       prev = n;
     }
-    // More tiles were still arriving when the scroll budget ran out.
-    if (scrolls >= MAX_SCROLLS && stable < SCROLL_STABLE) { hitCap = true; capReason = "scroll"; }
+    // More tiles were still arriving when the scroll budget ran out. `growing`
+    // is the whole point: reaching MAX_SCROLLS on a grid that had already
+    // stopped growing is not a truncation and must not be reported as one.
+    if (!hitCap && harvestCap({ scrolls, growing: stable < SCROLL_STABLE }) === "scroll") { hitCap = true; capReason = "scroll"; }
     window.scrollTo({ top: startY });
     await sleep(400);
     ingestTiles();
@@ -305,7 +360,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
 
     for (;;) {
       if (cancelFlag || gen !== generation || !contextAlive()) return;
-      if (walked.size >= MAX_PHOTOS || steps >= MAX_STEPS) { hitCap = true; capReason = walked.size >= MAX_PHOTOS ? "photos" : "steps"; return; }
+      const cap = harvestCap({ photos: walked.size, steps });
+      if (cap) { hitCap = true; capReason = cap; return; }
 
       // Re-scan each time: the grid is the authority on order, and the theater's
       // own pushState navigation can remount it.
@@ -331,7 +387,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
           if (best) upsert(id, { full: best.url, width: best.width, height: best.height, set: setFromHref(location.href) });
         }
         steps++;
-        if (walked.size >= MAX_PHOTOS || steps >= MAX_STEPS) { hitCap = true; capReason = walked.size >= MAX_PHOTOS ? "photos" : "steps"; await closeTheater(); return; }
+        const inner = harvestCap({ photos: walked.size, steps });
+        if (inner) { hitCap = true; capReason = inner; await closeTheater(); return; }
         await sleep(jitter(420));
         const next = await advance(walked);
         if (!next) break;
@@ -341,9 +398,12 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
     }
   }
 
-  async function run() {
+  async function run(wanted) {
     if (disabled || scraping) return;
     const gen = ++generation;
+    // Unknown/absent mode means the fast one: a panel that never asks must not be
+    // handed the slow, tab-navigating walk by accident.
+    mode = wanted === "full" ? "full" : "thumbs";
     const key = ownerKeyFromUrl(location.href);
     // A different profile than the one in the store means the panel is looking at
     // new data; keep nothing from the old one.
@@ -365,7 +425,10 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
       await closeTheater();
       ingestTiles();
       await scrollGrid(gen);
-      if (!cancelFlag && gen === generation) await walk(gen);
+      // The whole cost of the slow mode is this one line. In "thumbs" the run is
+      // over the moment the grid stops growing — nothing is clicked and the tab
+      // never leaves the Photos surface.
+      if (mode === "full" && !cancelFlag && gen === generation) await walk(gen);
       phase = cancelFlag ? "idle" : "done";
     } catch (e) {
       lastError = e.message || String(e);
@@ -394,8 +457,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
     }
 
     if (msg?.type === "FBW_FBPHOTOS_SCRAPE") {
-      run();
-      sendResponse({ started: true });
+      run(msg.mode);
+      sendResponse({ started: true, mode: msg.mode === "full" ? "full" : "thumbs" });
       return;
     }
 
@@ -405,6 +468,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
       sendResponse({
         records: Array.from(store.values()),
         scraping,
+        mode,
         phase,
         scrolls,
         steps,

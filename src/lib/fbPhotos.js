@@ -22,6 +22,14 @@
 // where the tile was 414×414) and the viewer has a "next photo" control that
 // advances the whole set without a page load. photos-scrape.js drives that; the
 // helpers here are the parts of it that can be tested without a browser.
+//
+// …AND THE SECOND MODE. The theater walk is the only way to get the ORIGINAL
+// pixels, but it is also the slow, fragile, tab-navigating part of the tool, and
+// a lot of work (OCR / reading the text baked into a post) is perfectly happy
+// with the 414×414 tile image. So there is a thumbnail-only mode that just
+// scrolls the grid and keeps each tile's own `img.src`. Its ONE honesty problem
+// is recorded in parseCropFromUrl below: most thumbnails are square CROPS, not
+// shrinks, and the crop is signed so it cannot be undone.
 
 // ---------------------------------------------------------------------------
 // URL / identity
@@ -126,6 +134,49 @@ export function parseBoxFromUrl(url) {
   return m ? { width: Number(m[1]), height: Number(m[2]) } : null;
 }
 
+// The CROP rectangle baked into a thumbnail's `stp`, when there is one.
+//
+// THIS IS THE HONESTY SWITCH FOR THE THUMBNAIL-ONLY MODE. Measured on a live
+// profile (2026-07-25): 34 of the 42 tiles that carried an <img> — 81% — had a
+// crop token, e.g. `stp=c0.241.941.941a_dst-jpg_tt6`, which is a 941×941 SQUARE
+// taken out of a 941×1672 original. The top 241 px and the bottom ~490 px are
+// physically absent from the bytes fbcdn serves: any text up there is simply not
+// in the file. The other 8 were plain `stp=dst-jpg_tt6` (no crop) and the cover
+// photo was `stp=dst-png` at 1945×720 — also uncropped, just a wide tile.
+//
+// It cannot be undone by rewriting the URL: `stp` is covered by the `oh=` HMAC,
+// so dropping it or swapping it for `dst-jpg` both answer 403 (verified). The
+// only recourse is the theater walk, i.e. the other mode.
+//
+// Presence of the token is therefore also the CHEAP test for "is this tile a
+// whole frame?" — no decode, no extra request, just a regex on the src. Absent
+// token ⇒ the tile is the whole photo, scaled down; present ⇒ pixels are gone.
+// (A `c0.0.w.ha` box is still reported as a crop: the URL never says how big the
+// original was, so "the crop happens to cover everything" is not knowable here,
+// and over-reporting is the safe direction for a warning.)
+//
+// Returns {x, y, width, height} or null (no stp, no crop token, or a malformed /
+// degenerate box).
+export function parseCropFromUrl(url) {
+  const stp = String(url || "").match(/[?&]stp=([^&]*)/);
+  if (!stp) return null;
+  const m = stp[1].match(/(?:^|_)c(\d+)\.(\d+)\.(\d+)\.(\d+)a(?:_|$)/);
+  if (!m) return null;
+  const box = { x: Number(m[1]), y: Number(m[2]), width: Number(m[3]), height: Number(m[4]) };
+  return box.width > 0 && box.height > 0 ? box : null;
+}
+
+// Per-photo "is what we would download a cropped thumbnail?". A record that has
+// a full-res URL is never cropped — the theater image is the whole frame. The
+// flags the content script stamps on the record win, and the thumb URL is the
+// fallback so a record rehydrated from anywhere still answers correctly.
+export function isCroppedThumb(rec) {
+  if (!rec || rec.full) return false;
+  if (rec.crop) return true;
+  if (typeof rec.cropped === "boolean") return rec.cropped;
+  return !!parseCropFromUrl(rec.thumb);
+}
+
 // Largest candidate wins. `candidates` are {url, width, height}; a candidate with
 // no usable dimensions falls back to the URL's size box, and failing that counts
 // as area 0 — still selectable when it is all we have (the first such candidate
@@ -181,12 +232,54 @@ export function summarize(records) {
   return { total: list.length, resolved, pending: list.length - resolved };
 }
 
-// What a ZIP run will actually contain. Only photos whose full-res URL was
-// captured can go in; the batch is then capped BOTH by a photo count and by an
-// estimated byte budget, and everything left over is reported as `skipped` so the
-// UI can say so out loud instead of silently truncating.
-export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avgBytes = 0 } = {}) {
-  const ready = (records || []).filter((r) => r && r.full);
+// How many of the collected photos would ship as a THUMBNAIL, and how many of
+// those are square crops. This is the number the panel has to show BEFORE the
+// download button is pressed — see parseCropFromUrl for why it matters.
+export function thumbCropStats(records) {
+  let total = 0;
+  let cropped = 0;
+  for (const r of records || []) {
+    if (!r || r.full || !r.thumb) continue; // a resolved photo ships whole
+    total++;
+    if (isCroppedThumb(r)) cropped++;
+  }
+  return { total, cropped, whole: total - cropped };
+}
+
+// The sentence the panel prints for those stats. It lives here, not in the JSX,
+// so the wording is unit-tested along with the counting — this is the warning
+// that stops the tool from quietly handing over half a photo.
+export function cropNotice(stats) {
+  const total = stats?.total || 0;
+  const cropped = stats?.cropped || 0;
+  if (!total) return null;
+  if (!cropped) return `Nenhuma das ${total} miniatura(s) está recortada — são quadros inteiros.`;
+  return (
+    `${cropped} de ${total} miniatura(s) vêm recortadas em quadrado: o que ficou fora do quadro ` +
+    `não está na imagem (texto no topo ou na base pode faltar). Para a foto inteira, colete no modo alta resolução.`
+  );
+}
+
+// Which URL a run would actually download for one record. In "full" mode only
+// the theater rendition counts. In "thumbs" mode the tile's own image IS the
+// deliverable, so it stands in whenever no full-res URL was captured.
+export function downloadUrlFor(rec, mode = "full") {
+  if (!rec) return null;
+  if (rec.full) return rec.full;
+  return mode === "thumbs" ? rec.thumb || null : null;
+}
+
+// What a ZIP run will actually contain. Each entry carries the `url` that will be
+// fetched and `fromThumb` (a cropped-thumbnail warning applies to it); the batch
+// is capped BOTH by a photo count and by an estimated byte budget, and everything
+// left over is reported as `skipped` so the UI can say so out loud instead of
+// silently truncating.
+export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avgBytes = 0, mode = "full" } = {}) {
+  const ready = [];
+  for (const r of records || []) {
+    const url = downloadUrlFor(r, mode);
+    if (url) ready.push({ ...r, url, fromThumb: !r.full });
+  }
   const byBytes = avgBytes > 0 && maxBytes !== Infinity ? Math.max(1, Math.floor(maxBytes / avgBytes)) : Infinity;
   const limit = Math.min(maxCount, byBytes);
   const batch = ready.slice(0, limit);
@@ -195,6 +288,58 @@ export function selectForZip(records, { maxCount = 150, maxBytes = Infinity, avg
     skipped: ready.length - batch.length,
     unresolved: (records || []).length - ready.length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// caps — the numbers, the decision, and the sentence
+//
+// Every cap in this tool must SAY that it bit. A live profile is nowhere near
+// any of them (the one this tool was built on has 43 photos against a cap of
+// 300), so the only way these paths ever run is a unit test driving them with a
+// fake tile set — which is exactly what fbPhotos.test.js does. photos-scrape.js
+// mirrors harvestCap verbatim (it cannot import; see its header).
+// ---------------------------------------------------------------------------
+
+export const HARVEST_CAPS = { photos: 300, scrolls: 60, steps: 420 };
+
+// Returns the cap that has bitten, or null while there is budget left.
+//   photos  — the store is full (both modes: a thumbnail run grows it by
+//             scrolling, a full-res run grows it by walking).
+//   steps   — too many theater advances; guards a set that loops forever.
+//   scroll  — the scroll budget ran out while the grid was STILL GROWING.
+//             `growing:false` means the grid simply ended, which is not a cap.
+export function harvestCap({ photos = 0, steps = 0, scrolls = 0, growing = false } = {}, caps = HARVEST_CAPS) {
+  if (photos >= caps.photos) return "photos";
+  if (steps >= caps.steps) return "steps";
+  if (scrolls >= caps.scrolls && growing) return "scroll";
+  return null;
+}
+
+// A cap that bit is always named out loud, and always with the cap that actually
+// stopped the run — the grid scroll and the photo walk have different budgets
+// and "collect again" only helps for some of them. In thumbnail mode a repeat
+// collect would re-read the same first `photos` tiles, so that case gets its own
+// (accurate) advice instead.
+export function capMessage(reason, caps = HARVEST_CAPS, mode = "full") {
+  if (reason === "scroll")
+    return `a grade ainda estava carregando no limite de ${caps.scrolls} rolagens — colete de novo para pegar o resto`;
+  if (reason === "steps")
+    return `parado no limite de ${caps.steps} aberturas de foto — colete de novo para continuar`;
+  return mode === "thumbs"
+    ? `parado no limite de ${caps.photos} fotos por coleta — baixe estas e limpe a lista para pegar o resto`
+    : `parado no limite de ${caps.photos} fotos por coleta — colete de novo para continuar`;
+}
+
+// Everything a finished (or truncated) ZIP run has to admit to, in one pt-BR
+// line. Same rule as the harvest caps: a limit that silently drops photos is the
+// defect, so each of these branches has a test.
+export function zipNotes({ skipped = 0, unresolved = 0, stoppedAt = null, failed = 0, maxCount = 0, maxBytes = 0, mode = "full" } = {}) {
+  const parts = [];
+  if (skipped) parts.push(`${skipped} foto(s) ficaram de fora do limite de ${maxCount} por ZIP`);
+  if (unresolved) parts.push(mode === "thumbs" ? `${unresolved} sem imagem nenhuma` : `${unresolved} sem resolução alta ainda`);
+  if (stoppedAt != null) parts.push(`parou em ${stoppedAt} — limite de ${fmtBytes(maxBytes)} por ZIP`);
+  if (failed) parts.push(`${failed} falharam ao baixar`);
+  return parts.join(" · ") || null;
 }
 
 // ---------------------------------------------------------------------------

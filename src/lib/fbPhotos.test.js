@@ -8,10 +8,19 @@ import {
   photoPermalink,
   photoBaseFromUrl,
   parseBoxFromUrl,
+  parseCropFromUrl,
+  isCroppedThumb,
+  thumbCropStats,
+  cropNotice,
+  downloadUrlFor,
   pickBest,
   dedupeByFbid,
   summarize,
   selectForZip,
+  HARVEST_CAPS,
+  harvestCap,
+  capMessage,
+  zipNotes,
   sanitizeFilenamePart,
   extFromUrl,
   filenameFor,
@@ -25,6 +34,13 @@ const TILE = "https://www.facebook.com/photo.php?fbid=122111787357372141&set=pb.
 const COVER = "https://www.facebook.com/photo/?fbid=122106781653372141&set=a.617458010522431";
 const THUMB =
   "https://scontent.fubt4-1.fna.fbcdn.net/v/t39.30808-6/753953991_122111787363372141_5417810366950726345_n.jpg?stp=c0.241.941.941a_dst-jpg_tt6&_nc_cat=101&oh=00_AQB&oe=6A6A";
+// The 8-of-42 minority: same grid, same size, no crop token.
+const THUMB_WHOLE =
+  "https://scontent.fubt4-1.fna.fbcdn.net/v/t39.30808-6/753953991_122111687841372141_5417810366950726345_n.jpg?stp=dst-jpg_tt6&_nc_cat=101&oh=00_AQB&oe=6A6A";
+// The cover photo: 1945×720, PNG pipeline, also uncropped — a wide tile, not a
+// square one, so it must NOT be flagged.
+const COVER_IMG =
+  "https://scontent.fubt4-1.fna.fbcdn.net/v/t39.30808-6/753953991_122106781653372141_5417810366950726345_n.png?stp=dst-png&_nc_cat=101&oh=00_AQB&oe=6A6A";
 const FULL =
   "https://scontent.fubt4-1.fna.fbcdn.net/v/t39.30808-6/753953991_122111787363372141_5417810366950726345_n.jpg?stp=dst-jpg_tt6&cstp=mx941x1672&ctp=s941x1672&_nc_cat=101&oh=00_AQB&oe=6A6A";
 
@@ -153,6 +169,115 @@ describe("parseBoxFromUrl", () => {
   });
 });
 
+describe("parseCropFromUrl", () => {
+  it("reads the square crop a thumbnail was cut with", () => {
+    // This is the measured majority case: 34 of the 42 tiles that carried an
+    // <img> on the reference profile. 941×941 out of a 941×1672 original — the
+    // top 241px and the bottom ~490px are simply not in the file.
+    expect(parseCropFromUrl(THUMB)).toEqual({ x: 0, y: 241, width: 941, height: 941 });
+    expect(parseCropFromUrl("https://x/y.jpg?stp=c0.92.1122.1122a_dst-jpg_tt6")).toEqual({
+      x: 0,
+      y: 92,
+      width: 1122,
+      height: 1122,
+    });
+    // A non-zero x happens on landscape originals, and the crop token is not
+    // always first in the underscore list.
+    expect(parseCropFromUrl("https://x/y.jpg?stp=cp0_c129.0.1290.1290a_dst-jpg&oh=1")).toEqual({
+      x: 129,
+      y: 0,
+      width: 1290,
+      height: 1290,
+    });
+  });
+
+  it("returns null for an UNCROPPED tile — the cheap 'whole frame' test", () => {
+    expect(parseCropFromUrl(THUMB_WHOLE)).toBeNull();
+    expect(parseCropFromUrl(COVER_IMG)).toBeNull();
+    expect(parseCropFromUrl(FULL)).toBeNull();
+    // A size box is not a crop; confusing the two is the bug parseBoxFromUrl
+    // already guards against from the other side.
+    expect(parseCropFromUrl("https://x/y.jpg?stp=dst-jpg_s960x960")).toBeNull();
+    expect(parseCropFromUrl("https://x/y.jpg?stp=cp0_dst-jpg_e15_q65")).toBeNull();
+  });
+
+  it("returns null for a malformed or degenerate crop spec", () => {
+    expect(parseCropFromUrl("https://x/y.jpg?stp=c0.241.941a_dst-jpg")).toBeNull(); // three numbers
+    expect(parseCropFromUrl("https://x/y.jpg?stp=c0.241.941.941_dst-jpg")).toBeNull(); // no trailing a
+    expect(parseCropFromUrl("https://x/y.jpg?stp=ca.b.c.da_dst-jpg")).toBeNull(); // not numbers
+    expect(parseCropFromUrl("https://x/y.jpg?stp=c0.0.0.0a_dst-jpg")).toBeNull(); // zero-area box
+  });
+
+  it("returns null when there is no stp at all", () => {
+    expect(parseCropFromUrl("https://x/y.jpg?_nc_cat=101&oh=00_AQB")).toBeNull();
+    expect(parseCropFromUrl("https://x/y.jpg")).toBeNull();
+    expect(parseCropFromUrl("")).toBeNull();
+    expect(parseCropFromUrl(null)).toBeNull();
+    expect(parseCropFromUrl(undefined)).toBeNull();
+  });
+});
+
+describe("isCroppedThumb", () => {
+  it("is false for any record that reached full resolution", () => {
+    // The theater image is the whole frame, even when the tile it came from was
+    // a crop — otherwise the panel would warn about photos that are fine.
+    expect(isCroppedThumb({ thumb: THUMB, crop: { x: 0, y: 241, width: 941, height: 941 }, full: FULL })).toBe(false);
+  });
+  it("trusts the flags the content script stamped on the record", () => {
+    expect(isCroppedThumb({ thumb: THUMB, crop: { x: 0, y: 1, width: 2, height: 3 } })).toBe(true);
+    expect(isCroppedThumb({ thumb: THUMB_WHOLE, crop: null, cropped: false })).toBe(false);
+  });
+  it("falls back to the thumb url when the record carries no flags", () => {
+    expect(isCroppedThumb({ thumb: THUMB })).toBe(true);
+    expect(isCroppedThumb({ thumb: THUMB_WHOLE })).toBe(false);
+    expect(isCroppedThumb({})).toBe(false);
+    expect(isCroppedThumb(null)).toBe(false);
+  });
+});
+
+describe("thumbCropStats / cropNotice", () => {
+  it("counts only the photos that would actually ship as a thumbnail", () => {
+    const recs = [
+      { fbid: "1", thumb: THUMB },                 // cropped, ships as thumb
+      { fbid: "2", thumb: THUMB_WHOLE },           // whole, ships as thumb
+      { fbid: "3", thumb: THUMB, full: FULL },     // resolved — not a thumb ship
+      { fbid: "4" },                               // nothing at all
+    ];
+    expect(thumbCropStats(recs)).toEqual({ total: 2, cropped: 1, whole: 1 });
+    expect(thumbCropStats([])).toEqual({ total: 0, cropped: 0, whole: 0 });
+    expect(thumbCropStats(null)).toEqual({ total: 0, cropped: 0, whole: 0 });
+  });
+
+  it("says out loud how much of the photo is missing, in pt-BR", () => {
+    const msg = cropNotice({ total: 43, cropped: 34 });
+    expect(msg).toContain("34 de 43");
+    expect(msg).toContain("recortadas");
+    expect(msg).toContain("alta resolução"); // points at the way out
+  });
+
+  it("is equally explicit when nothing was cropped", () => {
+    expect(cropNotice({ total: 8, cropped: 0 })).toContain("Nenhuma das 8");
+    expect(cropNotice({ total: 0, cropped: 0 })).toBeNull();
+    expect(cropNotice(null)).toBeNull();
+  });
+});
+
+describe("downloadUrlFor", () => {
+  it("prefers the full-res url in both modes", () => {
+    expect(downloadUrlFor({ full: FULL, thumb: THUMB }, "thumbs")).toBe(FULL);
+    expect(downloadUrlFor({ full: FULL, thumb: THUMB }, "full")).toBe(FULL);
+  });
+  it("only falls back to the tile image in thumbnail mode", () => {
+    expect(downloadUrlFor({ thumb: THUMB }, "thumbs")).toBe(THUMB);
+    expect(downloadUrlFor({ thumb: THUMB }, "full")).toBeNull();
+    expect(downloadUrlFor({ thumb: THUMB })).toBeNull(); // default is the strict mode
+  });
+  it("has nothing to offer for an empty record", () => {
+    expect(downloadUrlFor({}, "thumbs")).toBeNull();
+    expect(downloadUrlFor(null, "thumbs")).toBeNull();
+  });
+});
+
 describe("pickBest", () => {
   it("picks the largest by area", () => {
     const best = pickBest([
@@ -253,6 +378,158 @@ describe("selectForZip", () => {
   it("always allows at least one photo through the byte budget", () => {
     const { batch } = selectForZip(recs, { maxCount: 10, maxBytes: 1, avgBytes: 5e6 });
     expect(batch).toHaveLength(1);
+  });
+
+  it("resolves each entry's download url for the mode, and flags the thumbs", () => {
+    const mixed = [
+      { fbid: "1", full: FULL, thumb: THUMB },
+      { fbid: "2", thumb: THUMB },
+      { fbid: "3" },
+    ];
+    const strict = selectForZip(mixed, { maxCount: 10 });
+    expect(strict.batch.map((r) => r.url)).toEqual([FULL]);
+    expect(strict.batch[0].fromThumb).toBe(false);
+    expect(strict.unresolved).toBe(2);
+
+    const fast = selectForZip(mixed, { maxCount: 10, mode: "thumbs" });
+    expect(fast.batch.map((r) => r.url)).toEqual([FULL, THUMB]);
+    expect(fast.batch.map((r) => r.fromThumb)).toEqual([false, true]);
+    expect(fast.unresolved).toBe(1); // only the record with no image at all
+  });
+
+  it("does not mutate the records it selects", () => {
+    const input = [{ fbid: "1", thumb: THUMB }];
+    selectForZip(input, { maxCount: 10, mode: "thumbs" });
+    expect(input[0]).toEqual({ fbid: "1", thumb: THUMB });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAPS. These were the tool's only untested paths: the profile it was built on
+// has 43 photos against caps of 300/420/60 and 150-per-ZIP, so nothing here can
+// be reached live. Each test drives the cap with a fake tile set or fake byte
+// sizes, and then asserts the run REPORTS it — a cap that truncates in silence
+// is the defect, not the cap.
+// ---------------------------------------------------------------------------
+describe("harvest caps", () => {
+  it("leaves a normal run alone", () => {
+    // The reference profile, to scale: 43 photos, 43 steps, 4 scrolls, grid done.
+    expect(harvestCap({ photos: 43, steps: 43, scrolls: 4, growing: false })).toBeNull();
+    expect(harvestCap({})).toBeNull();
+    expect(harvestCap()).toBeNull();
+  });
+
+  it("stops a THUMBNAIL harvest at the photo cap and names it", () => {
+    // Exactly the loop photos-scrape.js ingestTiles() runs, with 400 fake tiles.
+    const tiles = Array.from({ length: 400 }, (_, i) => `fbid-${i}`);
+    const store = new Map();
+    let reason = null;
+    for (const fbid of tiles) {
+      if (!store.has(fbid) && (reason = harvestCap({ photos: store.size }))) break;
+      store.set(fbid, { fbid, thumb: THUMB });
+    }
+    expect(store.size).toBe(HARVEST_CAPS.photos); // 300 kept…
+    expect(reason).toBe("photos"); // …and the other 100 are ACCOUNTED FOR
+    expect(capMessage(reason, HARVEST_CAPS, "thumbs")).toContain("300");
+  });
+
+  it("stops a FULL-RES walk at the photo cap before the step cap", () => {
+    // A walk that resolves one photo per step reaches 300 photos at step 300,
+    // long before the 420-step guard — so the message must say "fotos", not
+    // "aberturas", or the advice it gives is the wrong advice.
+    let photos = 0;
+    let steps = 0;
+    let reason = null;
+    while (!(reason = harvestCap({ photos, steps }))) { photos++; steps++; }
+    expect(reason).toBe("photos");
+    expect(steps).toBe(HARVEST_CAPS.photos);
+    expect(capMessage(reason, HARVEST_CAPS, "full")).toContain("300");
+  });
+
+  it("stops a LOOPING set at the step cap", () => {
+    // The pathological set: the theater keeps advancing but every photo is one
+    // we already walked, so `photos` never grows and only the step guard ends it.
+    let steps = 0;
+    let reason = null;
+    while (!(reason = harvestCap({ photos: 12, steps }))) steps++;
+    expect(reason).toBe("steps");
+    expect(steps).toBe(HARVEST_CAPS.steps);
+    expect(capMessage(reason, HARVEST_CAPS)).toContain("420");
+  });
+
+  it("reports the scroll cap only when the grid was STILL GROWING", () => {
+    // Reaching the scroll budget on a grid that had already gone quiet is a
+    // normal finish, not a truncation — warning there would cry wolf on every
+    // large profile.
+    expect(harvestCap({ scrolls: HARVEST_CAPS.scrolls, growing: true })).toBe("scroll");
+    expect(harvestCap({ scrolls: HARVEST_CAPS.scrolls, growing: false })).toBeNull();
+    expect(harvestCap({ scrolls: HARVEST_CAPS.scrolls - 1, growing: true })).toBeNull();
+    expect(capMessage("scroll", HARVEST_CAPS)).toContain("60");
+  });
+
+  it("gives every cap a distinct sentence, and thumbnail mode its own advice", () => {
+    const said = ["photos", "steps", "scroll"].map((r) => capMessage(r, HARVEST_CAPS));
+    expect(new Set(said).size).toBe(3);
+    for (const s of said) expect(s.length).toBeGreaterThan(20);
+    // "colete de novo" is a lie in thumbnail mode: a repeat collect re-reads the
+    // same first 300 tiles and the store is already full.
+    expect(capMessage("photos", HARVEST_CAPS, "full")).toContain("colete de novo");
+    expect(capMessage("photos", HARVEST_CAPS, "thumbs")).not.toContain("colete de novo");
+    expect(capMessage("photos", HARVEST_CAPS, "thumbs")).toContain("limpe a lista");
+  });
+});
+
+describe("zip caps report themselves", () => {
+  it("says nothing when nothing was dropped", () => {
+    expect(zipNotes()).toBeNull();
+    expect(zipNotes({ skipped: 0, unresolved: 0, failed: 0 })).toBeNull();
+  });
+
+  it("names the per-ZIP photo cap with the count it left out", () => {
+    // 200 resolved photos, 150 per archive → 50 must be spoken for.
+    const recs = Array.from({ length: 200 }, (_, i) => ({ fbid: String(i), full: FULL }));
+    const { batch, skipped } = selectForZip(recs, { maxCount: 150 });
+    expect(batch).toHaveLength(150);
+    expect(skipped).toBe(50);
+    expect(zipNotes({ skipped, maxCount: 150 })).toContain("50 foto(s) ficaram de fora do limite de 150");
+  });
+
+  it("names the byte budget with the photo it stopped at", () => {
+    // Fake byte sizes: 40 photos of 12 MB each against the 400 MB budget stops
+    // partway through, and the note has to carry BOTH numbers.
+    const MAX_BYTES = 400 * 1024 * 1024;
+    const SIZE = 12 * 1024 * 1024;
+    let bytes = 0;
+    let stoppedAt = null;
+    for (let i = 0; i < 40; i++) {
+      if (bytes >= MAX_BYTES) { stoppedAt = i; break; }
+      bytes += SIZE;
+    }
+    expect(stoppedAt).toBe(34); // 34×12 MB = 408 MB is the first read over budget
+    const note = zipNotes({ stoppedAt, maxBytes: MAX_BYTES });
+    expect(note).toContain("parou em 34");
+    expect(note).toContain("400,0 MB");
+  });
+
+  it("also pre-empts the byte budget from an average size", () => {
+    const recs = Array.from({ length: 40 }, (_, i) => ({ fbid: String(i), full: FULL }));
+    const { batch, skipped } = selectForZip(recs, { maxCount: 150, maxBytes: 400 * 1024 * 1024, avgBytes: 12 * 1024 * 1024 });
+    expect(batch).toHaveLength(33);
+    expect(skipped).toBe(7);
+    expect(zipNotes({ skipped, maxCount: 150 })).toContain("7 foto(s)");
+  });
+
+  it("stacks every reason a run fell short into one line", () => {
+    const note = zipNotes({ skipped: 5, unresolved: 3, stoppedAt: 12, failed: 2, maxCount: 150, maxBytes: 4e8 });
+    expect(note).toContain("5 foto(s)");
+    expect(note).toContain("3 sem resolução alta");
+    expect(note).toContain("parou em 12");
+    expect(note).toContain("2 falharam");
+    expect(note.split(" · ")).toHaveLength(4);
+  });
+
+  it("does not promise 'high resolution' in thumbnail mode", () => {
+    expect(zipNotes({ unresolved: 3, mode: "thumbs" })).toBe("3 sem imagem nenhuma");
   });
 });
 
