@@ -27,6 +27,18 @@ const USER_TABS = new Set(["_saved", "_created", "_shop", "pins", "boards", "fol
 
 const OTHER = { kind: "other", username: null, slug: null, sectionSlug: null, query: null, handler: PWS_HANDLERS.home, sourceUrl: "/", key: "other" };
 
+// location.pathname is percent-encoded (accents, cedillas, emoji, spaces all get
+// escaped). decodeURIComponent("%") throws URIError on a malformed escape — never
+// let that propagate, since surfaceOf must never throw. Fall back to the raw segment.
+function decodeSeg(seg) {
+  if (seg == null) return seg;
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+
 // Classify a Pinterest URL into the surface the resource API needs to be told about.
 export function surfaceOf(href) {
   let u;
@@ -36,6 +48,12 @@ export function surfaceOf(href) {
     return OTHER;
   }
   const segs = u.pathname.split("/").filter(Boolean);
+  // sourceUrl stays RAW/encoded: Pinterest's own requests send the encoded path as
+  // source_url and x-pinterest-source-url, so decoding it would make our requests
+  // diverge from what the site itself sends. username/slug/sectionSlug, by contrast,
+  // are used as API OPTION VALUES (e.g. BoardResource's { username, slug }) — those
+  // must be decoded, or any board name with non-ASCII characters (common for our
+  // Brazilian users — accents, cedillas) 404s against the resource API.
   const sourceUrl = u.pathname + (u.search || "");
 
   if (!segs.length) return { ...OTHER, kind: "home", handler: PWS_HANDLERS.home, sourceUrl, key: "home" };
@@ -51,20 +69,22 @@ export function surfaceOf(href) {
   if (segs[0] === "pin") return { ...OTHER, kind: "pin", sourceUrl, key: "pin:" + (segs[1] || "") };
   if (RESERVED.has(segs[0])) return { ...OTHER, sourceUrl };
 
-  const username = segs[0];
+  const username = decodeSeg(segs[0]);
   if (segs.length === 1 || USER_TABS.has(segs[1]))
     return {
       kind: "user", username, slug: null, sectionSlug: null, query: null,
       handler: PWS_HANDLERS.user, sourceUrl, key: "user:" + username,
     };
 
-  const slug = segs[1];
-  if (segs.length >= 3)
+  const slug = decodeSeg(segs[1]);
+  if (segs.length >= 3) {
+    const sectionSlug = decodeSeg(segs[2]);
     return {
-      kind: "section", username, slug, sectionSlug: segs[2], query: null,
+      kind: "section", username, slug, sectionSlug, query: null,
       handler: PWS_HANDLERS.section, sourceUrl,
-      key: `section:${username}/${slug}/${segs[2]}`,
+      key: `section:${username}/${slug}/${sectionSlug}`,
     };
+  }
 
   return {
     kind: "board", username, slug, sectionSlug: null, query: null,

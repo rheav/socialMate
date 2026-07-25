@@ -69,6 +69,36 @@ describe("surfaceOf", () => {
     expect(surfaceOf("not a url").kind).toBe("other");
     expect(surfaceOf(null).kind).toBe("other");
   });
+
+  it("decodes a percent-encoded accented board slug for the API, but keeps sourceUrl raw", () => {
+    // Live-verified: BoardResource 404s on the raw "ingl%C3%AAs" and 200s on "inglês".
+    const s = surfaceOf("https://br.pinterest.com/rheav7/ingl%C3%AAs/");
+    expect(s.slug).toBe("inglês");
+    expect(s.username).toBe("rheav7");
+    expect(s.sourceUrl).toBe("/rheav7/ingl%C3%AAs/");
+  });
+
+  it("decodes a percent-encoded section slug too", () => {
+    const s = surfaceOf("https://br.pinterest.com/rheav7/ingl%C3%AAs/gram%C3%A1tica/");
+    expect(s.kind).toBe("section");
+    expect(s.slug).toBe("inglês");
+    expect(s.sectionSlug).toBe("gramática");
+    expect(s.sourceUrl).toBe("/rheav7/ingl%C3%AAs/gram%C3%A1tica/");
+  });
+
+  it("falls back to the raw segment on a malformed escape instead of throwing", () => {
+    const s = surfaceOf("https://br.pinterest.com/rheav7/50%/");
+    expect(s.kind).toBe("board");
+    expect(s.username).toBe("rheav7");
+    expect(s.slug).toBe("50%");
+  });
+
+  it("leaves a plain ASCII board URL unchanged", () => {
+    const s = surfaceOf("https://br.pinterest.com/marianam7536/tarot/");
+    expect(s.username).toBe("marianam7536");
+    expect(s.slug).toBe("tarot");
+    expect(s.sourceUrl).toBe("/marianam7536/tarot/");
+  });
 });
 
 describe("resourceGetUrl", () => {
