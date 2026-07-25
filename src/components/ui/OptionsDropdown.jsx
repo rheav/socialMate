@@ -40,7 +40,10 @@ export default function OptionsDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute top-full right-0 z-50 mt-2 w-72 rounded-xl border border-slate-300 bg-white/95 backdrop-blur-md shadow-xl">
+        // max-w: the popup is right-anchored, so at a 260px panel a fixed 18rem
+        // (270px) would hang off the LEFT edge and be unreachable. Cap it to the
+        // viewport minus the page gutters.
+        <div className="absolute top-full right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-300 bg-white/95 backdrop-blur-md shadow-xl">
           <div className="max-h-96 overflow-y-auto p-4">
             <Section
               title="Ritmo"

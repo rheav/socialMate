@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import Segmented from "@/components/ui/Segmented";
 import OptionsDropdown from "@/components/ui/OptionsDropdown";
+import { ToolBar, ActionButton, ToolIconButton } from "@/components/ui/ToolBar";
 import { PLATFORMS } from "@/lib/platforms";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { isStaleSession } from "@/lib/sessionMath";
@@ -416,7 +417,7 @@ export default function WarmTool({ platform }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-end gap-1.5">
+      <ToolBar className="justify-end">
         <OptionsDropdown
           pacing={pacing}
           setPacing={setPacing}
@@ -434,7 +435,7 @@ export default function WarmTool({ platform }) {
           halted={halted}
           onBreak={!!status?.isAutoBreak}
         />
-      </div>
+      </ToolBar>
       {running && !paused && !halted && !status?.isAutoBreak ? (
         <div className="heat-bar" />
       ) : null}
@@ -450,8 +451,10 @@ export default function WarmTool({ platform }) {
         </div>
       )}
       {!noTab && needReload && (
-        <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 flex items-center justify-between gap-2">
-          <span>
+        // flex-wrap: at the narrowest panel the button drops under the message
+        // instead of squeezing it.
+        <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <span className="min-w-0 break-words">
             A aba do {platformCfg.name} não está respondendo — é necessário recarregar.
           </span>
           <Button
@@ -529,7 +532,7 @@ export default function WarmTool({ platform }) {
                 // Facebook hashtag warmer is like-only — hide Save/Follow there.
                 .filter(([k]) => platform !== "facebook" || k === "like")
                 .map(([k, label]) => (
-                  <div key={k} className="flex items-center justify-between">
+                  <div key={k} className="flex min-w-0 items-center justify-between gap-2">
                     <Label
                       htmlFor={`act-${k}`}
                       className="text-sm text-foreground cursor-pointer"
@@ -538,6 +541,7 @@ export default function WarmTool({ platform }) {
                     </Label>
                     <Switch
                       id={`act-${k}`}
+                      className="shrink-0"
                       checked={actions[k]}
                       onCheckedChange={() => toggle(k)}
                     />
@@ -584,7 +588,7 @@ export default function WarmTool({ platform }) {
               {platform === "facebook" && mode === "A" && (
                 <>
                   <Separator />
-                  <div className="flex items-center justify-between">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
                     <Label
                       htmlFor="englishOnly"
                       className="text-sm text-foreground cursor-pointer"
@@ -593,6 +597,7 @@ export default function WarmTool({ platform }) {
                     </Label>
                     <Switch
                       id="englishOnly"
+                      className="shrink-0"
                       checked={englishOnly}
                       onCheckedChange={() => setEnglishOnly((v) => !v)}
                     />
@@ -600,8 +605,8 @@ export default function WarmTool({ platform }) {
                 </>
               )}
               <Separator />
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="min-w-0">
                   <Label
                     htmlFor="quickMode"
                     className="text-sm text-foreground cursor-pointer"
@@ -614,6 +619,7 @@ export default function WarmTool({ platform }) {
                 </div>
                 <Switch
                   id="quickMode"
+                  className="shrink-0"
                   checked={quickMode}
                   onCheckedChange={() => setQuickMode((v) => !v)}
                 />
@@ -625,8 +631,8 @@ export default function WarmTool({ platform }) {
           {platform === "facebook" && mode === "C" && (
             <Card>
               <CardContent className="p-3.5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <Label
                       htmlFor="commentOn"
                       className="text-sm text-foreground cursor-pointer"
@@ -640,6 +646,7 @@ export default function WarmTool({ platform }) {
                   </div>
                   <Switch
                     id="commentOn"
+                    className="shrink-0"
                     checked={comment.enabled}
                     onCheckedChange={() =>
                       setComment((c) => ({ ...c, enabled: !c.enabled }))
@@ -650,11 +657,11 @@ export default function WarmTool({ platform }) {
                 {comment.enabled && (
                   <>
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
                         <Label htmlFor="cchance" className="text-sm text-foreground">
                           Com que frequência
                         </Label>
-                        <span className="text-xs font-mono text-muted-foreground">
+                        <span className="min-w-0 break-words text-xs font-mono text-muted-foreground">
                           {Math.round((comment.chance || 0) * 100)}% das visualizações completas
                         </span>
                       </div>
@@ -680,11 +687,11 @@ export default function WarmTool({ platform }) {
                       </Label>
                       <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
                         {comment.phrases.map((p) => (
-                          <div key={p.id} className="flex items-center gap-1.5">
+                          <div key={p.id} className="flex min-w-0 items-center gap-1.5">
                             <Input
                               value={p.text}
                               onChange={(e) => patchPhrase(p.id, e.target.value)}
-                              className="h-8 text-xs"
+                              className="h-8 min-w-0 flex-1 text-xs"
                             />
                             <button
                               type="button"
@@ -697,7 +704,7 @@ export default function WarmTool({ platform }) {
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <ToolBar>
                         <Input
                           value={phraseDraft}
                           onChange={(e) => setPhraseDraft(e.target.value)}
@@ -708,19 +715,19 @@ export default function WarmTool({ platform }) {
                             }
                           }}
                           placeholder="Adicione uma frase (com emoji ✨)…"
-                          className="h-8 text-xs"
+                          className="h-8 min-w-0 flex-1 text-xs"
                         />
-                        <Button
+                        <ActionButton
                           type="button"
-                          size="sm"
+                          icon={Plus}
+                          label="Adicionar"
+                          hint="Adicionar esta frase ao conjunto"
                           variant="secondary"
-                          className="h-8 shrink-0"
+                          className="h-8"
                           onClick={addPhrase}
                           disabled={!phraseDraft.trim()}
-                        >
-                          <Plus className="size-3.5" /> Adicionar
-                        </Button>
-                      </div>
+                        />
+                      </ToolBar>
                     </div>
                   </>
                 )}
@@ -738,7 +745,10 @@ export default function WarmTool({ platform }) {
             <Stat label="Modo" value={MODE_NAME[status.mode] || status.mode} />
             <Stat label="Personalidade" value={status.personality || "—"} />
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          {/* 4 counters × pt-BR labels ("concluído", "seguidos") do not fit one
+              row at the minimum panel width, so they fold to 2×2 there. The
+              @container comes from ToolBar's wrapper. */}
+          <ToolBar className="grid grid-cols-2 gap-2 @min-[308.05px]/toolbar:grid-cols-4">
             <Counter
               label="concluído"
               value={
@@ -760,7 +770,7 @@ export default function WarmTool({ platform }) {
                 <Counter label="seguidos" value={status.followed} />
               </>
             )}
-          </div>
+          </ToolBar>
           {platform === "facebook" &&
             (status.reactionCounts || status.commented) && (
               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -779,9 +789,11 @@ export default function WarmTool({ platform }) {
               tempo restante {fmtMs(status.etaMs)}
             </p>
           )}
+          {/* break-words: log lines carry hashtags/URLs with no break
+              opportunity — without it a single long token widens the panel. */}
           <div
             ref={logRef}
-            className="log-scroll rounded-lg bg-zinc-900 text-zinc-200 p-2.5 text-[11px] font-mono leading-relaxed h-52 overflow-y-auto whitespace-pre-wrap"
+            className="log-scroll rounded-lg bg-zinc-900 text-zinc-200 p-2.5 text-[11px] font-mono leading-relaxed h-52 overflow-y-auto break-words whitespace-pre-wrap"
           >
             {(status.log || []).map((e, i) => (
               <div key={i}>
@@ -792,35 +804,45 @@ export default function WarmTool({ platform }) {
         </div>
       )}
 
-      <div className="flex gap-2">
+      <ToolBar className="gap-2">
         {!running ? (
-          <Button
-            className="flex-1 grad-blue border-0 text-primary-foreground shadow-md"
+          <ActionButton
+            icon={Play}
+            label="Iniciar"
+            size="default"
+            className="h-9 basis-0 grow grad-blue border-0 text-primary-foreground shadow-md"
             onClick={start}
             disabled={noTab || needReload}
-          >
-            <Play /> Iniciar
-          </Button>
+          />
         ) : (
           <>
-            <Button className="flex-1" variant="secondary" onClick={togglePause}>
-              {paused ? <Play /> : <Pause />} {paused ? "Retomar" : "Pausar"}
-            </Button>
-            <Button className="flex-1" variant="destructive" onClick={stop}>
-              <Square /> Parar
-            </Button>
+            <ActionButton
+              icon={paused ? Play : Pause}
+              label={paused ? "Retomar" : "Pausar"}
+              size="default"
+              className="h-9 basis-0 grow"
+              variant="secondary"
+              onClick={togglePause}
+            />
+            <ActionButton
+              icon={Square}
+              label="Parar"
+              size="default"
+              className="h-9 basis-0 grow"
+              variant="destructive"
+              onClick={stop}
+            />
           </>
         )}
-        <Button
-          variant="outline"
-          size="icon"
+        <ToolIconButton
+          icon={ExternalLink}
+          label={`Abrir o ${platformCfg.name} em sua própria janela`}
+          hint={`Mover o ${platformCfg.name} para sua própria janela para continuar rolando enquanto você trabalha em outras abas`}
+          className="size-9"
           onClick={detach}
           disabled={noTab}
-          title={`Mover o ${platformCfg.name} para sua própria janela para continuar rolando enquanto você trabalha em outras abas`}
-        >
-          <ExternalLink />
-        </Button>
-      </div>
+        />
+      </ToolBar>
       {!noTab && (
         <p className="text-[11px] text-muted-foreground leading-relaxed">
           Clique em <ExternalLink className="inline size-3 -mt-0.5" /> para
@@ -904,12 +926,12 @@ function SummaryCard({ summary, onDismiss }) {
             {outcomeLabel(summary.outcome)}
           </span>
         </div>
-        <div className="text-xs text-muted-foreground">
+        <div className="break-words text-xs text-muted-foreground">
           {summary.platform} · {summary.keyword || summary.mode}
           {summary.personality ? ` · ${summary.personality}` : ""} ·{" "}
           {fmtMs(summary.durationMs)}
         </div>
-        <div className="flex gap-3 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
           <span>vistos {summary.processed}</span>
           <span>👍 {summary.liked}</span>
           <span>❤️ {summary.loved ?? 0}</span>
@@ -928,7 +950,7 @@ function Stat({ label, value }) {
   return (
     <Card>
       <CardContent className="p-2.5">
-        <div className="text-[11px] text-muted-foreground">{label}</div>
+        <div className="truncate text-[11px] text-muted-foreground" title={label}>{label}</div>
         <div className="text-sm font-normal truncate">{value}</div>
       </CardContent>
     </Card>
@@ -939,10 +961,10 @@ function Counter({ label, value }) {
   return (
     <Card>
       <CardContent className="p-2 text-center">
-        <div className="text-xl font-normal grad-blue-text leading-tight">
+        <div className="truncate text-xl font-normal grad-blue-text leading-tight">
           {value}
         </div>
-        <div className="text-[10px] text-muted-foreground">{label}</div>
+        <div className="truncate text-[10px] text-muted-foreground" title={label}>{label}</div>
       </CardContent>
     </Card>
   );

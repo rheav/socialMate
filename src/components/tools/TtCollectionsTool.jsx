@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Bookmark, RotateCw, ListVideo, ChevronDown, ChevronRight, Eye } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
@@ -89,12 +89,18 @@ export default function TtCollectionsTool() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{lists.length} coleção(ões) capturada(s)</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar coleções capturadas">
-          <RotateCw className="size-3.5" /> Atualizar
-        </Button>
-      </div>
+      <ToolBar className="justify-between">
+        <span className="min-w-0 break-words text-[11px] text-muted-foreground">
+          {lists.length} coleção(ões) capturada(s)
+        </span>
+        <ActionButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — limpar coleções capturadas"
+          variant="outline"
+          onClick={refresh}
+        />
+      </ToolBar>
 
       {lists.map((L) => {
         const isOpen = !!open[L.list_id];
@@ -126,9 +132,17 @@ export default function TtCollectionsTool() {
                   <p className="py-3 text-center text-[11px] text-muted-foreground">Abra esta {L.kind === "collection" ? "coleção" : "playlist"} no TikTok para carregar os vídeos dela.</p>
                 ) : (
                   <>
-                    <div className="mb-2 flex justify-end">
-                      <Button variant="secondary" size="sm" onClick={() => downloadAll(items)}><Download className="size-3.5" /> Tudo em HD</Button>
-                    </div>
+                    {/* ToolBar here too, so the container measures the width
+                        INSIDE the card, not the panel's. */}
+                    <ToolBar className="mb-2 justify-end">
+                      <ActionButton
+                        icon={Download}
+                        label="Tudo em HD"
+                        hint="Baixar todos os vídeos desta coleção em HD"
+                        variant="secondary"
+                        onClick={() => downloadAll(items)}
+                      />
+                    </ToolBar>
                     <div className="grid grid-cols-3 gap-1.5">
                       {items.map((item) => {
                         const st = busy[item.id];

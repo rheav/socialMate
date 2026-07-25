@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FileText, Loader2, Bookmark, RotateCw, Eye, Heart } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
@@ -129,12 +129,18 @@ export default function TtStoriesTool() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{owners.length} criador(es) capturado(s)</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar stories capturados">
-          <RotateCw className="size-3.5" /> Atualizar
-        </Button>
-      </div>
+      <ToolBar className="justify-between">
+        <span className="min-w-0 break-words text-[11px] text-muted-foreground">
+          {owners.length} criador(es) capturado(s)
+        </span>
+        <ActionButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — limpar stories capturados"
+          variant="outline"
+          onClick={refresh}
+        />
+      </ToolBar>
 
       {owners.map(({ owner, items }) => (
         <div key={owner} className="space-y-2">

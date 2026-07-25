@@ -6,7 +6,9 @@ import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
 // gray and lift on hover. Brand marks only — no labels.
 export default function PlatformSwitcher({ value, onValueChange, disabled }) {
   return (
-    <div className="flex items-center gap-1.5">
+    // shrink-0: the switcher is the header's payload — the wordmark next to it
+    // is what gives way when the panel narrows, never these four targets.
+    <div className="flex shrink-0 items-center gap-1.5">
       {/* one shared gradient def for all active glyphs */}
       <svg width="0" height="0" className="absolute" aria-hidden="true">
         <defs>

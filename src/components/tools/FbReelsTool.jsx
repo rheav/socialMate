@@ -11,19 +11,19 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 
-const SORT_LABEL = { default: "Padrão", views: "Visualizações", comments: "Comentários", shares: "Compartilhamentos" };
+// `short` is the word the sort trigger falls back to once the row is too narrow
+// for the full label — a whole word, never an ellipsis. Values are unchanged.
+const SORT_OPTS = [
+  { value: "default", label: "Padrão" },
+  { value: "views", label: "Visualizações", short: "Visualiz." },
+  { value: "comments", label: "Comentários", short: "Coment." },
+  { value: "shares", label: "Compartilhamentos", short: "Compart." },
+];
 
 function IconBtn({ children, ...props }) {
   return (
@@ -171,39 +171,32 @@ export default function FbReelsTool() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Select value={sortKey} onValueChange={setSortKey}>
-          <SelectTrigger className="flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABEL).map(([k, l]) => (
-              <SelectItem key={k} value={k}>
-                {l}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="icon"
+      <ToolBar>
+        <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
+        <ToolIconButton
+          icon={sortDir === "desc" ? ArrowDown : ArrowUp}
+          label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
-        >
-          {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
-        </Button>
-        <Button variant="secondary" onClick={collectAll} disabled={harvesting} title="Rolar a grade para carregar todos os reels">
-          {harvesting ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-          {harvesting ? "Coletando" : "Coletar tudo"}
-        </Button>
-      </div>
+        />
+        <ActionButton
+          icon={harvesting ? Loader2 : RefreshCw}
+          iconClassName={harvesting ? "animate-spin" : undefined}
+          label={harvesting ? "Coletando" : "Coletar tudo"}
+          hint="Rolar a grade para carregar todos os reels"
+          variant="secondary"
+          onClick={collectAll}
+          disabled={harvesting}
+        />
+      </ToolBar>
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>
+      {/* flex-wrap, not truncate: the action drops to its own line instead of
+          the owner name losing characters. */}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="min-w-0 break-words">
           {sorted.length} reels{owner ? ` · ${owner}` : ""}
         </span>
         <button
-          className="underline disabled:opacity-50"
+          className="shrink-0 underline disabled:opacity-50"
           onClick={downloadAllThumbs}
           disabled={!sorted.length}
         >

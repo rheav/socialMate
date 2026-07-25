@@ -69,8 +69,8 @@ function ReloadHint() {
   const needsReload = useFlag("fbw_need_reload");
   if (!needsReload) return null;
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-amber-400/10 border border-amber-400/30 px-2.5 py-2 text-[11px] text-amber-700">
-      <span className="flex-1">Esta aba ainda não está vinculada — recarregue-a para capturar o vídeo aqui.</span>
+    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-amber-400/10 border border-amber-400/30 px-2.5 py-2 text-[11px] text-amber-700">
+      <span className="min-w-0 flex-1 break-words">Esta aba ainda não está vinculada — recarregue-a para capturar o vídeo aqui.</span>
       <button
         className="flex-none rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-600"
         onClick={() => hasStorage() && chrome.runtime.sendMessage({ type: "FBW_RELOAD_TAB" })}
@@ -175,12 +175,12 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
         )}
 
         {it.caption && (
-          <p className="line-clamp-2 text-[11px] leading-snug text-foreground/70 whitespace-pre-wrap">
+          <p className="line-clamp-2 break-words text-[11px] leading-snug text-foreground/70 whitespace-pre-wrap">
             {it.caption}
           </p>
         )}
 
-        {it.status === "error" && <p className="text-[11px] text-destructive">{it.error}</p>}
+        {it.status === "error" && <p className="break-words text-[11px] text-destructive">{it.error}</p>}
 
         {it.text ? (
           <>
@@ -192,11 +192,11 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
               Transcrição
             </button>
             {open && (
-              <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 whitespace-pre-wrap">
+              <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 break-words whitespace-pre-wrap">
                 {it.text}
               </div>
             )}
-            <div className="mt-auto flex gap-2 pt-1 text-[11px]">
+            <div className="mt-auto flex flex-wrap gap-x-2 gap-y-0.5 pt-1 text-[11px]">
               <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
               <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.txt`, it.text)}>.txt</button>
               {it.chunks?.length ? (
@@ -213,7 +213,9 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
 }
 
 function Grid({ children }) {
-  return <div className="grid grid-cols-2 gap-2.5">{children}</div>;
+  // grid-cols-2 holds at 260px (two ~106px tiles); the tiles' own content all
+  // truncates or wraps, so nothing inside them pushes the page wider.
+  return <div className="grid min-w-0 grid-cols-2 gap-2.5">{children}</div>;
 }
 
 // ---- Transcripts tab ----
@@ -238,7 +240,7 @@ export default function TranscriptsPanel() {
         </p>
       ) : (
         <>
-          <div className="flex items-center justify-between pt-1">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-1">
             <span className="text-xs font-medium text-foreground">{items.length} {items.length === 1 ? "transcrição" : "transcrições"}</span>
             <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>limpar tudo</button>
           </div>
@@ -288,7 +290,7 @@ export function SavedPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
         <button className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={() => hasStorage() && chrome.storage.local.set({ [SKEY]: {} })}>
           <Trash2 size={11} /> limpar tudo
@@ -303,11 +305,11 @@ export function SavedPanel() {
           <div key={p} className="space-y-2">
             <button
               onClick={() => setCollapsed((c) => ({ ...c, [p]: !c[p] }))}
-              className="flex w-full items-center gap-2 text-left"
+              className="flex w-full min-w-0 items-center gap-2 text-left"
             >
               <ChevronDown size={14} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
               <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
-              <span className="text-sm font-semibold text-foreground">{meta.label}</span>
+              <span className="min-w-0 truncate text-sm font-semibold text-foreground">{meta.label}</span>
               <span className="text-[11px] text-muted-foreground">{items.length}</span>
             </button>
             {open && (

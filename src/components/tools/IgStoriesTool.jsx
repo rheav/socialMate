@@ -9,7 +9,7 @@ import {
   RotateCw,
   Link2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { extFromUrl } from "@/lib/igMedia";
 import { groupReels, reelLabel, storyToCard, storyFilename } from "@/lib/igReels";
@@ -138,18 +138,26 @@ export default function IgStoriesTool() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">{groups.length} perfil(is) capturado(s)</span>
-        <Button variant="outline" size="sm" onClick={refresh} title="Atualizar — limpar stories capturados">
-          <RotateCw className="size-3.5" /> Atualizar
-        </Button>
-      </div>
+      <ToolBar className="justify-between">
+        <span className="min-w-0 break-words text-[11px] text-muted-foreground">
+          {groups.length} perfil(is) capturado(s)
+        </span>
+        <ActionButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — limpar stories capturados"
+          variant="outline"
+          onClick={refresh}
+        />
+      </ToolBar>
       {groups.map(({ owner, reels: ownerReels }) => (
         <div key={owner} className="space-y-2">
           <div className="text-sm font-semibold text-foreground">@{owner}</div>
           {ownerReels.map((reel) => (
             <div key={reel.reel_id} className="rounded-lg border border-border bg-card p-2">
-              <div className="mb-2 flex items-center gap-2">
+              {/* ToolBar here too, so the container measures the width INSIDE the
+                  card (panel − page gutters − card padding), not the panel's. */}
+              <ToolBar className="mb-2 gap-2">
                 {reel.cover ? (
                   <img src={reel.cover} alt="" className="size-8 shrink-0 rounded-full object-cover ring-1 ring-black/10" />
                 ) : (
@@ -161,15 +169,15 @@ export default function IgStoriesTool() {
                     {(reel.items?.length || 0)} {(reel.items?.length || 0) === 1 ? "item" : "itens"}
                   </div>
                 </div>
-                <Button
-                  size="sm"
+                <ActionButton
+                  icon={DownloadCloud}
+                  label="Tudo"
+                  hint="Baixar todos os itens deste story"
                   variant="secondary"
                   onClick={() => downloadReel(reel)}
                   disabled={!reel.items?.length}
-                >
-                  <DownloadCloud className="size-3.5" /> Tudo
-                </Button>
-              </div>
+                />
+              </ToolBar>
 
               <div className="grid grid-cols-3 gap-1.5">
                 {(reel.items || []).map((item) => {

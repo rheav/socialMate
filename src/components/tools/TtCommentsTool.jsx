@@ -11,15 +11,8 @@ import {
   CornerDownRight,
   RotateCw,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
@@ -32,7 +25,13 @@ import {
   exportFilename,
 } from "@/lib/ttComments";
 
-const SORT_LABEL = { thread: "Ordem da conversa", likes: "Curtidas", date: "Data" };
+// `short` is the word the sort trigger falls back to once the row is too narrow
+// for the full label. Values are unchanged.
+const SORT_OPTS = [
+  { value: "thread", label: "Ordem da conversa", short: "Conversa" },
+  { value: "likes", label: "Curtidas" },
+  { value: "date", label: "Data" },
+];
 
 // TikTok Comments. Comments are captured passively (fetch tee of
 // /api/comment/list/) when you OPEN a video on TikTok — nothing is fetched in the
@@ -142,73 +141,66 @@ export default function TtCommentsTool() {
   return (
     <div className="space-y-3">
       {/* video picker + refresh */}
-      <div className="flex items-center gap-2">
-        <Select value={activeId || ""} onValueChange={pickVideo}>
-        <SelectTrigger>
-          <SelectValue placeholder="Escolha um vídeo capturado" />
-        </SelectTrigger>
-        <SelectContent>
-          {videos.map((v) => {
+      <ToolBar>
+        <ToolSelect
+          label="Vídeo"
+          value={activeId || ""}
+          onValueChange={pickVideo}
+          options={videos.map((v) => {
             const label =
               (v.meta && (v.meta.desc || (v.meta.username && "@" + v.meta.username))) ||
               "vídeo " + v.aweme_id;
-            return (
-              <SelectItem key={v.aweme_id} value={v.aweme_id}>
-                {String(label).slice(0, 48)} · {v.comments.length}
-              </SelectItem>
-            );
+            return {
+              value: v.aweme_id,
+              label: `${String(label).slice(0, 48)} · ${v.comments.length}`,
+              short: String(label).slice(0, 24),
+            };
           })}
-        </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="icon"
+        />
+        <ToolIconButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — descarta outros vídeos, segue o que você está vendo"
           onClick={refresh}
-          title="Atualizar — descarta outros vídeos, segue o que você está vendo"
-        >
-          <RotateCw />
-        </Button>
-      </div>
+        />
+      </ToolBar>
 
       {/* controls */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+      <ToolBar>
+        {/* min-w-0 on the wrapper is required: an <input> has an intrinsic
+            min-content width (~20 chars), so a flex-1 wrapper without it will
+            not shrink and pushes the sorter off the panel. */}
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Pesquisar texto / autor"
-            className="pl-7"
+            className="h-8 min-w-0 pl-7 text-xs"
           />
         </div>
-        <Select value={sortKey} onValueChange={setSortKey}>
-          <SelectTrigger className="w-[120px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABEL).map(([k, l]) => (
-              <SelectItem key={k} value={k}>
-                {l}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="icon"
+        <ToolSelect
+          label="Ordenar por"
+          value={sortKey}
+          onValueChange={setSortKey}
+          options={SORT_OPTS}
+          className="max-w-[130px]"
+        />
+        <ToolIconButton
+          icon={sortDir === "desc" ? ArrowDown : ArrowUp}
+          label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
           disabled={sortKey === "thread"}
-          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
-        >
-          {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
-        </Button>
-      </div>
+        />
+      </ToolBar>
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>
+      {/* flex-wrap, not truncate: the copy/export links drop to their own line
+          instead of the tally losing words. */}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="min-w-0 break-words">
           {counts.total} comentários · {counts.topLevel} principais · {counts.replies} respostas
         </span>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <button className="inline-flex items-center gap-1 underline" onClick={copyAll}>
             {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
             {copied ? "Copiado" : "Copiar"}
@@ -258,7 +250,9 @@ export default function TtCommentsTool() {
                 )}
               </div>
             </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-[12px] leading-snug text-foreground">
+            {/* break-words: a pasted URL is one unbreakable token and would
+                otherwise push the whole panel wider than the window. */}
+            <p className="mt-0.5 break-words whitespace-pre-wrap text-[12px] leading-snug text-foreground">
               {r.text}
             </p>
           </div>

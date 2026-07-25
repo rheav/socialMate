@@ -132,20 +132,26 @@ export default function Shell() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex items-center justify-between px-4 pt-4 pb-2.5">
+      {/* @container/toolbar: the header is its own query container (see
+          components/ui/ToolBar.jsx for why the container is never panel-wide).
+          Below the shared threshold the wordmark drops out — logo + platform
+          switcher + theme toggle alone fit a 260px panel with room to spare,
+          the wordmark is what pushed it over. */}
+      <header className="@container/toolbar flex items-center justify-between gap-2 px-4 pt-4 pb-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <button
             onClick={() => {
               setTab("warm");
               setPlatform(null);
             }}
-            title="Início"
-            className="flex items-center gap-2.5"
+            title="Início — socialMate"
+            aria-label="Início — socialMate"
+            className="flex min-w-0 shrink-0 items-center gap-2.5"
           >
-            <div className="grad-identity grid size-7 place-items-center rounded-[9px]">
+            <div className="grad-identity grid size-7 shrink-0 place-items-center rounded-[9px]">
               <Flame className="size-[15px] text-white" fill="currentColor" strokeWidth={1.5} />
             </div>
-            <h1 className="text-[15px] font-semibold grad-identity-text tracking-tight">
+            <h1 className="truncate text-[15px] font-semibold grad-identity-text tracking-tight @max-[308px]/toolbar:hidden">
               socialMate
             </h1>
           </button>
@@ -155,13 +161,14 @@ export default function Shell() {
         <button
           onClick={toggleTheme}
           title={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
+          aria-label={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
           className="grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </button>
       </header>
 
-      <div className="px-4">
+      <div className="min-w-0 px-4">
         <Segmented
           value={tab}
           onChange={setTab}
@@ -172,7 +179,7 @@ export default function Shell() {
         />
       </div>
 
-      <main className="flex-1 px-4 py-3 space-y-3">
+      <main className="min-w-0 flex-1 px-4 py-3 space-y-3">
         {tab === "library" ? (
           <LibraryTool />
         ) : (

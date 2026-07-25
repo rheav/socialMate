@@ -116,7 +116,11 @@
     /* Side panel is user-resizable — fill its width instead of locking to a fixed
        360px (which left a white gap on the right when the panel was wider). */
     width: 100%;
-    min-width: 320px;
+    /* Chrome lets the side panel be dragged narrower than this; a 320px floor
+       made the BODY overflow (horizontal scrollbar) instead of the layout
+       adapting. The tool rows now collapse to icon-only via container queries
+       (see components/ui/ToolBar.jsx), so 260px is a real supported width. */
+    min-width: 260px;
     min-height: 100vh;
     font-family: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-weight: 300;

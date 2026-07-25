@@ -9,20 +9,19 @@ import {
   Download,
   Trash2,
   BadgeCheck,
-  ArrowDownUp,
   Loader2,
   RotateCw,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { fmtCount } from "@/lib/fbReels";
+
+// `short` is the word the sort trigger falls back to once the row is too narrow
+// for the full label. Values are unchanged.
+const SORT_OPTS = [
+  { value: "order", label: "Ordem da conversa", short: "Conversa" },
+  { value: "reactions", label: "Reações" },
+];
 
 const CKEY = "fbw_comments"; // archive: { post_id -> envelope }, ≤8 posts
 const LKEY = "fbw_comments_live"; // single post currently streaming
@@ -65,7 +64,9 @@ function CommentRow({ c }) {
         )}
       </div>
       {c.text ? (
-        <p className="whitespace-pre-wrap text-[11.5px] leading-snug text-foreground/85">{c.text}</p>
+        // break-words: a pasted URL is one unbreakable token and would otherwise
+        // push the whole panel wider than the window.
+        <p className="break-words whitespace-pre-wrap text-[11.5px] leading-snug text-foreground/85">{c.text}</p>
       ) : (
         <p className="text-[11px] italic text-muted-foreground">(sem texto — figurinha / mídia)</p>
       )}
@@ -182,57 +183,58 @@ export default function FbCommentsTool() {
   return (
     <div className="flex h-[calc(100dvh-190px)] min-h-[320px] flex-col gap-2.5">
       {/* post selector + refresh (jump to the newest / streaming scrape) */}
-      <div className="flex items-center gap-2">
+      <ToolBar>
         {posts.length > 1 && (
-          <Select value={active?.post_id || ""} onValueChange={setPostId}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {posts.map((p) => (
-                <SelectItem key={p.post_id} value={p.post_id}>
-                  {p.scraping ? "⏳ " : ""}{p.post_id} · {p.count} comentários
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ToolSelect
+            label="Post"
+            value={active?.post_id || ""}
+            onValueChange={setPostId}
+            options={posts.map((p) => ({
+              value: p.post_id,
+              label: `${p.scraping ? "⏳ " : ""}${p.post_id} · ${p.count} comentários`,
+              short: `${p.scraping ? "⏳ " : ""}${p.post_id}`,
+            }))}
+          />
         )}
-        <Button
-          variant="outline"
-          size="icon"
-          className="ml-auto shrink-0"
+        <ToolIconButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — ir para a coleta mais recente / em andamento"
+          className="ml-auto"
           onClick={() => setPostId(null)}
-          title="Atualizar — ir para a coleta mais recente / em andamento"
-        >
-          <RotateCw />
-        </Button>
-      </div>
+        />
+      </ToolBar>
 
       {/* controls */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+      <ToolBar>
+        {/* min-w-0 on the wrapper is required: an <input> has an intrinsic
+            min-content width (~20 chars), so a flex-1 wrapper without it will
+            not shrink and pushes the sorter off the panel. */}
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar texto / autor" className="h-8 pl-7 text-xs" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar texto / autor" className="h-8 min-w-0 pl-7 text-xs" />
         </div>
-        <Select value={sortKey} onValueChange={setSortKey}>
-          <SelectTrigger className="h-8 w-[112px] text-xs">
-            <ArrowDownUp className="size-3.5" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="order">Ordem da conversa</SelectItem>
-            <SelectItem value="reactions">Reações</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+        <ToolSelect
+          label="Ordenar por"
+          value={sortKey}
+          onValueChange={setSortKey}
+          options={SORT_OPTS}
+          className="max-w-[130px]"
+        />
+      </ToolBar>
 
-      {/* filter pills + counts */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1">
+      {/* filter pills + counts — flex-wrap, not truncate: when the pills and the
+          tally can't share a line the tally moves to its own line instead of
+          losing words. */}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <div className="flex shrink-0 gap-1">
           {[["all", "Todos"], ["top", "Principais"], ["replies", "Respostas"]].map(([k, l]) => (
             <button
               key={k}
               onClick={() => setFilter(k)}
+              title={l}
+              aria-label={l}
+              aria-pressed={filter === k}
               className={
                 "rounded-md px-2 py-1 text-[11px] font-medium transition-colors " +
                 (filter === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground")
@@ -242,30 +244,37 @@ export default function FbCommentsTool() {
             </button>
           ))}
         </div>
-        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          {active.scraping && <Loader2 className="size-3 animate-spin text-sky-500" />}
+        <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+          {active.scraping && <Loader2 className="size-3 shrink-0 animate-spin text-sky-500" />}
           {rows.length} exibidos · {active.count}{active.scraping ? "…" : " no total"}
         </span>
       </div>
 
       {/* actions */}
-      <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" className="h-8 flex-1 text-xs" onClick={copyAll}>
-          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? "Copiado" : "Copiar texto"}
-        </Button>
-        <Button
+      <ToolBar>
+        <ActionButton
+          icon={copied ? Check : Copy}
+          label={copied ? "Copiado" : "Copiar texto"}
+          variant="secondary"
+          className="h-8 basis-0 grow"
+          onClick={copyAll}
+        />
+        <ActionButton
+          icon={Download}
+          label="JSON"
+          hint="Exportar a conversa como JSON"
           variant="outline"
-          size="sm"
-          className="h-8 flex-1 text-xs"
+          className="h-8 basis-0 grow"
           onClick={() => jsonDownload(`fb-comments-${active.post_id}.json`, active)}
-        >
-          <Download className="size-3.5" /> JSON
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title="Limpar este post" onClick={clearPost}>
-          <Trash2 className="size-3.5 text-muted-foreground" />
-        </Button>
-      </div>
+        />
+        <ToolIconButton
+          icon={Trash2}
+          label="Limpar este post"
+          variant="ghost"
+          iconClassName="text-muted-foreground"
+          onClick={clearPost}
+        />
+      </ToolBar>
 
       {/* virtualized comment list */}
       <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto pr-0.5">

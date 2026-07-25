@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, RotateCw, Play, Image as ImageIcon, Film, Layers, Bookmark } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ToolBar, ActionButton, ToolSelect } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { startPolling } from "@/lib/poll";
 import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
 
 const MAX_PAGES = 40; // ~1000 pins per run — surfaced in the UI, never a silent cap.
+// `short` is what the trigger shows once the row is too narrow for the full
+// wording — a whole word, not an ellipsis. Values are unchanged (persisted
+// nowhere, but they drive sortRecords).
+const SORT_OPTS = [
+  { value: "default", label: "Ordem da pasta", short: "Pasta" },
+  { value: "saves", label: "Mais salvos", short: "Salvos" },
+  { value: "comments", label: "Mais comentados", short: "Coment." },
+  { value: "date", label: "Mais recentes", short: "Recentes" },
+];
 
 // Pinterest Board tool. Unlike the IG/TT tools this is not polling a passive
 // capture — pin-api.js actively pages Pinterest's resource API, so the panel asks
@@ -179,27 +188,43 @@ export default function PinBoardTool() {
         {ctx.error ? <div className="mt-1 text-[11px] text-red-600">{ctx.error}</div> : null}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={harvest} disabled={state.harvesting}>
-          <Play className="size-3.5" /> {state.harvesting ? `Coletando… ${state.pages}p` : "Coletar"}
-        </Button>
-        <Button variant="outline" size="sm" onClick={clear} disabled={state.harvesting}>
-          <RotateCw className="size-3.5" /> Limpar
-        </Button>
-        <Button variant="secondary" size="sm" onClick={downloadAll} disabled={!records.length || state.harvesting}>
-          <Download className="size-3.5" /> Tudo ({records.length})
-        </Button>
-        <select
-          className="ml-auto rounded-md border border-border bg-background px-1.5 py-1 text-[11px]"
+      {/* `dense`: three labelled buttons AND a select. At the ordinary threshold
+          the labels would switch on at a 338px panel and starve the sorter down
+          to ~33px — see ToolBar.jsx for the measured numbers. */}
+      <ToolBar dense>
+        <ActionButton
+          icon={Play}
+          label={state.harvesting ? `Coletando… ${state.pages}p` : "Coletar"}
+          hint="Coletar os pins desta pasta"
+          onClick={harvest}
+          disabled={state.harvesting}
+        />
+        <ActionButton
+          icon={RotateCw}
+          label="Limpar"
+          hint="Limpar os pins coletados"
+          variant="outline"
+          onClick={clear}
+          disabled={state.harvesting}
+        />
+        <ActionButton
+          icon={Download}
+          label={`Tudo (${records.length})`}
+          hint={`Baixar todos os ${records.length} pin(s)`}
+          variant="secondary"
+          onClick={downloadAll}
+          disabled={!records.length || state.harvesting}
+        />
+        {/* max-w keeps the sorter from eating a wide panel; ml-auto then parks
+            it on the right the way the old natural-width <select> did. */}
+        <ToolSelect
+          label="Ordenar"
           value={sortKey}
-          onChange={(e) => setSortKey(e.target.value)}
-        >
-          <option value="default">Ordem da pasta</option>
-          <option value="saves">Mais salvos</option>
-          <option value="comments">Mais comentados</option>
-          <option value="date">Mais recentes</option>
-        </select>
-      </div>
+          onValueChange={setSortKey}
+          options={SORT_OPTS}
+          className="ml-auto max-w-[170px]"
+        />
+      </ToolBar>
 
       <div className="text-[11px] text-muted-foreground">
         {records.length} pin(s) · {state.pages} página(s)

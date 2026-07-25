@@ -24,13 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { startPolling } from "@/lib/poll";
 import {
@@ -44,7 +38,16 @@ import {
   fmtER,
 } from "@/lib/igMedia";
 
-const SORT_LABEL = { default: "Padrão", views: "Visualizações", likes: "Curtidas", comments: "Comentários", er: "TE %", date: "Data" };
+// `short` is the word the sort trigger falls back to once the row is too narrow
+// for the full label — a whole word, never an ellipsis. Values are unchanged.
+const SORT_OPTS = [
+  { value: "default", label: "Padrão" },
+  { value: "views", label: "Visualizações", short: "Visualiz." },
+  { value: "likes", label: "Curtidas" },
+  { value: "comments", label: "Comentários", short: "Coment." },
+  { value: "er", label: "TE %" },
+  { value: "date", label: "Data" },
+];
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
 // Small frosted icon button overlaid on a card thumbnail.
@@ -308,49 +311,45 @@ export default function IgSortTool() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Select value={sortKey} onValueChange={setSortKey}>
-          <SelectTrigger className="flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(SORT_LABEL).map(([k, l]) => (
-              <SelectItem key={k} value={k}>
-                {l}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          variant="outline"
-          size="icon"
+      <ToolBar>
+        <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
+        <ToolIconButton
+          icon={sortDir === "desc" ? ArrowDown : ArrowUp}
+          label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
-          title={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
-        >
-          {sortDir === "desc" ? <ArrowDown /> : <ArrowUp />}
-        </Button>
-        <Button variant="outline" size="icon" onClick={refresh} title="Atualizar — descarta outras superfícies, recolhe esta">
-          <RotateCw />
-        </Button>
-        <Button variant="secondary" onClick={downloadAll} disabled={!sorted.length}>
-          <Download /> Tudo
-        </Button>
-      </div>
+        />
+        <ToolIconButton
+          icon={RotateCw}
+          label="Atualizar"
+          hint="Atualizar — descarta outras superfícies, recolhe esta"
+          onClick={refresh}
+        />
+        <ActionButton
+          icon={Download}
+          label="Tudo"
+          hint="Baixar todos os posts listados"
+          variant="secondary"
+          onClick={downloadAll}
+          disabled={!sorted.length}
+        />
+      </ToolBar>
 
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>
+      {/* flex-wrap, not truncate: when the tally and the toggle can't share a
+          line the toggle drops to its own line instead of losing words. */}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="min-w-0 break-words">
           {sorted.length} coletados{surface ? ` · ${surface}` : ""}
         </span>
-        <button className="underline" onClick={() => setShowAll((v) => !v)}>
+        <button className="shrink-0 underline" onClick={() => setShowAll((v) => !v)}>
           {showAll ? "restringir à superfície" : "mostrar tudo"}
         </button>
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
-        <Label htmlFor="ig-overlay" className="text-xs text-foreground cursor-pointer">
+      <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <Label htmlFor="ig-overlay" className="min-w-0 text-xs text-foreground cursor-pointer">
           Sobreposição de estatísticas no Instagram
         </Label>
-        <Switch id="ig-overlay" checked={overlay} onCheckedChange={toggleOverlay} />
+        <Switch id="ig-overlay" className="shrink-0" checked={overlay} onCheckedChange={toggleOverlay} />
       </div>
 
 
