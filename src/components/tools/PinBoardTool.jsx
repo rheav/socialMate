@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, RotateCw, Play, Image as ImageIcon, Film, Layers } from "lucide-react";
+import { Download, RotateCw, Play, Image as ImageIcon, Film, Layers, Bookmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { startPolling } from "@/lib/poll";
@@ -106,6 +106,29 @@ export default function PinBoardTool() {
     }
   }
 
+  async function save(rec) {
+    try {
+      const r = await chrome.storage.local.get("fbw_saved");
+      const map = r.fbw_saved || {};
+      if (map[rec.id]) delete map[rec.id];
+      else
+        map[rec.id] = {
+          videoId: rec.id,
+          platform: "pinterest",
+          thumb: rec.thumb || null,
+          caption: rec.title || rec.description || null,
+          author: { name: rec.username || "unknown", url: rec.username ? `https://www.pinterest.com/${rec.username}/` : null },
+          counts: { like: fmtCount(rec.saves), comment: fmtCount(rec.comments), views: "—" },
+          code: rec.id,
+          // TranscriptsPanel only knows how to rebuild FB/IG permalinks, so Pinterest
+          // must always carry its own.
+          sourceUrl: rec.permalink,
+          updatedAt: Date.now(),
+        };
+      await chrome.storage.local.set({ fbw_saved: map });
+    } catch { /* ignore */ }
+  }
+
   // Serial with a 400 ms gap, matching IgSortTool/TtSortTool. Chrome will happily
   // accept parallel downloads, but Pinterest's CDN starts refusing under a burst.
   async function downloadAll() {
@@ -174,6 +197,13 @@ export default function PinBoardTool() {
                 title={rec.items.length > 1 ? `Download ${rec.items.length} assets` : "Download"}
               >
                 <Download className={"size-3.5 " + (busy[rec.id] === "done" ? "text-emerald-400" : busy[rec.id] === "error" ? "text-red-400" : "")} />
+              </button>
+              <button
+                onClick={() => save(rec)}
+                className="absolute left-1 top-8 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80"
+                title="Save to Library"
+              >
+                <Bookmark className="size-3.5" />
               </button>
               {card.thumb ? (
                 <img src={card.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />

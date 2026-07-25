@@ -259,6 +259,7 @@ const PLATFORM_META = {
   facebook: { label: "Facebook", color: "#1877F2" },
   instagram: { label: "Instagram", color: "#E1306C" },
   tiktok: { label: "TikTok", color: "#111827" },
+  pinterest: { label: "Pinterest", color: "#e60023" },
 };
 
 export function SavedPanel() {
