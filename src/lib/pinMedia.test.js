@@ -332,7 +332,7 @@ describe("pinToRecord", () => {
 
 describe("filenames", () => {
   it("strips path-hostile characters", () => {
-    expect(sanitizeFilenamePart('a/b:c*d?"<>|')).toBe("a_b_c_d_");
+    expect(sanitizeFilenamePart('a/b:c*d?"<>|')).toBe("a_b_c_d");
   });
 
   it("builds pin-<user>-<id>.<ext> and suffixes multi-asset pins", () => {

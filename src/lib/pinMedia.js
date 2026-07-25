@@ -278,7 +278,7 @@ export function recordToCard(rec) {
 // Filenames + formatting
 // ---------------------------------------------------------------------------
 export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+/g, "").slice(0, 40);
+  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
 }
 
 export function filenameFor(rec, ext, idx) {
