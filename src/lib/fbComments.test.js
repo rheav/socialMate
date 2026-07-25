@@ -3,7 +3,6 @@ import {
   parseReactions,
   parseAuthorFromAria,
   cleanAuthorUrl,
-  commentIdFromHref,
   dedupeKey,
   buildExport,
   filenameFor,
@@ -57,14 +56,6 @@ describe("cleanAuthorUrl", () => {
   });
   it("handles missing href", () => {
     expect(cleanAuthorUrl(null)).toEqual({ url: null, id: null });
-  });
-});
-
-describe("commentIdFromHref", () => {
-  it("pulls comment_id and reply_comment_id", () => {
-    expect(commentIdFromHref("/reel/1/?comment_id=999_888")).toBe("999_888");
-    expect(commentIdFromHref("/reel/1/?reply_comment_id=777")).toBe("777");
-    expect(commentIdFromHref("/reel/1/")).toBeNull();
   });
 });
 

@@ -27,6 +27,23 @@ import {
   if (window.__FBW_LOADED__) return;
   window.__FBW_LOADED__ = true;
 
+  // ---- generation takeover ----
+  // An extension reload/update re-injects this engine into a FRESH isolated world, so
+  // the guard above doesn't stop the OLD one — only its chrome.* dies. If a run was
+  // active, the old world kept its 1s tick (and the whole session state graph) alive
+  // for the page's lifetime, once per reload. Newer generation announces; older stops
+  // its timer and stands down. (Pattern from content/fb/comments-scrape.js.)
+  const FBW_GEN = Date.now() + ":" + Math.random();
+  let fbwSuperseded = false;
+  window.addEventListener("message", (e) => {
+    if (e.source !== window || !e.data || e.data.__fbwEngineTakeover === undefined) return;
+    if (e.data.__fbwEngineTakeover === FBW_GEN || fbwSuperseded) return;
+    fbwSuperseded = true;
+    try { clearInterval(S.tickTimer); } catch { /* pre-init */ }
+    try { S.isRunning = false; } catch { /* pre-init */ }
+  });
+  window.postMessage({ __fbwEngineTakeover: FBW_GEN }, "*");
+
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 

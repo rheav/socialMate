@@ -1134,9 +1134,33 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // (rAF-batched; a handful of getBoundingClientRect calls) instead of waiting
   // for the debounced decorate pass.
   let repositionQueued = false;
+  // Two-phase to avoid layout thrash. placeRail() reads getBoundingClientRect and
+  // then writes styles; running it in a loop meant read→write→read→write, so EVERY
+  // rail forced its own synchronous layout (N rails = N full-document layouts per
+  // scroll frame, and N is 10-30 on a feed). Now: read all rects first, then apply
+  // all styles — one layout per frame regardless of rail count.
   function repositionOverlayRails() {
     repositionQueued = false;
-    for (const rec of overlayRails.values()) placeRail(rec);
+    const vh = window.innerHeight;
+    const frames = [];
+    for (const rec of overlayRails.values()) {
+      const el = rec.media;
+      // Remounted between syncs — hold the last position; the next sync re-binds.
+      if (!el || !el.isConnected) continue;
+      frames.push([rec, el.getBoundingClientRect()]); // READ phase only
+    }
+    for (const [rec, r] of frames) {
+      // WRITE phase only
+      if (r.width < 100 || r.bottom < 0 || r.top > vh) {
+        rec.rail.style.display = "none";
+        continue;
+      }
+      const s = rec.rail.style;
+      s.display = "";
+      s.position = "fixed";
+      s.top = Math.round(r.top + 10) + "px";
+      s.left = Math.round(r.left + 10) + "px";
+    }
   }
   window.addEventListener(
     "scroll",

@@ -19,21 +19,20 @@ import { filterToolsForPlatform } from "@/lib/toolsFilter";
 // in the global Library (Transcripts / Saved). The old profile-thumbnail Download
 // panel was dropped to keep the FB surface uncluttered.
 export const TOOLS = [
-  { id: "warm", label: "Warm", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool, requiresTab: true },
-  { id: "fb-reels", label: "Reels Sort", Icon: Film, platforms: ["facebook"], Panel: FbReelsTool, requiresTab: true },
-  { id: "fb-comments", label: "Comments", Icon: MessageSquare, platforms: ["facebook"], Panel: FbCommentsTool, requiresTab: false },
+  { id: "warm", label: "Warm", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool },
+  { id: "fb-reels", label: "Reels Sort", Icon: Film, platforms: ["facebook"], Panel: FbReelsTool },
+  { id: "fb-comments", label: "Comments", Icon: MessageSquare, platforms: ["facebook"], Panel: FbCommentsTool },
   // "Sort" — download is implicit (every card has a download action). Kept short so
   // 5 tools fit the segmented sub-nav without clipping.
-  { id: "ig-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool, requiresTab: true },
-  { id: "ig-stories", label: "Stories", Icon: Clapperboard, platforms: ["instagram"], Panel: IgStoriesTool, requiresTab: true },
-  { id: "tt-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["tiktok"], Panel: TtSortTool, requiresTab: true },
-  { id: "tt-comments", label: "Comments", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool, requiresTab: false },
-  { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool, requiresTab: true },
-  { id: "tt-collections", label: "Playlists", Icon: ListVideo, platforms: ["tiktok"], Panel: TtCollectionsTool, requiresTab: true },
-  { id: "library", label: "Library", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool, requiresTab: false },
+  { id: "ig-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool },
+  { id: "ig-stories", label: "Stories", Icon: Clapperboard, platforms: ["instagram"], Panel: IgStoriesTool },
+  { id: "tt-sort", label: "Sort", Icon: ArrowDownUp, platforms: ["tiktok"], Panel: TtSortTool },
+  { id: "tt-comments", label: "Comments", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
+  { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool },
+  { id: "tt-collections", label: "Playlists", Icon: ListVideo, platforms: ["tiktok"], Panel: TtCollectionsTool },
+  { id: "library", label: "Library", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool },
 ];
 
 export { filterToolsForPlatform };
 export const toolsForPlatform = (platform) => filterToolsForPlatform(TOOLS, platform);
-export const globalTools = () => TOOLS.filter((t) => t.platforms === "global");
 export const getTool = (id) => TOOLS.find((t) => t.id === id) || null;

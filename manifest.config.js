@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
-  version: "0.64.1",
-  version_name: "0.64.1 — reverted the per-platform identity retint; the panel keeps ONE identity on every platform",
+  version: "0.65.0",
+  version_name: "0.65.0 — dead-code sweep (-39.5MB assets), offscreen idle release (~300MB), leak + hot-path fixes",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

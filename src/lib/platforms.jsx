@@ -35,49 +35,19 @@ const MODE = {
   A: { id: "A", label: "Keyword", Icon: Search },
 };
 
-// Per-platform CSS-variable theme. Applied to <html> on switch so every
-// gradient/primary/glow/wash retints at once (see index.css var consumers).
-//   --sw-from / --sw-to : 2-stop accent (switch fill, logo glyph, glow base)
-//   --sw-grad           : full background gradient (logo, Start, badge, scrollbar)
-//   --sw-grad-hover     : hover variant
-//   --sw-glow           : drop-shadow color for the active platform logo
-//   --sw-wash           : side-panel body backdrop
-//   --primary / --ring  : shadcn HSL tokens (cascade to focus rings, tabs, etc.)
-// STANDARDIZED white/black UI for all platforms. The ONLY per-platform difference is
-// the brand identity gradient (--sw-from/--sw-to/--sw-grad + --sw-glow) — used by the
-// logo squircle, the "socialMate" wordmark, and the active switcher icon (+ glow).
-// Everything else (Start/badge/toggles/tabs/rings/wash/radius) is neutral black-on-white.
-const NEUTRAL = {
-  "--sw-action": "linear-gradient(0deg, #18181b, #18181b)",
-  "--sw-action-hover": "linear-gradient(0deg, #000000, #000000)",
-  "--sw-switch": "linear-gradient(0deg, #18181b, #18181b)",
-  "--sw-wash": "radial-gradient(130% 90% at 50% -20%, #f7f7f8 0%, #fcfcfd 55%, #ffffff 82%)",
-  "--radius": "0.625rem",
-  "--primary": "240 6% 10%",
-  "--ring": "240 6% 10%",
-};
+// Brand gradient per platform, used ONLY for the small platform tiles on the Home
+// picker (Shell.jsx reads `theme["--sw-grad"]` inline).
+//
+// The panel's own identity is deliberately NOT per-platform — one identity on every
+// platform (Smart blue in light, Brute red→yellow in dark), defined in
+// index.css :root/.dark. Nothing here is applied to <html>; an earlier version tried
+// that and was reverted in 0.64.1. Everything the old NEUTRAL bundle carried
+// (--sw-action/--sw-switch/--sw-wash/--radius/--primary/--ring) plus --sw-from/
+// --sw-to/--sw-glow was never read off this object and has been removed.
 const THEMES = {
-  facebook: {
-    ...NEUTRAL,
-    "--sw-from": "#3c7cfc",
-    "--sw-to": "#59c0e8",
-    "--sw-grad": "linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%)",
-    "--sw-glow": "rgba(60, 124, 252, 0.5)",
-  },
-  instagram: {
-    ...NEUTRAL,
-    "--sw-from": "#f58529",
-    "--sw-to": "#bc2a8d",
-    "--sw-grad": "linear-gradient(135deg, #f58529 0%, #dd2a7b 55%, #8134af 100%)",
-    "--sw-glow": "rgba(221, 42, 123, 0.5)",
-  },
-  tiktok: {
-    ...NEUTRAL,
-    "--sw-from": "#25f4ee",
-    "--sw-to": "#fe2c55",
-    "--sw-grad": "linear-gradient(135deg, #25f4ee 0%, #fe2c55 100%)",
-    "--sw-glow": "rgba(254, 44, 85, 0.5)",
-  },
+  facebook: { "--sw-grad": "linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%)" },
+  instagram: { "--sw-grad": "linear-gradient(135deg, #f58529 0%, #dd2a7b 55%, #8134af 100%)" },
+  tiktok: { "--sw-grad": "linear-gradient(135deg, #25f4ee 0%, #fe2c55 100%)" },
 };
 
 // Per-platform support. `modes` order = tab order. `defaultMode` selected on switch.

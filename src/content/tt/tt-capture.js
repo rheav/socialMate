@@ -179,6 +179,9 @@
       while (allVid.size > 1200) allVid.delete(allVid.keys().next().value);
       while (sentVid.size > 1200) sentVid.delete(sentVid.keys().next().value);
       while (allCom.size > 2000) allCom.delete(allCom.keys().next().value);
+      // sentCom was missing from this block — it grew forever (MAIN world survives
+      // extension reloads), a few dozen bytes per comment id seen.
+      while (sentCom.size > 4000) sentCom.delete(sentCom.values().next().value);
       send(out);
     } catch (_) {}
   }

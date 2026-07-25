@@ -18,6 +18,7 @@ import OptionsDropdown from "@/components/ui/OptionsDropdown";
 import { PLATFORMS } from "@/lib/platforms";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { isStaleSession } from "@/lib/sessionMath";
+import { startPolling } from "@/lib/poll";
 
 const MODE_NAME = { A: "Keyword", B: "Feed", C: "Reels" };
 // Seed comment phrases — short, human, emoji-flavored (mystic/astro niche).
@@ -270,14 +271,14 @@ export default function WarmTool({ platform }) {
 
   useEffect(() => {
     poll();
-    const id = setInterval(poll, 1000);
+    const stopPoll = startPolling(poll, 1000); // skips ticks while the panel is hidden
     const onClosed = (closedId) => {
       if (closedId === tabId.current) tabId.current = null;
     };
     const hasTabs = typeof chrome !== "undefined" && chrome?.tabs?.onRemoved;
     if (hasTabs) chrome.tabs.onRemoved.addListener(onClosed);
     return () => {
-      clearInterval(id);
+      stopPoll();
       if (hasTabs) chrome.tabs.onRemoved.removeListener(onClosed);
     };
   }, [poll]);

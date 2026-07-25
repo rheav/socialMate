@@ -4,11 +4,10 @@
 //  3) capture fbcdn video/audio track URLs (webRequest) + drive offscreen
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
-import { parseFbcdnTrack, foldTrack, pickByDuration, pickByWindow } from "./lib/fbcdn.js";
+import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
-const CURRENT_KEY = "fbw_current"; // storage.local: the in-view FB video the panel previews
 const NEED_RELOAD_KEY = "fbw_need_reload"; // panel hint: active FB tab has no live content script
 
 // TikTok's video CDN 403s a hotlinked download (no Referer). fetch/downloads can't
@@ -111,9 +110,31 @@ chrome.runtime.onStartup?.addListener(() => {
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes[SESSION_KEY])
-    updateBadge(changes[SESSION_KEY].newValue);
+  if (area !== "local") return;
+  if (changes[SESSION_KEY]) updateBadge(changes[SESSION_KEY].newValue);
+  if (changes[SAVED_KEY]) capSavedStore(changes[SAVED_KEY].newValue);
 });
+
+// `fbw_saved` is written from NINE places (three content scripts + six panel tools),
+// none of which pruned — it was the only store in the extension that grew forever,
+// and records can carry a base64 thumbnail (~10-20KB each). Capping it in every
+// writer would mean nine copies of the same logic, so it's enforced here instead:
+// one listener, one place, and no writer needs to know. Trims oldest-first by
+// updatedAt. Writing back re-fires this listener, but by then we're at the cap so
+// the guard below stops immediately (no loop).
+const SAVED_KEY = "fbw_saved";
+const SAVED_CAP = 300;
+function capSavedStore(map) {
+  if (!map || typeof map !== "object") return;
+  const keys = Object.keys(map);
+  if (keys.length <= SAVED_CAP) return;
+  const kept = keys
+    .sort((a, b) => (map[b]?.updatedAt || 0) - (map[a]?.updatedAt || 0))
+    .slice(0, SAVED_CAP);
+  const next = {};
+  for (const k of kept) next[k] = map[k];
+  chrome.storage.local.set({ [SAVED_KEY]: next });
+}
 
 // initial paint (SW may spin up mid-session)
 syncBadge();
@@ -134,9 +155,9 @@ const trackRegistry = new Map();
 // xpv_asset_id -> video_id, learned from any track that carries BOTH ids. Lets us
 // fold an orphaned (video_id:null) audio track into its real video record.
 const xpvToVideoId = new Map();
+const XPV_CAP = 600;
 
 // The FB tab + video the panel is currently previewing (its in-view video).
-let currentTabId = null;
 
 function registryKeyFor(track) {
   if (track.videoId) return track.videoId;
@@ -179,8 +200,19 @@ chrome.webRequest?.onBeforeRequest.addListener(
     if (!key) return;
     trackRegistry.set(key, foldTrack(trackRegistry.get(key), track, Date.now()));
     if (trackRegistry.size > TRACK_REGISTRY_CAP) pruneTrackRegistry();
+    // The alias map can grow several times faster than the registry it's pruned
+    // with (many xpv ids alias one video id), so cap it directly too.
+    if (xpvToVideoId.size > XPV_CAP)
+      for (const k of xpvToVideoId.keys()) {
+        xpvToVideoId.delete(k);
+        if (xpvToVideoId.size <= XPV_CAP) break;
+      }
   },
-  { urls: ["*://*.fbcdn.net/*"] },
+  // Without `types` this fires for every image/avatar/sticker on Facebook —
+  // thousands of dispatches a minute that only ever fail the .mp4 regex, and each
+  // one keeps the MV3 service worker awake. Media/XHR only: same tracks, ~95%
+  // fewer events.
+  { urls: ["*://*.fbcdn.net/*"], types: ["media", "xmlhttprequest", "other"] },
 );
 
 // The registry only needs the handful of recently-played videos (a job resolves
@@ -416,11 +448,6 @@ async function runTranscription(videoId, tabId, meta = {}) {
     ...(platform ? { platform } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
   });
-  notifyTab(tabId, {
-    type: "FBW_TRANSCRIBE_PROGRESS",
-    videoId: id,
-    phase: "starting",
-  });
   try {
     await ensureOffscreen();
     const res = await Promise.race([
@@ -492,11 +519,6 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, dura
     return;
   }
   const id = tracks.videoId;
-  notifyTab(tabId, {
-    type: "FBW_DOWNLOAD_PROGRESS",
-    videoId: id,
-    phase: "starting",
-  });
   try {
     await ensureOffscreen();
     const res = await callOffscreen({
@@ -545,10 +567,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     return; // FB/IG tabs
   chrome.tabs
     .sendMessage(tabId, { type: "FBW_PING" })
-    .then(() => {
-      currentTabId = tabId;
-      chrome.storage.local.set({ [NEED_RELOAD_KEY]: false });
-    })
+    .then(() => chrome.storage.local.set({ [NEED_RELOAD_KEY]: false }))
     .catch(() => chrome.storage.local.set({ [NEED_RELOAD_KEY]: true }));
 });
 
@@ -592,37 +611,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target === "offscreen") return false;
 
   switch (msg?.type) {
-    case "FBW_GET_ACTIVE_VIDEO": {
-      const id = activeVideoId();
-      sendResponse({ videoId: id, tracks: id ? trackRegistry.get(id) : null });
-      return false;
-    }
-    // content → bg: the in-view video changed (publish it for the panel preview)
-    case "FBW_CURRENT": {
-      if (msg.current) currentTabId = sender.tab?.id ?? currentTabId;
-      chrome.storage.local.set({
-        [CURRENT_KEY]: msg.current
-          ? { ...msg.current, updatedAt: Date.now() }
-          : null,
-        [NEED_RELOAD_KEY]: false, // this tab is live → no reload hint
-      });
-      return false;
-    }
-    // panel → bg: run on the currently-previewed video (relay to its tab)
-    case "FBW_DO_TRANSCRIBE": {
-      if (currentTabId != null)
-        chrome.tabs
-          .sendMessage(currentTabId, { type: "FBW_RUN_TRANSCRIBE" })
-          .catch(() => {});
-      sendResponse({ started: currentTabId != null });
-      return false;
-    }
-    case "FBW_DO_DOWNLOAD": {
-      if (currentTabId != null)
-        chrome.tabs
-          .sendMessage(currentTabId, { type: "FBW_RUN_DOWNLOAD" })
-          .catch(() => {});
-      sendResponse({ started: currentTabId != null });
+    // offscreen → bg: no jobs in flight, runtimes terminated. Close the document so
+    // the WASM heaps (Whisper ~180 MB + MiniLM + ffmpeg) are actually returned to the
+    // OS; WASM memory only shrinks by being discarded. Next job re-creates it.
+    case "FBW_OFFSCREEN_IDLE": {
+      (async () => {
+        try {
+          if (await chrome.offscreen.hasDocument?.()) await chrome.offscreen.closeDocument();
+        } catch {
+          /* already gone */
+        }
+        offscreenReady = false;
+      })();
       return false;
     }
     case "FBW_RELOAD_TAB": {
@@ -677,25 +677,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
     }
     // debug: dump the live track registry (panel/devtools use; no page access)
-    case "FBW_DEBUG_REGISTRY": {
-      sendResponse({
-        now: Date.now(),
-        entries: Array.from(trackRegistry.entries()).map(([k, r]) => ({
-          key: k,
-          videoId: r.videoId,
-          durationS: r.durationS,
-          hasAudio: !!r.audioUrl,
-          hasVideo: !!r.videoUrl,
-          videoBitrate: r.videoBitrate,
-          agoMs: Date.now() - (r.lastSeen || 0),
-        })),
-      });
-      return false;
-    }
-    case "FBW_LIST_TRANSCRIPTS": {
-      getTranscripts().then((all) => sendResponse({ transcripts: all }));
-      return true; // async
-    }
     // content → bg: a finished run's structured log → JSON file on disk.
     case "FBW_WRITE_RUN_LOG": {
       writeRunLogFile(msg.doc);

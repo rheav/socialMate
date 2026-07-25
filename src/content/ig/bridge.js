@@ -9,6 +9,33 @@
 if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   window.__fbwIgInit = true;
 
+  // ---- generation takeover ----
+  // An extension reload/update re-injects this file into a FRESH isolated world, so
+  // the guard above does not stop the OLD world — only its chrome.* dies. Without
+  // this, every reload left another 800ms interval, another body-wide
+  // MutationObserver and another ~1MB store running for the page's lifetime. Newer
+  // generation announces; older tears itself down. (Pattern from comments-scrape.js.)
+  const GEN = Date.now() + ":" + Math.random();
+  let disabled = false;
+  const onTakeover = (e) => {
+    if (e.source !== window || !e.data || e.data.__fbwIgTakeover === undefined) return;
+    if (e.data.__fbwIgTakeover === GEN || disabled) return;
+    disabled = true;
+    clearInterval(storyInterval);
+    clearTimeout(ovlTimer);
+    ovlObserver.disconnect();
+    window.removeEventListener("message", onIgRelay);
+    window.removeEventListener("message", onTakeover);
+    window.removeEventListener("resize", maintainStoryDl);
+    document.removeEventListener("visibilitychange", onVisible);
+    document.querySelectorAll(".sw-ovl, .sw-acts, #sw-stdl").forEach((n) => n.remove());
+    byId.clear();
+    reels.clear();
+    for (const k in igMedia) delete igMedia[k];
+  };
+  window.addEventListener("message", onTakeover);
+  window.postMessage({ __fbwIgTakeover: GEN }, "*");
+
   // ================== IN-PAGE OVERLAY SETTINGS ==================
   // Tweak the look of the on-Instagram stats overlay here, then rebuild
   // (`npm run build`) and Reload ↻ the extension. (The side-panel card's
@@ -34,7 +61,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   };
   // =============================================================
 
-  // code/pk -> record (lookups, e.g. publishCurrent) + canonical-id list (deduped)
+  // code/pk -> record (lookups) + canonical-id list (deduped)
   const igMedia = {};
   const byId = new Map(); // code||pk -> record; insertion order preserved for the list
 
@@ -71,8 +98,9 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     return "feed";
   }
 
-  window.addEventListener("message", (e) => {
+  const onIgRelay = (e) => {
     if (e.source !== window || !e.data || !e.data.__fbwIg) return;
+    if (disabled) return;
     const surface = surfaceKey();
     for (const r of e.data.records || []) {
       // Stories/highlights route to their own store (no surface, no overlay).
@@ -103,7 +131,8 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (old?.pk) delete igMedia[old.pk];
     }
     scheduleRender();
-  });
+  };
+  window.addEventListener("message", onIgRelay);
 
   // MAIN-world capture starts at document_start (before this listener exists) → ask it
   // to replay its buffer, on init and whenever we're missing the current record.
@@ -204,28 +233,14 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     };
   }
 
-  // ---- publish the in-view video to the panel ----
-  let lastKey = null;
-  function publishCurrent() {
-    if (document.visibilityState !== "visible") return;
-    const v = pickActiveVideo();
-    if (!v) {
-      if (lastKey !== null) { lastKey = null; chrome.runtime.sendMessage({ type: "FBW_CURRENT", current: null }).catch(() => {}); }
-      return;
-    }
-    const meta = grabMeta(v);
-    const key = (meta.videoId || "") + "|" + (meta.caption || "").slice(0, 40) + "|" + (meta.mediaUrl ? "1" : "0");
-    if (key === lastKey) return;
-    lastKey = key;
-    chrome.runtime.sendMessage({ type: "FBW_CURRENT", current: meta }).catch(() => {});
-  }
-  let raf = 0;
-  const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; publishCurrent(); }); };
-  window.addEventListener("scroll", schedule, { passive: true, capture: true });
-  window.addEventListener("resize", schedule, { passive: true });
-  document.addEventListener("visibilitychange", publishCurrent);
-  setInterval(publishCurrent, 1000);
-  publishCurrent();
+  // NOTE: there used to be a `publishCurrent` here that ran on every scroll frame
+  // (rAF) plus a 1s interval, doing querySelectorAll("video") + per-video rects, up
+  // to 12 ancestor attribute-substring queries, and — when the JSON record was
+  // missing — a canvas toDataURL JPEG encode and a document-wide
+  // 'h1, span[dir=auto], div[dir=auto]' innerText scan. All of it fed FBW_CURRENT →
+  // the `fbw_current` storage key, which NOTHING reads (the panel's Current-video
+  // card was removed; transcription/inject.js:555 already deleted the FB half of
+  // this for the same reason). Removed: it was pure per-frame cost on Instagram.
 
   // ---- run a job on request from the panel (relayed by background) ----
   function run(kind) {
@@ -258,7 +273,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     }
     if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");
     if (msg?.type === "FBW_RUN_DOWNLOAD") run("download");
-    if (msg?.type === "FBW_PING") { lastKey = null; publishCurrent(); sendResponse?.({ ok: true }); }
+    if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true }); } // liveness ack (clears the panel's reload hint)
   });
 
   // ============================================================
@@ -486,7 +501,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   // run for tiles that actually need (re)building — and the observer is
   // disconnected while we append our own nodes so we never re-trigger ourselves.
   function renderOverlays() {
-    if (document.visibilityState !== "visible") return;
+    if (disabled || document.visibilityState !== "visible") return;
     if (!overlayOn) {
       if (document.querySelector(".sw-ovl, .sw-acts")) {
         ovlObserver.disconnect();
@@ -557,9 +572,8 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   const observeBody = () =>
     ovlObserver.observe(document.body, { childList: true, subtree: true });
   observeBody();
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") scheduleRender();
-  });
+  const onVisible = () => { if (document.visibilityState === "visible") scheduleRender(); };
+  document.addEventListener("visibilitychange", onVisible);
   scheduleRender();
 
   // ============================================================
@@ -703,7 +717,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       txBtn.style.display = isVideo ? "" : "none";
     }
   }
-  setInterval(maintainStoryDl, 800);
+  const storyInterval = setInterval(maintainStoryDl, 800);
   window.addEventListener("resize", maintainStoryDl, { passive: true });
 
 }

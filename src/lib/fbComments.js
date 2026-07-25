@@ -60,12 +60,6 @@ export function cleanAuthorUrl(href) {
   }
 }
 
-// comment_id (or reply_comment_id) out of any comment link.
-export function commentIdFromHref(href) {
-  if (!href) return null;
-  const m = String(href).match(/(?:reply_)?comment_id=([\w.]+)/);
-  return m ? m[1] : null;
-}
 
 // Stable dedupe key: the comment_id if we have one, else author + text prefix.
 export function dedupeKey(rec) {

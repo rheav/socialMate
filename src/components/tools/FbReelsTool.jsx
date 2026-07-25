@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
+import { startPolling } from "@/lib/poll";
 
 const SORT_LABEL = { default: "Default", views: "Views", comments: "Comments", shares: "Shares" };
 
@@ -84,8 +85,7 @@ export default function FbReelsTool() {
 
   useEffect(() => {
     listFromTab();
-    const id = setInterval(listFromTab, 3000);
-    return () => clearInterval(id);
+    return startPolling(listFromTab, 3000); // skips ticks while the panel is hidden
   }, [listFromTab]);
 
   // Auto-scroll the FB grid to load every reel, then take the full list.

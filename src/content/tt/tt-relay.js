@@ -13,13 +13,54 @@
 if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
   window.__fbwTtInit = true;
 
+  // ---- generation takeover ----
+  // An extension reload/update re-injects this file into a FRESH isolated world, so
+  // the __fbwTtInit guard above does not stop the OLD world — only its chrome.* dies.
+  // Without this, every reload left another 1s interval, another scroll listener and
+  // another full store running for the page's lifetime. Newer generation announces;
+  // older tears itself down. (Same pattern as content/fb/comments-scrape.js.)
+  const GEN = Date.now() + ":" + Math.random();
+  let disabled = false;
+  const onTakeover = (e) => {
+    if (e.source !== window || !e.data || e.data.__fbwTtTakeover === undefined) return;
+    if (e.data.__fbwTtTakeover === GEN || disabled) return;
+    disabled = true;
+    clearInterval(overlayInterval);
+    clearTimeout(overlayTimer);
+    window.removeEventListener("scroll", scheduleOverlay);
+    window.removeEventListener("message", onRelay);
+    window.removeEventListener("message", onTakeover);
+    document.removeEventListener("visibilitychange", scheduleOverlay);
+    document.getElementById("sw-tt-acts")?.remove();
+    byId.clear();
+    comments.clear();
+    stories.clear();
+    lists.clear();
+  };
+  window.addEventListener("message", onTakeover);
+  window.postMessage({ __fbwTtTakeover: GEN }, "*");
+
   const byId = new Map(); // aweme id -> record; insertion order preserved for the list
   const comments = new Map(); // aweme_id -> { items: Map<cid, comment> }
   const stories = new Map(); // owner username -> Map<id, story item>  (TikTok stories)
   const lists = new Map(); // list_id -> { meta, items: Map<id, rec> }  (playlists/collections)
+  // Bumped on every ingest. The panel sends its last seen value and we answer
+  // { unchanged: true } when nothing moved, instead of structured-cloning the whole
+  // store across processes every 2.5s.
+  let storeVersion = 0;
+  // Local mirror of the saved-post ids, kept in sync by one storage.onChanged
+  // listener. The overlay used to chrome.storage.local.get("fbw_saved") on EVERY
+  // 1s tick, deserializing the entire saved map (base64 thumbs included) into the
+  // page process once a second.
+  let savedIds = new Set();
   // The video whose comments were most recently fetched == the one you're viewing.
   // Lets the panel auto-follow the current video instead of sticking on a stale one.
   let lastCommentAweme = null;
+
+  // Every store is capped — outer AND inner. Capping only the outer Map (as an
+  // earlier version did) still lets a single scraped thread or a huge playlist grow
+  // without limit, and the panel serializes all of it on every poll.
+  const cap = (m, n) => { while (m.size > n) m.delete(m.keys().next().value); };
 
   function ingestStory(r) {
     const owner = r.reel_owner || r.username || "unknown";
@@ -28,18 +69,21 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     const prev = S.get(r.id) || {};
     for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
     S.set(r.id, prev);
-    while (stories.size > 40) stories.delete(stories.keys().next().value);
+    cap(S, 100);
+    cap(stories, 40);
   }
   function ingestListMeta(r) {
     let L = lists.get(r.list_id);
     if (!L) { L = { meta: {}, items: new Map() }; lists.set(r.list_id, L); }
     for (const k in r) if (r[k] != null) L.meta[k] = r[k];
-    while (lists.size > 60) lists.delete(lists.keys().next().value);
+    cap(lists, 60);
   }
   function ingestListVideo(r) {
     let L = lists.get(r.list_id);
     if (!L) { L = { meta: { list_id: r.list_id }, items: new Map() }; lists.set(r.list_id, L); }
     L.items.set(r.id, r);
+    cap(L.items, 300);
+    cap(lists, 60); // this path creates entries too, so it must cap as well
   }
 
   function surfaceKey() {
@@ -59,10 +103,10 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
   // The aweme id of the video the user is currently on. URL first (detail pages +
   // FYP once TikTok rewrites the path), then the most-centered <video>'s nearest
   // /video/<id> link, then the last video whose comments loaded.
-  function currentAwemeId() {
+  function currentAwemeId(centered) {
     const m = location.pathname.match(/\/video\/(\d+)/);
     if (m) return m[1];
-    const v = mostCenteredVideo();
+    const v = centered !== undefined ? centered : mostCenteredVideo();
     if (v) {
       let el = v;
       for (let i = 0; i < 8 && el; i++) {
@@ -96,11 +140,13 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     const prev = C.items.get(r.cid) || {};
     for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
     C.items.set(r.cid, prev);
-    while (comments.size > 60) comments.delete(comments.keys().next().value); // cap
+    cap(C.items, 500); // a scraped thread is unbounded upstream
+    cap(comments, 60);
   }
 
-  window.addEventListener("message", (e) => {
+  const onRelay = (e) => {
     if (e.source !== window || !e.data || !e.data.__fbwTt) return;
+    if (disabled) return;
     const surface = surfaceKey();
     for (const r of e.data.records || []) {
       if (r.__kind === "comment") { ingestComment(r); continue; }
@@ -115,8 +161,18 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       if (r.list_id) ingestListVideo(prev); // playlist/collection membership
     }
     while (byId.size > 500) byId.delete(byId.keys().next().value);
+    storeVersion += 1; // lets the panel poll short-circuit when nothing changed
     scheduleOverlay();
-  });
+  };
+  window.addEventListener("message", onRelay);
+
+  // Mirror fbw_saved ids locally (see savedIds above).
+  const refreshSaved = (map) => { savedIds = new Set(Object.keys(map || {})); };
+  chrome.storage?.local?.get("fbw_saved").then((r) => refreshSaved(r?.fbw_saved)).catch(() => {});
+  const onSavedChanged = (ch, area) => {
+    if (area === "local" && ch.fbw_saved) { refreshSaved(ch.fbw_saved.newValue); scheduleOverlay(); }
+  };
+  chrome.storage?.onChanged?.addListener(onSavedChanged);
 
   let lastReplayReq = 0;
   function requestReplay() {
@@ -130,29 +186,36 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
   setTimeout(requestReplay, 1800);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // Every poll carries the panel's last seen `version`; when nothing has been
+    // ingested since, answer with a tiny {unchanged} instead of structured-cloning
+    // the whole store across processes.
     if (msg?.type === "FBW_TT_LIST") {
-      sendResponse({ records: Array.from(byId.values()), surface: surfaceKey(), current: currentAwemeId() });
+      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
+      sendResponse({ records: Array.from(byId.values()), surface: surfaceKey(), current: currentAwemeId(), version: storeVersion });
       return;
     }
     if (msg?.type === "FBW_TT_COMMENTS") {
+      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
       const videos = [];
       for (const C of comments.values()) {
         videos.push({ aweme_id: C.aweme_id, meta: byId.get(C.aweme_id) || null, comments: Array.from(C.items.values()) });
       }
       // `current` = the video the user is viewing → the panel auto-selects it.
-      sendResponse({ videos, current: lastCommentAweme || currentAwemeId() });
+      sendResponse({ videos, current: lastCommentAweme || currentAwemeId(), version: storeVersion });
       return;
     }
     if (msg?.type === "FBW_TT_STORIES") {
+      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
       const out = [];
       for (const [owner, S] of stories) out.push({ owner, items: Array.from(S.values()) });
-      sendResponse({ owners: out });
+      sendResponse({ owners: out, version: storeVersion });
       return;
     }
     if (msg?.type === "FBW_TT_LISTS") {
+      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
       const out = [];
       for (const [, L] of lists) out.push({ ...L.meta, items: Array.from(L.items.values()) });
-      sendResponse({ lists: out });
+      sendResponse({ lists: out, version: storeVersion });
       return;
     }
     if (msg?.type === "FBW_TT_CLEAR") {
@@ -161,6 +224,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       stories.clear();
       lists.clear();
       lastCommentAweme = null;
+      storeVersion += 1;
       requestReplay(); // re-pull the current surface so the panel isn't left empty
       sendResponse?.({ ok: true });
       return;
@@ -247,7 +311,14 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       pinned: !!it.isPinnedItem, surface: surfaceKey(),
     };
   }
+  // Memoized per aweme id INCLUDING failures. The blob is hundreds of KB to a few
+  // MB; on the FYP feed (or after any SPA nav) the id never matches, so an unmemoized
+  // version re-parsed the whole thing on every 1s tick, forever.
+  const ssrTried = new Set();
   function ssrRecord(awemeId) {
+    if (ssrTried.has(awemeId)) return null; // already parsed once for this id
+    ssrTried.add(awemeId);
+    cap(ssrTried, 200);
     try {
       const el = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
       if (!el) return null;
@@ -260,8 +331,8 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       return null;
     }
   }
-  function currentRecord() {
-    const id = currentAwemeId();
+  function currentRecord(centered) {
+    const id = currentAwemeId(centered);
     if (!id) return null;
     let rec = byId.get(id);
     if (!rec || !(rec.video || rec.download_url)) {
@@ -367,26 +438,26 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     return wrap;
   }
   function maintainOverlay() {
-    if (document.visibilityState !== "visible") return;
-    // Only on video surfaces (feed / detail), where there's a current video.
-    const onVideo = /\/video\/\d+/.test(location.pathname) || location.pathname.startsWith("/foryou") || location.pathname === "/" || !!mostCenteredVideo();
+    if (disabled || document.visibilityState !== "visible") return;
+    // ONE layout pass per tick: mostCenteredVideo() reads a rect per <video>, and it
+    // used to run twice (once here, once inside currentAwemeId()). Resolve it here
+    // and thread it down.
+    const centered = mostCenteredVideo();
+    const onVideo = /\/video\/\d+/.test(location.pathname) || location.pathname.startsWith("/foryou") || location.pathname === "/" || !!centered;
     let wrap = document.getElementById("sw-tt-acts");
     if (!onVideo) { if (wrap) wrap.remove(); return; }
     if (!wrap) { wrap = buildOverlay(); (document.body || document.documentElement).appendChild(wrap); }
     // Reflect saved state + enable/disable media actions for the current record.
-    const rec = currentRecord();
-    chrome.storage.local.get("fbw_saved").then((r) => {
-      const saved = rec && (r.fbw_saved || {})[rec.id];
-      const sb = wrap.querySelector('[data-act="save"]');
-      if (sb) sb.classList.toggle("on", !!saved);
-    }).catch(() => {});
+    const rec = currentRecord(centered);
+    const sb = wrap.querySelector('[data-act="save"]');
+    if (sb) sb.classList.toggle("on", !!(rec && savedIds.has(rec.id))); // mirrored, no storage read
     const hasMedia = !!(rec && (rec.video || rec.download_url));
     for (const act of ["dl", "tx"]) {
       const b = wrap.querySelector(`[data-act="${act}"]`);
       if (b) b.toggleAttribute("disabled", !hasMedia);
     }
   }
-  setInterval(maintainOverlay, 1000);
+  const overlayInterval = setInterval(maintainOverlay, 2000);
   window.addEventListener("scroll", scheduleOverlay, { passive: true });
   document.addEventListener("visibilitychange", scheduleOverlay);
   scheduleOverlay();

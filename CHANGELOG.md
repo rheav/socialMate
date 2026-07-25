@@ -18,6 +18,103 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.65.0] — 2026-07-25
+
+Audit-driven cleanup pass: dead code removal, memory-leak fixes and hot-path
+performance work. Every deletion below was verified unreachable by grep across
+`src/`, `manifest.config.js` and `index.html` before removal — nothing was inferred
+from naming.
+
+### Removed — dead assets (−39.5 MB packaged)
+- **4 unreferenced ORT wasm binaries + 1 loader** deleted from `public/assets/`
+  (58 MB → 21 MB). Two independent proofs: the built workers only ever name
+  `ort-wasm-simd-threaded.jsep.{mjs,wasm}`, and three of the deleted files
+  (`ort-wasm.wasm`, `ort-wasm-simd.wasm`, `ort-wasm-threaded.wasm`) **don't exist in
+  the installed onnxruntime-web 1.22 at all** — they're ORT ≤1.17 filenames.
+  `numThreads=1` does not switch binaries, it only stops thread spawning.
+  **Verified by running a real Whisper transcription afterwards** (1786-char
+  transcript, `source:"whisper"`) — the risky deletion is proven, not assumed.
+
+### Removed — dead code
+- 4 orphaned components: `DownloadPanel.jsx`, `ui/Launcher.jsx`, `ui/badge.jsx`,
+  `ui/collapsible.jsx`, plus the cluster only `DownloadPanel` produced
+  (`FBW_PAGE_INFO` / `FBW_COLLECT_REEL_THUMBS` handlers, `fbPageInfo`,
+  `collectReelThumbs`).
+- 5 dead background message handlers (`FBW_GET_ACTIVE_VIDEO`, `FBW_CURRENT`,
+  `FBW_DO_TRANSCRIBE`, `FBW_DO_DOWNLOAD`, `FBW_LIST_TRANSCRIPTS`,
+  `FBW_DEBUG_REGISTRY`) and 2 notifications nothing listened to
+  (`FBW_TRANSCRIBE_PROGRESS`, `FBW_DOWNLOAD_PROGRESS`), plus `CURRENT_KEY` /
+  `currentTabId` and the unused `pickByDuration` import.
+- `globalTools()`, `commentIdFromHref()` (superseded by `commentRefs()` in the
+  content script), `requiresTab` (10 declarations, 0 reads), the dead
+  `.bottom-dock`/`.dock-icon` CSS block.
+- **`THEMES` trimmed to what's actually read.** The `NEUTRAL` bundle
+  (`--sw-action`/`--sw-switch`/`--sw-wash`/`--radius`/`--primary`/`--ring`) and
+  `--sw-from`/`--sw-to`/`--sw-glow` were never read off the object; only
+  `--sw-grad` is, for the Home picker's platform tiles. Stale comment corrected.
+- 3 unused dependencies: `@ffmpeg/util`, `@radix-ui/react-tabs`,
+  `@radix-ui/react-collapsible`.
+
+### Fixed — memory
+- **Offscreen runtimes are released when idle (~300 MB).** Whisper (~180 MB
+  resident), MiniLM and ffmpeg (heap grown to the largest video ever muxed) were
+  loaded once and held for the whole browser session — nothing terminated the
+  workers or closed the document. Now in-flight jobs are counted; 45 s after the last
+  one the workers/ffmpeg are terminated, pending resolvers settled, blob URLs revoked,
+  and the SW closes the document (WASM heaps only shrink by being discarded).
+  **Verified live: the document auto-closed between 30–45 s after a transcription.**
+- **Generation takeover added to `ig/bridge.js`, `tt/tt-relay.js` and `content.js`.**
+  Their init guards live on the isolated world's `window`, and an extension
+  reload/update creates a *fresh* world — so every reload left the previous
+  generation's intervals, body-wide MutationObserver, scroll listeners and stores
+  running for the page's lifetime, compounding per update. Newer generation announces,
+  older tears itself down (the pattern `comments-scrape.js` already used).
+- **`fbw_saved` is capped (300, oldest-first by `updatedAt`).** It was the only store
+  that grew forever — 9 writers, none pruning, records carrying base64 thumbs.
+  Enforced centrally in the background's storage listener rather than duplicating the
+  logic across all 9 writers.
+- Inner-map caps added where only the outer Map was capped (`comments` items 500,
+  `stories` items 100, `lists` items 300 — and `ingestListVideo` now caps `lists`
+  too, since it also creates entries); `sentCom` in `tt-capture.js` was missing from
+  its sibling cap block; `xpvToVideoId` now capped (600) independently of the track
+  registry it used to be pruned with.
+- Muxed-video blob URLs are revoked on idle release instead of only after a fixed
+  5 minutes.
+
+### Fixed — performance
+- **IG `JSON.parse` hook no longer deep-walks every parse.** It wraps *every*
+  `JSON.parse` on instagram.com; the media walk ran unconditionally (a recursive
+  generator over the whole object graph plus a Set of every visited node) while the
+  reels walk already had a string sniff. Added the same sniff
+  (`image_versions2`/`video_versions`/`carousel_media`) — an `indexOf` is ~1 µs where
+  the walk is milliseconds — plus a 50k-node budget alongside the depth cap.
+  **Verified: IG still captures (16 records after a reload).**
+- **Deleted the dead per-frame `publishCurrent` pipeline in `ig/bridge.js`.** On every
+  scroll frame it did `querySelectorAll("video")` + per-video rects, up to 12 ancestor
+  attribute-substring queries, and — when the record was missing — a canvas
+  `toDataURL` JPEG encode plus a document-wide `innerText` scan… all feeding
+  `fbw_current`, which nothing reads.
+- **`repositionOverlayRails` is two-phase.** It read a rect then wrote styles per rail,
+  so each of 10–30 rails forced its own synchronous layout every scroll frame; now all
+  reads happen first, then all writes — one layout per frame.
+- **FB reels capture**: bails immediately off a reels grid (the 3 s poll previously ran
+  `scanTiles` + a walk of *megabytes* of embedded FB JSON on any facebook.com tab), and
+  the embedded-JSON parse is memoized per `<script>` node in a `WeakMap` (those blobs
+  are static after load).
+- **TikTok overlay**: one layout pass per tick instead of two (the centered video was
+  resolved twice), the per-second whole-`fbw_saved` read replaced with a
+  `storage.onChanged` mirror, `ssrRecord` memoized *including failures* (it re-parsed
+  the multi-MB SSR blob every tick on the FYP feed), interval 1 s → 2 s.
+- **Panel polls are version-gated and pause while hidden.** New `lib/poll.js`
+  `startPolling` skips ticks when the panel isn't visible and fires immediately on
+  becoming visible; the TikTok bridge stamps a `storeVersion` so an unchanged poll
+  answers `{unchanged:true}` (~20 bytes) instead of structured-cloning up to 500
+  records — or every comment of every tracked video — across processes every 2.5 s.
+  **Verified live: the gate returns `unchanged`.**
+- `webRequest` filter gained `types: ["media","xmlhttprequest","other"]` — it was
+  firing for every image/avatar/sticker on Facebook, thousands of dispatches a minute
+  that only ever failed the `.mp4` regex while keeping the MV3 worker awake.
+
 ## [0.64.1] — 2026-07-25
 
 ### Reverted — per-platform identity retint (0.64.0)

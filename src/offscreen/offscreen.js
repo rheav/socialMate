@@ -250,9 +250,71 @@ async function muxDownload(videoUrl, audioUrl, videoId) {
   // Hand the SW a blob URL (not a base64 data URL — that inflates ~33% and builds
   // a huge string in memory). The SW can't mint object URLs, so we do it here; it
   // stays valid for chrome.downloads as long as this offscreen doc is alive.
+  // The Blob is a whole video (can be 100 MB+). chrome.downloads consumes it almost
+  // immediately, but the URL kept it alive for a fixed 5 minutes. Track it so the
+  // idle release (~45s after the last job) revokes it; the 5-min timer stays only as
+  // a fallback for the case where no idle release happens.
   const blobUrl = URL.createObjectURL(new Blob([out], { type: "video/mp4" }));
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 5 * 60 * 1000);
+  liveBlobUrls.add(blobUrl);
+  setTimeout(() => { URL.revokeObjectURL(blobUrl); liveBlobUrls.delete(blobUrl); }, 5 * 60 * 1000);
   return { blobUrl, filename: `fb-${videoId}.mp4` };
+}
+
+// ---- idle release ----------------------------------------------------------
+// Whisper (~76 MB model), MiniLM (~23 MB) and ffmpeg (31 MB wasm, heap grown to the
+// largest video ever muxed) were previously loaded once and held for the whole
+// browser session — several hundred MB resident with no work in flight, because
+// nothing ever terminated the workers or closed this document.
+//
+// Now: count in-flight jobs; when the count returns to 0 and stays there for
+// IDLE_MS, terminate everything and ask the SW to close the document. WASM heaps
+// only shrink by being thrown away, so this is the only way to give the memory
+// back. The next job re-creates the document and reloads the model (~1–2 s), which
+// is a fine trade for not holding 300 MB idle.
+const IDLE_MS = 45000;
+const liveBlobUrls = new Set();
+let inFlight = 0;
+let idleTimer = null;
+
+function releaseRuntimes() {
+  if (inFlight > 0) return;
+  try { txWorker?.terminate(); } catch { /* ignore */ }
+  try { relWorker?.terminate(); } catch { /* ignore */ }
+  try { ffmpeg?.terminate?.(); } catch { /* ignore */ }
+  txWorker = null;
+  relWorker = null;
+  ffmpeg = null;
+  // Pending resolvers can never settle once their worker is gone — settle them so
+  // no caller hangs, then drop the closures.
+  for (const resolve of txPending.values()) resolve({ success: false, error: "offscreen released" });
+  for (const resolve of relPending.values()) resolve({ success: false, error: "offscreen released" });
+  txPending.clear();
+  relPending.clear();
+  keywordVecCache.clear();
+  for (const u of liveBlobUrls) URL.revokeObjectURL(u);
+  liveBlobUrls.clear();
+  // The SW owns the document's lifetime; it closes us (and resets its own flag).
+  chrome.runtime.sendMessage({ type: "FBW_OFFSCREEN_IDLE" }).catch(() => {});
+}
+
+function scheduleIdleRelease() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(releaseRuntimes, IDLE_MS);
+}
+
+// Wrap a job so the in-flight count (and therefore the idle timer) is always correct,
+// even when the job throws.
+async function job(sendResponse, run) {
+  inFlight += 1;
+  clearTimeout(idleTimer);
+  try {
+    sendResponse({ success: true, ...(await run()) });
+  } catch (e) {
+    sendResponse({ success: false, error: e.message });
+  } finally {
+    inFlight -= 1;
+    if (inFlight === 0) scheduleIdleRelease();
+  }
 }
 
 // ---- message handler ----
@@ -260,39 +322,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== "offscreen") return false;
 
   if (msg.action === "transcribeFromAudioUrl") {
-    (async () => {
-      try {
-        const { text, chunks } = await transcribeFromAudioUrl(msg.audioUrl);
-        sendResponse({ success: true, text, chunks });
-      } catch (e) {
-        sendResponse({ success: false, error: e.message });
-      }
-    })();
+    job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl));
     return true;
   }
 
   if (msg.action === "relevanceScore") {
-    (async () => {
-      try {
-        const score = await relevanceScore(msg.keyword, msg.text);
-        const spam = msg.spam ? await spamScore(msg.text) : 0;
-        sendResponse({ success: true, score, spam });
-      } catch (e) {
-        sendResponse({ success: false, error: e.message });
-      }
-    })();
+    job(sendResponse, async () => ({
+      score: await relevanceScore(msg.keyword, msg.text),
+      spam: msg.spam ? await spamScore(msg.text) : 0,
+    }));
     return true;
   }
 
   if (msg.action === "muxDownload") {
-    (async () => {
-      try {
-        const { blobUrl, filename } = await muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId);
-        sendResponse({ success: true, blobUrl, filename });
-      } catch (e) {
-        sendResponse({ success: false, error: e.message });
-      }
-    })();
+    job(sendResponse, () => muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId));
     return true;
   }
 

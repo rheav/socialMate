@@ -93,33 +93,50 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbReelsInit) {
   // Enrich the first batch from embedded JSON: each reel node carries a
   // `feedback` object (total_comment_count, share_count_reduced) and a `url`
   // that names the reel id. Paginated reels aren't here (off-thread) → null.
+  // Facebook embeds megabytes of <script type="application/json">. Parsing + walking
+  // all of it once per poll (every 3s) was hundreds of ms of main-thread block on any
+  // FB tab. These blobs are static after load, so parse each node at most once and
+  // keep only the reel-id → stats result. WeakMap so a removed script is collectible.
+  const embeddedCache = new WeakMap();
+  function statsFromScript(node) {
+    const hit = embeddedCache.get(node);
+    if (hit) return hit;
+    const out = {};
+    const t = node.textContent || "";
+    if (t.indexOf("total_comment_count") < 0) { embeddedCache.set(node, out); return out; }
+    let data;
+    try { data = JSON.parse(t); } catch { embeddedCache.set(node, out); return out; }
+    (function walk(o, depth) {
+      if (!o || typeof o !== "object" || depth > 32) return;
+      if (Array.isArray(o)) { for (const v of o) walk(v, depth + 1); return; }
+      if (o.feedback && o.url) {
+        const rid = (String(o.url).match(/\/reel\/(\d+)/) || [])[1];
+        if (rid && !out[rid]) {
+          const fb = o.feedback;
+          out[rid] = {
+            comments: fb.total_comment_count != null ? Number(fb.total_comment_count) : null,
+            shares: fb.share_count_reduced != null ? parseInt(fb.share_count_reduced, 10) : null,
+          };
+        }
+      }
+      for (const k in o) walk(o[k], depth + 1);
+    })(data, 0);
+    embeddedCache.set(node, out);
+    return out;
+  }
   function scanEmbeddedStats(ids) {
     const map = {};
-    for (const s of document.querySelectorAll('script[type="application/json"]')) {
-      const t = s.textContent || "";
-      if (t.indexOf("total_comment_count") < 0) continue;
-      let data;
-      try { data = JSON.parse(t); } catch { continue; }
-      (function walk(o, depth) {
-        if (!o || typeof o !== "object" || depth > 32) return;
-        if (Array.isArray(o)) { for (const v of o) walk(v, depth + 1); return; }
-        if (o.feedback && o.url) {
-          const rid = (String(o.url).match(/\/reel\/(\d+)/) || [])[1];
-          if (rid && ids.has(rid) && !map[rid]) {
-            const fb = o.feedback;
-            map[rid] = {
-              comments: fb.total_comment_count != null ? Number(fb.total_comment_count) : null,
-              shares: fb.share_count_reduced != null ? parseInt(fb.share_count_reduced, 10) : null,
-            };
-          }
-        }
-        for (const k in o) walk(o[k], depth + 1);
-      })(data, 0);
+    for (const node of document.querySelectorAll('script[type="application/json"]')) {
+      const found = statsFromScript(node);
+      for (const rid in found) if (ids.has(rid) && !map[rid]) map[rid] = found[rid];
     }
     return map;
   }
 
   function collect() {
+    // The poll fires every 3s on ANY facebook.com tab. Off the reels grid there is
+    // nothing to collect, so don't pay for scanTiles + the embedded-JSON walk.
+    if (!isReelsTab()) return [];
     const tiles = scanTiles();
     const stats = scanEmbeddedStats(new Set(tiles.keys()));
     const records = [];

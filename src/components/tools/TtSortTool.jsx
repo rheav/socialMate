@@ -29,6 +29,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { resolvePlatformTab } from "@/lib/tabs";
+import { startPolling } from "@/lib/poll";
 import {
   sortRecords,
   recordToCard,
@@ -122,8 +123,7 @@ export default function TtSortTool() {
 
   useEffect(() => {
     listFromTab();
-    const id = setInterval(listFromTab, 2500);
-    return () => clearInterval(id);
+    return startPolling(listFromTab, 2500); // skips ticks while the panel is hidden
   }, [listFromTab]);
 
   // Drop everything captured so far (other profiles/surfaces) and re-pull the

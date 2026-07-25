@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { fmtCount } from "@/lib/ttMedia";
+import { startPolling } from "@/lib/poll";
 import {
   sortComments,
   filterComments,
@@ -92,8 +93,7 @@ export default function TtCommentsTool() {
 
   useEffect(() => {
     pull();
-    const id = setInterval(pull, 2500);
-    return () => clearInterval(id);
+    return startPolling(pull, 2500); // skips ticks while the panel is hidden
   }, [pull]);
 
   const active = videos.find((v) => v.aweme_id === activeId) || null;

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { extFromUrl } from "@/lib/igMedia";
 import { groupReels, reelLabel, storyToCard, storyFilename } from "@/lib/igReels";
+import { startPolling } from "@/lib/poll";
 
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
@@ -50,8 +51,7 @@ export default function IgStoriesTool() {
 
   useEffect(() => {
     listFromTab();
-    const id = setInterval(listFromTab, 2500);
-    return () => clearInterval(id);
+    return startPolling(listFromTab, 2500); // skips ticks while the panel is hidden
   }, [listFromTab]);
 
   const refresh = useCallback(async () => {

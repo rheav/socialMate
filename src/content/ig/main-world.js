@@ -11,8 +11,12 @@
 
   // Depth-capped: media objects sit well within 20 levels; the cap keeps a
   // pathological payload from hanging the main thread mid-JSON.parse.
+  // Node budget alongside the depth cap: depth alone doesn't bound a wide payload
+  // (a 50k-element array is depth 2), and this runs inside the page's JSON.parse.
+  const NODE_BUDGET = 50000;
   function* findMedia(o, seen, depth) {
     if (!o || typeof o !== "object" || seen.has(o) || depth > 20) return;
+    if (seen.size > NODE_BUDGET) return;
     seen.add(o);
     if (o.video_versions || (o.code && o.image_versions2) || (o.media_type != null && (o.image_versions2 || o.carousel_media))) yield o;
     if (Array.isArray(o)) { for (const v of o) yield* findMedia(v, seen, depth + 1); }
@@ -69,6 +73,7 @@
   // with __kind so the bridge routes them to a separate store.
   function* findReels(o, seen, depth) {
     if (!o || typeof o !== "object" || seen.has(o) || depth > 22) return;
+    if (seen.size > NODE_BUDGET) return;
     seen.add(o);
     if (o.id && Array.isArray(o.items) && o.items.length &&
         (o.reel_type || String(o.id).indexOf("highlight:") > -1)) yield o;
@@ -194,11 +199,21 @@
   JSON.parse = function () {
     const out = orig.apply(this, arguments);
     if (out && typeof out === "object") {
-      scan(out);
-      // Only walk for reels when the payload smells like one — keeps the common
-      // case (feed/grid JSON) a single traversal.
-      const txt = arguments[0];
-      if (typeof txt === "string" && (txt.indexOf("expiring_at") > -1 || txt.indexOf("reel_type") > -1)) scanReels(out);
+      // This hook sits in front of EVERY JSON.parse on instagram.com — Relay/Bloks
+      // payloads, config, logging, third-party libs. `scan` used to run
+      // unconditionally, so every one of those paid for a recursive walk of the whole
+      // object graph plus a Set holding every visited node. An indexOf over the raw
+      // text is ~1µs even on a megabyte; the walk is milliseconds. Sniff first and
+      // only walk payloads that can actually contain media. (The reels path below
+      // already did this — the expensive, far more frequent path was the unguarded one.)
+      const txt = typeof arguments[0] === "string" ? arguments[0] : null;
+      const mediaish =
+        !txt || // non-string input (rare): can't sniff, fall back to walking
+        txt.indexOf("image_versions2") > -1 ||
+        txt.indexOf("video_versions") > -1 ||
+        txt.indexOf("carousel_media") > -1;
+      if (mediaish) scan(out);
+      if (txt && (txt.indexOf("expiring_at") > -1 || txt.indexOf("reel_type") > -1)) scanReels(out);
     }
     return out;
   };

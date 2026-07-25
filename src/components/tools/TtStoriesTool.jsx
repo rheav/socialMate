@@ -3,6 +3,7 @@ import { Download, FileText, Loader2, Bookmark, RotateCw, Eye, Heart } from "luc
 import { Button } from "@/components/ui/button";
 import { resolvePlatformTab } from "@/lib/tabs";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
+import { startPolling } from "@/lib/poll";
 
 function IconBtn({ children, ...props }) {
   return (
@@ -58,8 +59,7 @@ export default function TtStoriesTool() {
 
   useEffect(() => {
     pull();
-    const id = setInterval(pull, 2500);
-    return () => clearInterval(id);
+    return startPolling(pull, 2500); // skips ticks while the panel is hidden
   }, [pull]);
 
   const refresh = useCallback(async () => {
