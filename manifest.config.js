@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Semi-automated Facebook / Instagram / TikTok research + warming from a side panel — paced, human-started, with live log.",
-  version: "0.52.0",
-  version_name: "0.52.0 — telemetry + session mood survive the target-surface navigation; jittered dwell cap",
+  version: "0.64.0",
+  version_name: "0.64.0 — per-platform identity retint (logo/wordmark/accents take the active platform's brand gradient)",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
@@ -29,7 +29,7 @@ export default defineManifest({
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'",
   },
-  permissions: ["storage", "unlimitedStorage", "activeTab", "sidePanel", "tabs", "webRequest", "offscreen", "downloads", "scripting"],
+  permissions: ["storage", "unlimitedStorage", "activeTab", "sidePanel", "tabs", "webRequest", "declarativeNetRequest", "offscreen", "downloads", "scripting"],
   host_permissions: [
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",
@@ -52,6 +52,18 @@ export default defineManifest({
       js: ["src/content/transcription/inject.js"],
       run_at: "document_idle",
     },
+    // FB reels-tab grid capture (DOM tiles + embedded JSON) → panel Reels Sort.
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/reels-capture.js"],
+      run_at: "document_idle",
+    },
+    // FB comment scraper — floating button on reel/post permalinks → JSON export.
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/comments-scrape.js"],
+      run_at: "document_idle",
+    },
     // Instagram capture: MAIN-world JSON.parse hook (document_start) + isolated bridge.
     {
       matches: ["*://*.instagram.com/*"],
@@ -62,6 +74,20 @@ export default defineManifest({
     {
       matches: ["*://*.instagram.com/*"],
       js: ["src/content/ig/bridge.js"],
+      run_at: "document_idle",
+    },
+    // TikTok capture: MAIN-world fetch/XHR response tee (document_start) + isolated
+    // bridge. TikTok parses API responses with fetch().json() (native), so — unlike
+    // IG — a JSON.parse hook sees nothing; we tee the fetch responses instead.
+    {
+      matches: ["*://*.tiktok.com/*"],
+      js: ["src/content/tt/tt-capture.js"],
+      run_at: "document_start",
+      world: "MAIN",
+    },
+    {
+      matches: ["*://*.tiktok.com/*"],
+      js: ["src/content/tt/tt-relay.js"],
       run_at: "document_idle",
     },
   ],

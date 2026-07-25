@@ -60,6 +60,94 @@ export function parseFbcdnTrack(url) {
 }
 
 /**
+ * Pick the registry record whose duration matches a DOM video's duration.
+ * Feed surfaces (hashtag/home) bury the real video_id in page JSON only, so the
+ * post markup can't name its video — but efg stamps duration_s on every track,
+ * and durations disambiguate the handful of videos on screen. Recency alone is
+ * NOT safe there: FB prefetches future posts' tracks while an earlier video
+ * plays. Prefers a complete (audio+video) record, then the most recent.
+ * @param {Iterable<object>} records registry values ({ videoId, durationS, audioUrl, videoUrl, lastSeen })
+ * @param {number} durationHint seconds (DOM video.duration)
+ * @param {number} [tolerance=2] max |durationS - hint| in seconds
+ */
+export function pickByDuration(records, durationHint, tolerance = 2, sinceTs = 0) {
+  if (!Number.isFinite(durationHint) || durationHint <= 0) return null;
+  let matches = [];
+  for (const rec of records) {
+    if (!rec || !rec.videoId || !rec.audioUrl || !rec.durationS) continue;
+    if (Math.abs(rec.durationS - durationHint) > tolerance) continue;
+    matches.push(rec);
+  }
+  const distinct = (list) => new Set(list.map((r) => r.videoId)).size;
+  if (distinct(matches) > 1) {
+    // Two DIFFERENT videos inside the tolerance window (spam feeds cluster
+    // around the same lengths). If the caller just primed its video, only
+    // tracks fetched during that window belong to it — filter by that. Still
+    // ambiguous → null: no transcript beats a wrong transcript.
+    if (!sinceTs) return null;
+    matches = matches.filter((r) => (r.lastSeen || 0) >= sinceTs);
+    if (distinct(matches) !== 1) return null;
+  }
+  let best = null;
+  for (const rec of matches) {
+    if (!best) {
+      best = rec;
+      continue;
+    }
+    const recComplete = !!(rec.audioUrl && rec.videoUrl);
+    const bestComplete = !!(best.audioUrl && best.videoUrl);
+    if (recComplete !== bestComplete) {
+      if (recComplete) best = rec;
+    } else if ((rec.lastSeen || 0) > (best.lastSeen || 0)) best = rec;
+  }
+  return best;
+}
+
+/**
+ * Prime-window attribution: the tracks that hit the wire WHILE the caller was
+ * playing its video are that video's tracks. This is the primary feed
+ * resolution signal — efg's duration_s is unreliable (FB stamps preview-cut
+ * durations on full videos), so duration only disambiguates among the fresh
+ * records, never overrides them.
+ * @param {Iterable<object>} recordsIter registry values
+ * @param {number} sinceTs prime window start (ms epoch)
+ * @param {number|null} durationHint seconds, used only to break fresh-set ties
+ * @param {number} [tolerance=2]
+ */
+export function pickByWindow(recordsIter, sinceTs, durationHint, tolerance = 2) {
+  const records = Array.from(recordsIter);
+  if (!sinceTs) return pickByDuration(records, durationHint, tolerance);
+  const valid = (r) => r && r.videoId && r.audioUrl;
+  let fresh = records.filter((r) => valid(r) && (r.lastSeen || 0) >= sinceTs);
+  const distinct = (list) => new Set(list.map((r) => r.videoId)).size;
+  if (!fresh.length) {
+    // Nothing new hit the wire (fully-buffered replay emits no fetches) →
+    // strict duration match over everything, with its own ambiguity guard.
+    return pickByDuration(records, durationHint, tolerance);
+  }
+  if (distinct(fresh) > 1 && Number.isFinite(durationHint) && durationHint > 0) {
+    const narrowed = fresh.filter(
+      (r) => r.durationS && Math.abs(r.durationS - durationHint) <= tolerance,
+    );
+    if (distinct(narrowed) === 1) fresh = narrowed;
+  }
+  if (distinct(fresh) !== 1) return null;
+  let best = null;
+  for (const rec of fresh) {
+    if (!best) {
+      best = rec;
+      continue;
+    }
+    const recComplete = !!(rec.audioUrl && rec.videoUrl);
+    const bestComplete = !!(best.audioUrl && best.videoUrl);
+    if (recComplete !== bestComplete) {
+      if (recComplete) best = rec;
+    } else if ((rec.lastSeen || 0) > (best.lastSeen || 0)) best = rec;
+  }
+  return best;
+}
+
+/**
  * Fold a freshly-parsed track into an existing per-video record, keeping the
  * audio track and the highest-bitrate video track seen.
  * @param {object|undefined} prev existing { videoId, audioUrl, videoUrl, videoBitrate, lastSeen }

@@ -6,6 +6,8 @@ import {
   Play,
   Images,
   Image as ImageIcon,
+  RotateCw,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolvePlatformTab } from "@/lib/tabs";
@@ -18,7 +20,7 @@ function IconBtn({ children, ...props }) {
   return (
     <button
       {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/70 disabled:opacity-50"
+      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
     >
       {children}
     </button>
@@ -50,6 +52,17 @@ export default function IgStoriesTool() {
     listFromTab();
     const id = setInterval(listFromTab, 2500);
     return () => clearInterval(id);
+  }, [listFromTab]);
+
+  const refresh = useCallback(async () => {
+    setReels([]);
+    try {
+      if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
+      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_CLEAR" });
+    } catch {
+      tabId.current = null;
+    }
+    listFromTab();
   }, [listFromTab]);
 
   const bg = (msg) =>
@@ -125,6 +138,12 @@ export default function IgStoriesTool() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">{groups.length} owner(s) captured</span>
+        <Button variant="outline" size="sm" onClick={refresh} title="Refresh — clear captured stories">
+          <RotateCw className="size-3.5" /> Refresh
+        </Button>
+      </div>
       {groups.map(({ owner, reels: ownerReels }) => (
         <div key={owner} className="space-y-2">
           <div className="text-sm font-semibold text-foreground">@{owner}</div>
@@ -166,7 +185,7 @@ export default function IgStoriesTool() {
                         <img src={c.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
                       ) : null}
 
-                      <span className="absolute right-1 top-1 grid place-items-center rounded bg-black/45 p-0.5 text-white backdrop-blur-sm">
+                      <span className="absolute right-1 top-1 grid place-items-center rounded bg-black/65 p-0.5 text-white">
                         <TypeIcon className="size-3" />
                       </span>
 
@@ -188,6 +207,19 @@ export default function IgStoriesTool() {
                           )}
                         </IconBtn>
                       </div>
+
+                      {/* swipe-up link sticker → competitor funnel URL */}
+                      {c.links && c.links.length > 0 && (
+                        <a
+                          href={c.links[0]}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Swipe-up link: ${c.links[0]}`}
+                          className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded bg-sky-500/90 px-1 py-0.5 text-[9px] font-semibold text-white hover:bg-sky-500"
+                        >
+                          <Link2 className="size-2.5" /> link
+                        </a>
+                      )}
 
                       {c.date && (
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pb-1 pt-4 text-[9.5px] font-medium text-white">

@@ -4,12 +4,47 @@
 //  3) capture fbcdn video/audio track URLs (webRequest) + drive offscreen
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
-import { parseFbcdnTrack, foldTrack } from "./lib/fbcdn.js";
+import { parseFbcdnTrack, foldTrack, pickByDuration, pickByWindow } from "./lib/fbcdn.js";
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
 const CURRENT_KEY = "fbw_current"; // storage.local: the in-view FB video the panel previews
 const NEED_RELOAD_KEY = "fbw_need_reload"; // panel hint: active FB tab has no live content script
+
+// TikTok's video CDN 403s a hotlinked download (no Referer). fetch/downloads can't
+// set Referer (forbidden header), so add it via a declarativeNetRequest session
+// rule scoped to the TikTok video CDN hosts. Idempotent; installed lazily on the
+// first TikTok download and harmless if the CDN doesn't actually require it.
+const TT_REFERER_RULE_ID = 9101;
+let ttRefererReady = false;
+async function ensureTiktokReferer() {
+  if (ttRefererReady || !chrome.declarativeNetRequest?.updateSessionRules) return;
+  ttRefererReady = true;
+  try {
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [TT_REFERER_RULE_ID],
+      addRules: [
+        {
+          id: TT_REFERER_RULE_ID,
+          priority: 1,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [
+              { header: "referer", operation: "set", value: "https://www.tiktok.com/" },
+              { header: "origin", operation: "set", value: "https://www.tiktok.com" },
+            ],
+          },
+          condition: {
+            requestDomains: ["tiktokcdn.com", "tiktokcdn-us.com", "tiktokv.com", "tiktok.com", "muscdn.com", "ibytedtos.com"],
+            resourceTypes: ["media", "xmlhttprequest", "other", "image"],
+          },
+        },
+      ],
+    });
+  } catch {
+    ttRefererReady = false; // let a later download retry the install
+  }
+}
 
 function setBadge(text, color) {
   chrome.action.setBadgeText({ text });
@@ -176,10 +211,19 @@ function activeVideoId() {
   return best ? best.videoId : null;
 }
 
-function resolveTracks(videoId, candidates) {
-  // 1) Explicit id (rare on FB feed) → ONLY that video's tracks.
+function resolveTracks(videoId, candidates, durationHint, primedAt) {
+  // 1) Explicit id → ONLY that video's tracks. The content script only fills
+  //    videoId when it's CONFIDENT (permalink/URL or a prior duration match) —
+  //    a junk markup id here once collided with a real neighbour's id and
+  //    transcribed the wrong video.
   if (videoId && trackRegistry.get(videoId)) return trackRegistry.get(videoId);
-  // 2) Candidate ids scraped from the post (FB buries the real video_id in the
+  // 2) Feed jobs (no trustworthy id anywhere in the post markup — proven
+  //    live): prime-window attribution decides — the tracks fetched while the
+  //    content script played THIS video. efg duration_s alone is NOT safe
+  //    (FB stamps preview-cut durations on full videos); it only breaks ties.
+  if (durationHint || primedAt)
+    return pickByWindow(trackRegistry.values(), primedAt || 0, durationHint, 2);
+  // 3) Candidate ids scraped from the post (FB buries the real video_id in the
   //    markup but not in a clean permalink). Intersect them with what we actually
   //    captured → deterministic match, no crossing to a prefetched neighbour.
   //    Prefer a record with both audio+video, then the most recently fetched.
@@ -200,9 +244,9 @@ function resolveTracks(videoId, candidates) {
     }
     if (best) return best;
   }
-  // 3) Explicit id was given but not captured yet → don't cross to another video.
+  // 4) Explicit id was given but not captured yet → don't cross to another video.
   if (videoId) return null;
-  // 4) No id at all (e.g. FB reels) → best-effort most-recently-active video.
+  // 5) No id at all (e.g. FB reels) → best-effort most-recently-active video.
   const id = activeVideoId();
   return id ? trackRegistry.get(id) : null;
 }
@@ -212,6 +256,7 @@ async function getTranscripts() {
   const r = await chrome.storage.local.get(TRANSCRIPTS_KEY);
   return r[TRANSCRIPTS_KEY] || {};
 }
+const TRANSCRIPTS_CAP = 20;
 async function putTranscript(videoId, patch) {
   const all = await getTranscripts();
   all[videoId] = {
@@ -220,6 +265,13 @@ async function putTranscript(videoId, patch) {
     videoId,
     updatedAt: Date.now(),
   };
+  // Rolling history: keep the newest TRANSCRIPTS_CAP records. Thumbs make each
+  // record 10-20KB, and the Library reads the whole map on every change.
+  const ids = Object.keys(all);
+  if (ids.length > TRANSCRIPTS_CAP) {
+    ids.sort((a, b) => (all[b].updatedAt || 0) - (all[a].updatedAt || 0));
+    for (const id of ids.slice(TRANSCRIPTS_CAP)) delete all[id];
+  }
   await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
   return all[videoId];
 }
@@ -260,7 +312,63 @@ function callOffscreen(message) {
 }
 
 // ---- job runners ----
+// Parse a WebVTT caption file → { text, chunks:[{timestamp:[start,end], text}] }.
+// Mirrors the Whisper chunk shape so the Library's SRT/txt export just works.
+function vttTime(t) {
+  const m = String(t).trim().match(/(?:(\d+):)?(\d+):(\d+)[.,](\d+)/);
+  if (!m) return 0;
+  const [, h, mm, ss, ms] = m;
+  return (+(h || 0)) * 3600 + +mm * 60 + +ss + +("0." + ms);
+}
+function parseWebVtt(raw) {
+  const body = String(raw).replace(/^﻿/, "").replace(/\r/g, "");
+  const chunks = [];
+  for (const block of body.split(/\n\n+/)) {
+    const lines = block.split("\n").filter(Boolean);
+    const tl = lines.findIndex((l) => l.includes("-->"));
+    if (tl < 0) continue;
+    const [a, b] = lines[tl].split("-->");
+    const text = lines
+      .slice(tl + 1)
+      .join(" ")
+      .replace(/<[^>]+>/g, "") // inline karaoke/style tags
+      .replace(/\{[^}]+\}/g, "")
+      .trim();
+    if (text) chunks.push({ timestamp: [vttTime(a), vttTime(b)], text });
+  }
+  return { text: chunks.map((c) => c.text).join(" ").replace(/\s+/g, " ").trim(), chunks };
+}
+
 async function runTranscription(videoId, tabId, meta = {}) {
+  // Caption-first: if the platform already ships an ASR/subtitle track (TikTok
+  // `subtitleInfos`), download and parse it instead of running Whisper — far
+  // faster/cheaper. Whisper stays the fallback when no caption URL is present.
+  if (meta.captionUrl) {
+    const id = videoId;
+    const { thumb, counts, author, caption, platform, sourceUrl } = meta;
+    await putTranscript(id, {
+      status: "running", error: null, source: "caption",
+      ...(thumb ? { thumb } : {}), ...(counts ? { counts } : {}), ...(author ? { author } : {}),
+      ...(caption ? { caption } : {}), ...(platform ? { platform } : {}), ...(sourceUrl ? { sourceUrl } : {}),
+    });
+    try {
+      if (/tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(meta.captionUrl)) await ensureTiktokReferer();
+      const r = await fetch(meta.captionUrl);
+      if (!r.ok) throw new Error("caption fetch failed " + r.status);
+      const { text, chunks } = parseWebVtt(await r.text());
+      if (!text) throw new Error("empty caption");
+      const saved = await putTranscript(id, { status: "done", source: "caption", text, chunks });
+      notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: true, text: saved.text, chunks: saved.chunks });
+      return;
+    } catch (e) {
+      // Fall through to Whisper if we have media; else report the caption error.
+      if (!meta.mediaUrl && !meta.candidates) {
+        await putTranscript(id, { status: "error", error: e.message });
+        notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: false, error: e.message });
+        return;
+      }
+    }
+  }
   // Audio source, cheapest first:
   //   1. a captured DASH audio-only track (small, fast to fetch+decode), then
   //   2. meta.mediaUrl — a progressive MP4 (Instagram always; Facebook when we
@@ -269,13 +377,16 @@ async function runTranscription(videoId, tabId, meta = {}) {
   //      fallback so cached videos still transcribe.
   let audioUrl = null;
   let id = videoId;
-  const tracks = resolveTracks(videoId, meta.candidates);
+  const tracks = resolveTracks(videoId, meta.candidates, meta.durationHint, meta.primedAt);
   if (tracks && tracks.audioUrl) {
     audioUrl = tracks.audioUrl;
     id = tracks.videoId;
   } else if (meta.mediaUrl) {
     audioUrl = meta.mediaUrl;
   }
+  // TikTok audio comes off the same Referer-gated CDN as its video — install the
+  // header rule so the offscreen fetch of the audio doesn't 403.
+  if (meta.platform === "tiktok" || /tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(audioUrl || "")) await ensureTiktokReferer();
   if (!audioUrl) {
     notifyTab(tabId, {
       type: "FBW_TRANSCRIBE_RESULT",
@@ -349,7 +460,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
   }
 }
 
-async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName) {
+async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, durationHint, primedAt) {
   // A direct progressive MP4 (Instagram, or a Facebook reel/video whose
   // progressive_url we read from the page JSON) → download it as-is, no mux.
   if (mediaUrl) {
@@ -370,7 +481,7 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName) {
     return;
   }
   // Facebook = DASH split → mux the captured tracks in the offscreen ffmpeg.
-  const tracks = resolveTracks(videoId, candidates);
+  const tracks = resolveTracks(videoId, candidates, durationHint, primedAt);
   if (!tracks || !tracks.videoUrl) {
     notifyTab(tabId, {
       type: "FBW_DOWNLOAD_RESULT",
@@ -532,14 +643,53 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         platform: msg.platform,
         sourceUrl: msg.sourceUrl,
         mediaUrl: msg.mediaUrl,
-        candidates: msg.candidates,
+        captionUrl: msg.captionUrl, // caption-first (TikTok subtitleInfos webvtt)
+        captionFormat: msg.captionFormat,
+        // Feed post markup embeds NEIGHBOURING videos' ids — candidates from a
+        // feed job are poison, refuse them even if a buggy/stale content
+        // script sends some.
+        candidates: msg.feedSurface ? null : msg.candidates,
+        durationHint: msg.durationHint,
+        primedAt: msg.primedAt,
       });
       sendResponse({ started: true });
       return false;
     }
     case "FBW_DOWNLOAD": {
-      runDownload(msg.videoId, sender.tab?.id, msg.mediaUrl, msg.candidates, msg.mediaName);
+      runDownload(
+        msg.videoId,
+        sender.tab?.id,
+        msg.mediaUrl,
+        msg.feedSurface ? null : msg.candidates,
+        msg.mediaName,
+        msg.durationHint,
+        msg.primedAt,
+      );
       sendResponse({ started: true });
+      return false;
+    }
+    // content → bg: "which captured video is this DOM <video>?" — duration-keyed
+    // lookup so a feed post with no permalink id still gets a deterministic
+    // record id (and can then find its media in the page's embedded JSON).
+    case "FBW_MATCH_TRACKS": {
+      const rec = pickByWindow(trackRegistry.values(), msg.primedAt || 0, msg.durationHint, 2);
+      sendResponse({ videoId: rec ? rec.videoId : null });
+      return false;
+    }
+    // debug: dump the live track registry (panel/devtools use; no page access)
+    case "FBW_DEBUG_REGISTRY": {
+      sendResponse({
+        now: Date.now(),
+        entries: Array.from(trackRegistry.entries()).map(([k, r]) => ({
+          key: k,
+          videoId: r.videoId,
+          durationS: r.durationS,
+          hasAudio: !!r.audioUrl,
+          hasVideo: !!r.videoUrl,
+          videoBitrate: r.videoBitrate,
+          agoMs: Date.now() - (r.lastSeen || 0),
+        })),
+      });
       return false;
     }
     case "FBW_LIST_TRANSCRIPTS": {
@@ -550,6 +700,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "FBW_WRITE_RUN_LOG": {
       writeRunLogFile(msg.doc);
       sendResponse({ ok: true });
+      return false;
+    }
+    // content → bg: an arbitrary JSON payload → file on disk (comment scrapes).
+    // The SW has no URL.createObjectURL, so route through jsonDataUrl like the
+    // run-log writer (TextEncoder → base64 data URL, emoji-safe).
+    case "FBW_DL_JSON": {
+      try {
+        chrome.downloads.download({
+          url: jsonDataUrl(msg.data),
+          filename: msg.filename || `socialmate-comments/export-${Date.now()}.json`,
+          saveAs: false,
+          conflictAction: "uniquify",
+        });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
       return false;
     }
     // content → bg → offscreen: niche-relevance (+ spam) cosine for a post.
@@ -580,6 +747,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "FBW_DL_MEDIA": {
       (async () => {
         try {
+          // TikTok media (video or thumbnail) needs the Referer header injected.
+          if (/tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(msg.url || "")) await ensureTiktokReferer();
           if (msg.kind === "video") {
             await chrome.downloads.download({ url: msg.url, filename: msg.filename });
             sendResponse({ ok: true });

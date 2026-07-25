@@ -122,7 +122,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
               target="_blank"
               rel="noreferrer"
               title="Open the original reel"
-              className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+              className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
             >
               <ExternalLink size={12} />
             </a>
@@ -130,7 +130,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
           <button
             onClick={onToggleSave}
             title={saved ? "Remove from Saved" : "Save"}
-            className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+            className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
           >
             {saved ? <BookmarkCheck size={13} className="text-amber-400" /> : <Bookmark size={13} />}
           </button>
@@ -138,7 +138,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             <button
               onClick={onDelete}
               title="Delete this transcript"
-              className="grid size-6 place-items-center rounded-md bg-black/55 text-white backdrop-blur hover:bg-black/75"
+              className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
             >
               <Trash2 size={12} />
             </button>

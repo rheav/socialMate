@@ -1,7 +1,7 @@
 {
   "name": "social-mate",
   "private": true,
-  "version": "0.52.0",
+  "version": "0.64.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
@@ -23,6 +23,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
+    "@tanstack/react-virtual": "^3.14.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "franc-min": "^6.2.0",

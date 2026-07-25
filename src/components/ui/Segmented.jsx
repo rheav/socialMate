@@ -48,13 +48,16 @@ export default function Segmented({ value, onChange, items }) {
             type="button"
             onClick={() => onChange(id)}
             className={cn(
-              "relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200",
+              // min-w-0 is load-bearing: flex items default to min-width:auto, so
+              // without it the buttons refuse to shrink below their label, `truncate`
+              // never engages and 5 tools overflow the track (clipped last tab).
+              "relative z-10 flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200",
               active
                 ? "text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <Icon size={13} strokeWidth={active ? 2.25 : 1.75} />
+            <Icon size={13} strokeWidth={active ? 2.25 : 1.75} className="shrink-0" />
             <span className="truncate">{label}</span>
           </button>
         );

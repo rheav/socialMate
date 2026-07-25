@@ -11,12 +11,95 @@
 if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   window.__fbwTranscribeInit = true;
 
+  // ---- generation takeover ----
+  // An extension reload creates a fresh isolated world but leaves the previous
+  // generation's observers/timers RUNNING (only its chrome.* dies) — two
+  // generations then fight over the rails (zombie rails, spinners resetting).
+  // window.postMessage crosses isolated worlds: announce ourselves; any older
+  // generation that hears a foreign announcement shuts itself down.
+  const FBW_GEN = Date.now() + ":" + Math.random();
+  let fbwDisabled = false;
+  window.addEventListener("message", (e) => {
+    if (
+      e.source === window &&
+      e.data &&
+      e.data.__fbwTakeover &&
+      e.data.__fbwTakeover !== FBW_GEN &&
+      !fbwDisabled
+    ) {
+      fbwDisabled = true;
+      try { btnObserver?.disconnect(); } catch {}
+      try { clearTimeout(btnTimer); } catch {}
+      // Drop this generation's UI — the new generation redecorates from scratch.
+      document
+        .querySelectorAll(".fbw-acts, .fbw-thumbbtn, #fbw-btn-style, #fbw-overlay")
+        .forEach((el) => el.remove());
+    }
+  });
+  window.postMessage({ __fbwTakeover: FBW_GEN }, "*");
+
   // which social network this capture came from (IG/TikTok added later)
   const PLATFORM = /instagram\.com$/.test(location.hostname)
     ? "instagram"
     : /tiktok\.com$/.test(location.hostname)
       ? "tiktok"
       : "facebook";
+
+  // ---- FB embedded-JSON duration table (accurate, unlike efg) ----
+  // FB's initial <script type="application/json"> blocks carry each video's
+  // real id, its true playable_duration_in_ms, and (in the same subtree) the
+  // caption. efg's duration_s LIES (preview-cut durations on full videos, live
+  // repro), so we read the honest duration here and use it to disambiguate the
+  // wire registry. Only the initial batch is present (pagination parses off the
+  // main thread), so this is a HINT layer, not the whole story — the
+  // prime-window wire attribution below is the always-available fallback.
+  const normCap = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/…?\s*(see more|ver mais|ver más)\s*$/i, "")
+      .trim()
+      .slice(0, 120);
+  // Scan the embedded JSON for the video whose caption matches this post's, or
+  // (fallback) whose accurate duration matches the DOM video. Returns a
+  // confident { id } or null. Runs on demand (job time), not on scroll.
+  function fbEmbeddedResolve(domCaption, domDuration) {
+    const cap = normCap(domCaption);
+    const byCaption = new Set();
+    const byDuration = new Set();
+    for (const s of document.querySelectorAll('script[type="application/json"]')) {
+      const t = s.textContent || "";
+      if (t.indexOf("videoDeliveryLegacyFields") < 0 && t.indexOf("playable_duration_in_ms") < 0)
+        continue;
+      let data;
+      try { data = JSON.parse(t); } catch { continue; }
+      (function walk(o, capCtx, depth) {
+        if (!o || typeof o !== "object" || depth > 26) return;
+        if (Array.isArray(o)) { for (const v of o) walk(v, capCtx, depth + 1); return; }
+        let cc = capCtx;
+        if (o.message && typeof o.message.text === "string") cc = o.message.text;
+        const id =
+          typeof o.id === "string" && /^\d{6,}$/.test(o.id) &&
+          (o.videoDeliveryLegacyFields || o.playable_duration_in_ms != null)
+            ? o.id
+            : null;
+        if (id) {
+          if (cap && cap.length >= 12) {
+            const rc = normCap(cc);
+            const n = Math.min(40, cap.length, rc.length);
+            if (n >= 12 && cap.slice(0, n) === rc.slice(0, n)) byCaption.add(id);
+          }
+          const durMs = o.playable_duration_in_ms;
+          if (durMs && Number.isFinite(domDuration) && Math.abs(durMs / 1000 - domDuration) <= 1.5)
+            byDuration.add(id);
+        }
+        for (const k in o) walk(o[k], cc, depth + 1);
+      })(data, null, 0);
+    }
+    if (byCaption.size === 1) return { id: [...byCaption][0] };
+    if (byDuration.size === 1) return { id: [...byDuration][0] };
+    return null;
+  }
 
   // ---- pick the video currently in view ----
   // The video the user is WATCHING = the one most centered in the viewport. We score
@@ -50,18 +133,17 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // ---- metadata scraping ----
   function grabThumb(videoEl) {
     // A real frame from the playing video (FB's MSE video is NOT canvas-tainted) —
-    // beats the avatar/black poster fallbacks. Kept small: the card renders it at
-    // ~140px, and the thumbnail was ~78% of each stored transcript record, so a
-    // 90px / q0.45 JPEG roughly halves the record size with no visible loss.
+    // beats the avatar/black poster fallbacks. 180px/q0.6: the Library card
+    // renders ~250px wide, and the old 90px/q0.45 thumb read as pixelated there.
     try {
       if (videoEl.readyState >= 2 && videoEl.videoWidth) {
-        const W = 90;
+        const W = 180;
         const cv = document.createElement("canvas");
         cv.width = W;
         cv.height =
-          Math.round(W * (videoEl.videoHeight / videoEl.videoWidth)) || 135;
+          Math.round(W * (videoEl.videoHeight / videoEl.videoWidth)) || 270;
         cv.getContext("2d").drawImage(videoEl, 0, 0, cv.width, cv.height);
-        return cv.toDataURL("image/jpeg", 0.45);
+        return cv.toDataURL("image/jpeg", 0.6);
       }
     } catch {}
     if (videoEl.poster) return videoEl.poster;
@@ -106,11 +188,23 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   function findPostUnit(videoEl) {
     const reel = reelCardUnit();
     if (reel) return reel;
+    // Feed surfaces (hashtag/home/profile): the post is a direct child of the
+    // [role="feed"] scroller — a clean boundary that never spills into
+    // neighbours and isn't fooled by the aria-hidden "Facebook" watermark spans
+    // FB scatters inside each post (they poison the text-length climb below).
+    const feed = videoEl.closest?.('[role="feed"]');
+    if (feed) {
+      let n = videoEl;
+      while (n && n.parentElement !== feed) n = n.parentElement;
+      if (n && (n.innerText || "").trim().length > 30) return n;
+    }
     let el = videoEl,
       best = null;
     for (let i = 0; i < 22 && el; i++) {
       const txt = (el.innerText || "").trim();
-      if (/(?:Facebook ){4}/.test(txt)) break;
+      // Watermark spam guard — innerText separates the spans with NEWLINES, so
+      // match any whitespace between the repeats, not just spaces.
+      if (/(?:Facebook\s*){4}/.test(txt)) break;
       if ((el.querySelectorAll?.("video") || []).length > 1) break;
       if (txt.length > 30) best = el;
       el = el.parentElement;
@@ -222,6 +316,11 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     const followName = authorFromFollowBtn(container);
     if (followName) return followName;
     for (const a of container.querySelectorAll("a[href]")) {
+      // FB anti-scrape noise: aria-hidden "Facebook" watermark links and
+      // invisible decoy anchors (zero-size rects) — never the author.
+      if (a.closest('[aria-hidden="true"]')) continue;
+      const rr = a.getBoundingClientRect();
+      if (!rr.width && !rr.height) continue;
       const href = a.getAttribute("href") || "";
       if (/\/hashtag\/|[?&]v=|l\.php|\/sharer|\/photo|\/posts\//i.test(href))
         continue;
@@ -274,6 +373,12 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       longBlock = null;
     container.querySelectorAll('[dir="auto"]').forEach((n) => {
       if (n.querySelector("video")) return;
+      // FB anti-scrape noise: watermark spans live under aria-hidden subtrees,
+      // and decoy text blocks (scrambled strings, fake domains) render with
+      // zero-size rects. Real captions are visible and aria-exposed.
+      if (n.closest('[aria-hidden="true"]')) return;
+      const rc = n.getBoundingClientRect();
+      if (!rc.width || !rc.height) return;
       const t = (n.innerText || "").trim();
       if (t.length < 6) return;
       const lines = t.split("\n");
@@ -457,7 +562,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     const v = pickActiveVideo();
     if (!v) return;
     await forcePlayOnly(v);
-    chrome.runtime.sendMessage(videoJobMessage(kind, v)).catch(() => {});
+    const msg = await videoJobMessage(kind, v);
+    chrome.runtime.sendMessage(msg).catch(() => {});
   }
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");
@@ -507,10 +613,14 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     if (opts.favorite) saveFavorite(meta);
     // Route through videoJobMessage so auto-capture also uses the embedded
     // progressive_url when present (works on cached videos, no mux needed).
-    if (opts.transcribe)
-      chrome.runtime.sendMessage(videoJobMessage("transcribe", v)).catch(() => {});
-    if (opts.download)
-      chrome.runtime.sendMessage(videoJobMessage("download", v)).catch(() => {});
+    if (opts.transcribe) {
+      const msg = await videoJobMessage("transcribe", v);
+      chrome.runtime.sendMessage(msg).catch(() => {});
+    }
+    if (opts.download) {
+      const msg = await videoJobMessage("download", v);
+      chrome.runtime.sendMessage(msg).catch(() => {});
+    }
   }
   window.addEventListener("__fbw_auto_capture", (e) =>
     autoCapture(e.detail || {}),
@@ -530,6 +640,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   const BTN_SVG = {
     dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     tx: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    cm: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     ok: '<polyline points="20 6 9 17 4 12"/>',
     err: '<line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/>',
   };
@@ -543,14 +654,19 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     s.textContent = `
       .fbw-acts{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:6px;z-index:8;pointer-events:none}
       .fbw-acts.reel{top:26%;left:auto;right:12px}
-      .fbw-actbtn{pointer-events:auto;display:grid;place-items:center;width:${BTN.size}px;height:${BTN.size}px;
-        border-radius:9px;cursor:pointer;color:#fff;background:rgba(0,0,0,.6);
-        -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border:1px solid rgba(160,190,255,.25);
-        box-shadow:0 1px 6px rgba(0,0,0,.35);transition:background .15s,color .15s,transform .1s}
-      .fbw-actbtn:hover{background:rgba(24,119,242,.92);transform:translateY(-1px)}
+      .fbw-actbtn{position:relative;pointer-events:auto;display:grid;place-items:center;width:${BTN.size}px;height:${BTN.size}px;
+        border-radius:9px;cursor:pointer;color:#fff;background:rgba(30,64,140,.92);
+        border:1px solid rgba(150,185,255,.5);box-shadow:0 2px 10px rgba(20,60,160,.35);
+        transition:background .15s,color .15s,transform .1s}
+      .fbw-actbtn:hover{background:rgba(32,112,244,.92);transform:translateY(-1px)}
+      .fbw-actbtn[data-tip]:hover::after{content:attr(data-tip);position:absolute;right:calc(100% + 8px);top:50%;
+        transform:translateY(-50%);background:rgba(17,24,44,.96);color:#fff;font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        padding:5px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:12;
+        box-shadow:0 2px 8px rgba(0,0,0,.45);border:1px solid rgba(150,185,255,.28)}
       .fbw-actbtn:active{transform:translateY(0)}
       .fbw-actbtn.busy{color:#93c5fd;cursor:default}
       .fbw-actbtn.busy svg{animation:fbw-spin 1s linear infinite}
+      #fbw-overlay{position:fixed;left:0;top:0;width:0;height:0;z-index:2147482000;pointer-events:none}
       .fbw-actbtn.ok{color:#34d399;border-color:rgba(52,211,153,.6)}
       .fbw-actbtn.err{color:#f87171;border-color:rgba(248,113,113,.6)}
       @keyframes fbw-spin{to{transform:rotate(360deg)}}
@@ -600,10 +716,10 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   const pending = { transcribe: [], download: [] };
   function setBtnState(btn, state) {
     btn.classList.remove("busy", "ok", "err");
-    if (state === "busy") { btn.classList.add("busy"); btn.innerHTML = btnIcon(btn.dataset.kind === "tx" ? "tx" : "dl"); }
+    if (state === "busy") { btn.classList.add("busy"); btn.innerHTML = btnIcon(btn.dataset.kind || "dl"); }
     else if (state === "ok") { btn.classList.add("ok"); btn.innerHTML = btnIcon("ok"); }
     else if (state === "err") { btn.classList.add("err"); btn.innerHTML = btnIcon("err"); }
-    else btn.innerHTML = btnIcon(btn.dataset.kind === "tx" ? "tx" : "dl");
+    else btn.innerHTML = btnIcon(btn.dataset.kind || "dl");
   }
   function markBusy(kind, btn) {
     setBtnState(btn, "busy");
@@ -643,6 +759,23 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       video.scrollIntoView({ block: "center" });
     const t0 = video.currentTime;
     if (video.paused) { try { await video.play(); } catch {} }
+    // Prime-window attribution needs WIRE events — a replay served from the
+    // already-buffered MSE ranges emits none. If there's an unbuffered stretch,
+    // hop into it briefly to force fresh segment fetches, then hop back.
+    try {
+      const b = video.buffered;
+      const dur = video.duration;
+      if (Number.isFinite(dur) && dur > 12 && b.length) {
+        const lastEnd = b.end(b.length - 1);
+        const gapAt = lastEnd + 2;
+        if (gapAt < dur - 2) {
+          const back = video.currentTime;
+          video.currentTime = gapAt;
+          await new Promise((r) => setTimeout(r, 900));
+          video.currentTime = back;
+        }
+      }
+    } catch {}
     for (let i = 0; i < 14; i++) {
       await new Promise((r) => setTimeout(r, 250));
       if (!video.paused && video.currentTime > t0 + 0.15) break;
@@ -651,25 +784,95 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // Build the job message for a video: prefer the page's embedded progressive_url
   // (works even for cached videos), fall back to the captured-track pipeline
   // (videoId + candidates) when no embedded URL is present.
-  function videoJobMessage(kind, video) {
+  //
+  // Id resolution, most→least trusted:
+  //   1. permalink/URL id (reel, watch, video-post) — never second-guessed;
+  //   2. duration match against the background's captured tracks — feed posts
+  //      (hashtag/home) bury the real video_id in page JSON only, so the markup
+  //      can't name it, but the DOM video's duration pairs it to an efg
+  //      duration_s deterministically (recency alone crosses to prefetches);
+  //   3. first markup candidate — a guess; flagged !idConfident so the eager
+  //      Library card isn't written under an id the background may not use.
+  async function videoJobMessage(kind, video, primedAt, onFeedOverride) {
     const unit = findPostUnit(video) || video;
     const meta = grabMeta(video);
     const candidates = grabVideoIdCandidates(unit, video);
-    const id = meta.videoId || candidates[0] || null;
-    const embedded = fbEmbeddedMediaFor(new Set([id, ...candidates].filter(Boolean)));
+    const durationHint =
+      Number.isFinite(video.duration) && video.duration > 1
+        ? Math.round(video.duration * 10) / 10
+        : null;
+    let id = meta.videoId || null;
+    const fromPermalink = !!id;
+    let idConfident = fromPermalink;
+    // Feed resolution #1: FB's embedded JSON, matched by this post's caption
+    // (unique) or accurate playable duration. Present only for the initial
+    // batch, but when present it's a trusted id with no wire dependence.
+    if (!id) {
+      const emb = fbEmbeddedResolve(meta.caption, video.duration);
+      if (emb) {
+        id = emb.id;
+        idConfident = true;
+        meta.videoId = id;
+        meta.sourceUrl = `https://www.facebook.com/watch/?v=${id}`;
+      }
+    }
+    // Feed resolution #2, only AFTER priming: the background attributes the
+    // tracks fetched during the prime window to THIS video. The always-
+    // available fallback for paginated posts (not in the embedded JSON). efg
+    // duration only breaks ties among the freshly-fetched set — never overrides
+    // it (efg duration_s lies).
+    if (!id && primedAt) {
+      const r = await chrome.runtime
+        .sendMessage({ type: "FBW_MATCH_TRACKS", durationHint, primedAt })
+        .catch(() => null);
+      if (r && r.videoId) {
+        id = r.videoId;
+        idConfident = true;
+        meta.videoId = id;
+        meta.sourceUrl = `https://www.facebook.com/watch/?v=${id}`;
+      }
+    }
+    // NO junk fallback into the id: a markup candidate once collided with a
+    // real neighbouring video's id and the background trusted it exactly —
+    // wrong audio under this post's metadata. Unresolved stays null; the
+    // background's duration path (or an error) decides.
+    // Hint the background only when the id is NOT from a permalink — a real
+    // permalink id must never cross to a same-length neighbour. A hinted call
+    // is duration-ONLY in the background. Candidates NEVER ride along on feed
+    // surfaces: feed post markup routinely embeds NEIGHBOURING videos' ids
+    // (live repro: a not-yet-loaded video sent candidates and inherited the
+    // neighbour's transcript under its own metadata).
+    // onFeed can't be derived from the node alone: a DETACHED video (FB just
+    // remounted it) has no [role="feed"] ancestor and would misclassify as
+    // non-feed — the caller that KNOWS (overlay rails only exist on feed)
+    // overrides. feedSurface also travels in the message so the background can
+    // refuse candidates from feed jobs outright (defense in depth).
+    const hinted = !fromPermalink && durationHint;
+    const onFeed = onFeedOverride ?? !!feedUnitAnchor(video);
+    const hint = hinted ? { durationHint, ...(primedAt ? { primedAt } : {}) } : {};
+    const cands = hinted || onFeed ? {} : { candidates };
+    const flags = { idConfident, feedSurface: !!onFeed };
+    // Embedded-JSON lookup gets CONFIDENT ids only. Junk markup candidates
+    // (story/actor/comment ids) routinely sit as ancestors of a DIFFERENT
+    // video's media object in the hashtag page's combined JSON scripts — that
+    // crossed one post's metadata with another video's audio. No confident id →
+    // no embedded URL → the capture pipeline (prime + duration match) decides.
+    const embedded = fbEmbeddedMediaFor(
+      new Set(idConfident && id ? [id] : []),
+    );
     if (kind === "transcribe") {
       // Prefer the embedded audio-only stream (small, in the DOM → no capture
       // wait, and a deterministic record id so the eager card below matches the
-      // final one). Omit candidates in that case so the background can't switch
-      // the id to a captured track's. Only fall back to candidates (capture) when
-      // no embedded audio exists. Never the progressive video (slow to decode).
+      // final one). Omit candidates + hint in that case so the background can't
+      // switch the id to a captured track's. Never the progressive video
+      // (slow to decode).
       if (embedded.audio)
-        return { type: "FBW_TRANSCRIBE", ...meta, videoId: id, mediaUrl: embedded.audio };
-      return { type: "FBW_TRANSCRIBE", ...meta, videoId: id, candidates };
+        return { type: "FBW_TRANSCRIBE", ...meta, videoId: id, mediaUrl: embedded.audio, ...flags };
+      return { type: "FBW_TRANSCRIBE", ...meta, videoId: id, ...cands, ...hint, ...flags };
     }
     if (embedded.progressive)
-      return { type: "FBW_DOWNLOAD", videoId: id, mediaUrl: embedded.progressive, mediaName: `fb-${id || Date.now()}.mp4` };
-    return { type: "FBW_DOWNLOAD", videoId: id, candidates };
+      return { type: "FBW_DOWNLOAD", videoId: id, mediaUrl: embedded.progressive, mediaName: `fb-${id || Date.now()}.mp4`, ...flags };
+    return { type: "FBW_DOWNLOAD", videoId: id, ...cands, ...hint, ...flags };
   }
   // Show the transcript in the Library the instant it's requested: write a
   // "running" record (with the thumbnail/author/caption we already scraped) so
@@ -695,24 +898,64 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       chrome.storage.local.set({ fbw_transcripts: all });
     }).catch(() => {});
   }
+  // The live video a rail button refers to: the bound node if still attached,
+  // else the video GEOMETRICALLY under the rail (FB remounts feed post
+  // subtrees at will, including mid-job between prime and rebuild).
+  function liveVideoFor(btn, current) {
+    if (current && current.isConnected) return current;
+    const rr = btn.getBoundingClientRect();
+    return (
+      [...document.querySelectorAll("video")].find((v) => {
+        const r = v.getBoundingClientRect();
+        return (
+          rr.top >= r.top - 40 && rr.top <= r.bottom &&
+          rr.left >= r.left - 40 && rr.left <= r.right
+        );
+      }) || current
+    );
+  }
   async function btnVideoJob(kind, boundVideo, btn) {
     if (btn.classList.contains("busy")) return;
     markBusy(kind, btn);
-    const video = targetVideoFor(boundVideo);
-    let msg = videoJobMessage(kind, video);
-    if (kind === "transcribe") {
-      writeRunningRecord(msg); // instant card in the Library
-    } else if (!msg.mediaUrl) {
-      // Download with no embedded progressive URL → needs a captured track;
-      // prime the video first, then rebuild the message with what got captured.
-      await primeVideo(video);
-      msg = videoJobMessage(kind, video);
+    // Overlay rails bind a GETTER (the tracked record's live video); in-DOM
+    // rails bind the node itself.
+    let video = liveVideoFor(
+      btn,
+      typeof boundVideo === "function" ? boundVideo() : targetVideoFor(boundVideo),
+    );
+    if (!video || !video.isConnected) {
+      resolvePending(kind, false);
+      return;
     }
+    // Overlay rails exist ONLY on feed surfaces — a fact about the BUTTON, so
+    // it stays true even when the video node detaches mid-flow.
+    const onFeed = !!btn.closest("#fbw-overlay") || !!feedUnitAnchor(video);
+    let msg = await videoJobMessage(kind, video, undefined, onFeed);
+    // No direct media URL and no trusted id → the tracks were never fetched (or
+    // can't be told apart yet): play the video so its fbcdn tracks hit the wire,
+    // then rebuild the message with what got captured. primedAt lets the
+    // background break a same-duration tie with "fetched during this window".
+    // Re-resolve the video after priming — FB may have remounted it meanwhile.
+    if (!msg.mediaUrl && (kind === "download" || !msg.idConfident)) {
+      const primedAt = Date.now();
+      await primeVideo(video);
+      video = liveVideoFor(btn, video);
+      msg = await videoJobMessage(kind, video, primedAt, onFeed);
+    }
+    // Still nothing to key the job on (no id, no direct URL, no duration) —
+    // fail HERE. Sending it would make the background guess by recency, which
+    // is exactly the cross-video class of bug this pipeline just closed.
+    if (!msg.videoId && !msg.mediaUrl && !msg.durationHint) {
+      resolvePending(kind, false);
+      return;
+    }
+    if (kind === "transcribe" && msg.idConfident) writeRunningRecord(msg); // instant card in the Library
     chrome.runtime.sendMessage(msg).catch(() => {});
   }
-  function btnImageJob(img, btn) {
+  function btnImageJob(boundImg, btn) {
     if (btn.classList.contains("busy")) return;
-    const url = img.currentSrc || img.src;
+    const img = typeof boundImg === "function" ? boundImg() : boundImg;
+    const url = img && (img.currentSrc || img.src);
     if (!url) return;
     markBusy("download", btn);
     const unit = findPostUnit(img) || img.closest('[role="article"]') || img;
@@ -721,13 +964,16 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: name }).catch(() => {});
   }
 
+  const KIND_ICON = { transcribe: "tx", download: "dl", comment: "cm" };
   function mkBtn(kind, title, onClick) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "fbw-actbtn";
-    b.dataset.kind = kind === "transcribe" ? "tx" : "dl";
+    const icon = KIND_ICON[kind] || "dl";
+    b.dataset.kind = icon;
     b.title = title;
-    b.innerHTML = btnIcon(kind === "transcribe" ? "tx" : "dl");
+    b.dataset.tip = title; // instant CSS tooltip on hover
+    b.innerHTML = btnIcon(icon);
     // Swallow the whole pointer sequence, not just click: FB's reel/video player
     // toggles play on pointerdown/mouseup, so a bare click handler still paused
     // the video. stopPropagation on each keeps the tap on our button only.
@@ -737,6 +983,34 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); onClick(b); });
     return b;
   }
+  // Single-post permalink surfaces where scraping THIS post's comments makes
+  // sense (a reel/video/post) — not the multi-post feed/hashtag grid.
+  function commentSurface() {
+    const p = location.pathname, s = location.search;
+    return /\/reel\/\d|\/videos\/\d|\/watch\b|[?&]v=\d|\/posts\/|permalink\.php|story\.php|story_fbid/.test(p + s);
+  }
+  // The comment-scrape button lives in the same rail, below Transcribe. The
+  // scrape engine is in comments-scrape.js (same isolated world) — the button
+  // just fires a window event; a progress listener (below) reflects state back.
+  function mkCommentBtn() {
+    const b = mkBtn("comment", "Scrape comments", () => {
+      window.dispatchEvent(new CustomEvent("__fbwScrapeComments"));
+    });
+    b.dataset.cm = "1";
+    return b;
+  }
+  window.addEventListener("__fbwScrapeProgress", (e) => {
+    const { state, tip } = e.detail || {};
+    for (const b of document.querySelectorAll('.fbw-actbtn[data-cm="1"]')) {
+      b.classList.remove("busy", "ok", "err");
+      if (state === "busy") { b.classList.add("busy"); b.innerHTML = btnIcon("cm"); }
+      else if (state === "ok") { b.classList.add("ok"); b.innerHTML = btnIcon("ok"); }
+      else b.innerHTML = btnIcon("cm");
+      const t = tip || "Scrape comments";
+      b.dataset.tip = t;
+      b.title = t;
+    }
+  });
   function buildVideoRail(video, onReel) {
     const wrap = document.createElement("div");
     // Reels are portrait + full-bleed: the top-left corner holds FB's mute
@@ -744,6 +1018,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     wrap.className = onReel ? "fbw-acts reel" : "fbw-acts";
     wrap.appendChild(mkBtn("download", "Download video", (b) => btnVideoJob("download", video, b)));
     wrap.appendChild(mkBtn("transcribe", "Transcribe video", (b) => btnVideoJob("transcribe", video, b)));
+    if (commentSurface()) wrap.appendChild(mkCommentBtn());
     return wrap;
   }
   function buildImageRail(img) {
@@ -753,16 +1028,144 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     return wrap;
   }
 
-  // Give an element a positioned parent to hang the absolute rail on, and return it.
-  function anchorFor(mediaEl) {
-    const p = mediaEl.parentElement;
-    if (!p) return null;
-    if (getComputedStyle(p).position === "static") p.style.position = "relative";
-    return p;
+  // ============================================================
+  // Overlay rail layer — feed surfaces (hashtag results, etc.)
+  // FB's virtualized feed remounts WHOLE post subtrees at will (every second
+  // while a video plays), so any rail parented inside the feed dies with its
+  // anchor: visible flicker, busy spinners resetting mid-job. The overlay lives
+  // on <html> — outside FB's React root and outside our body MutationObserver —
+  // and rails are POSITIONED over their media each sync tick instead of being
+  // parented near it. Rail identity survives remounts via a duration/src key,
+  // so the button element (and its busy/ok/err state) is never re-created.
+  // ============================================================
+  let overlayRoot = null;
+  const overlayRails = new Map(); // key -> { rail, media }
+  function ensureOverlayRoot() {
+    if (overlayRoot && overlayRoot.isConnected) return overlayRoot;
+    ensureBtnStyle();
+    overlayRoot = document.getElementById("fbw-overlay") || document.createElement("div");
+    overlayRoot.id = "fbw-overlay";
+    document.documentElement.appendChild(overlayRoot);
+    return overlayRoot;
+  }
+  function placeRail(rec) {
+    const el = rec.media;
+    if (!el || !el.isConnected) {
+      // Remounted between syncs — hold the last position; the next sync re-binds.
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    if (r.width < 100 || r.bottom < 0 || r.top > window.innerHeight) {
+      rec.rail.style.display = "none";
+      return;
+    }
+    rec.rail.style.display = "";
+    rec.rail.style.position = "fixed";
+    rec.rail.style.top = Math.round(r.top + 10) + "px";
+    rec.rail.style.left = Math.round(r.left + 10) + "px";
+  }
+  function overlayFeedMode() {
+    return (
+      surfaceAllowsMediaButtons() &&
+      !/\/reel\//.test(location.pathname) &&
+      !!document.querySelector('[role="feed"]')
+    );
+  }
+  function syncOverlayRails() {
+    if (!overlayFeedMode()) {
+      if (overlayRails.size) {
+        for (const rec of overlayRails.values()) rec.rail.remove();
+        overlayRails.clear();
+      }
+      return;
+    }
+    ensureOverlayRoot();
+    const vh = window.innerHeight;
+    const seen = new Set();
+    const durCount = {};
+    for (const v of document.querySelectorAll('[role="feed"] video')) {
+      const r = v.getBoundingClientRect();
+      if (r.width < BTN.minMedia || r.height < 140) continue;
+      if (r.bottom < -vh || r.top > vh * 2) continue;
+      // Key by duration (deciseconds) + same-duration occurrence order — both
+      // survive FB's node remounts, unlike the node itself.
+      const d = Math.round((v.duration || 0) * 10) || 0;
+      const n = (durCount[d] = (durCount[d] || 0) + 1);
+      const key = `v:${d}:${n}`;
+      seen.add(key);
+      let rec = overlayRails.get(key);
+      if (!rec) {
+        rec = { rail: null, media: v };
+        rec.rail = buildVideoRail(() => rec.media, false);
+        overlayRoot.appendChild(rec.rail);
+        overlayRails.set(key, rec);
+      }
+      rec.media = v;
+      placeRail(rec);
+    }
+    for (const img of document.querySelectorAll(
+      '[role="feed"] img[src*="fbcdn"], [role="feed"] img[src*="scontent"]',
+    )) {
+      const r = img.getBoundingClientRect();
+      if (r.width < BTN.minImg || r.height < BTN.minImg) continue;
+      if (r.bottom < -vh || r.top > vh * 2) continue;
+      const unit = feedUnitAnchor(img);
+      if (!unit || unit.querySelector("video")) continue; // videos own their rail
+      const key = "i:" + (img.currentSrc || img.src || "").slice(-48);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      let rec = overlayRails.get(key);
+      if (!rec) {
+        rec = { rail: null, media: img };
+        rec.rail = buildImageRail(() => rec.media);
+        overlayRoot.appendChild(rec.rail);
+        overlayRails.set(key, rec);
+      }
+      rec.media = img;
+      placeRail(rec);
+    }
+    for (const [k, rec] of overlayRails)
+      if (!seen.has(k)) {
+        rec.rail.remove();
+        overlayRails.delete(k);
+      }
+  }
+  // Fixed-position rails don't scroll with the page — reposition immediately
+  // (rAF-batched; a handful of getBoundingClientRect calls) instead of waiting
+  // for the debounced decorate pass.
+  let repositionQueued = false;
+  function repositionOverlayRails() {
+    repositionQueued = false;
+    for (const rec of overlayRails.values()) placeRail(rec);
+  }
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!fbwDisabled && overlayRails.size && !repositionQueued) {
+        repositionQueued = true;
+        requestAnimationFrame(repositionOverlayRails);
+      }
+    },
+    { passive: true, capture: true },
+  );
+
+  // Feed surfaces: FB re-renders the player subtree every second while a video
+  // plays, so a rail hung on the video's own parent is destroyed + re-added each
+  // tick (visible flicker). The post unit ([role="feed"] direct child) is stable
+  // across those re-renders — hang the rail there, offset to the media's corner.
+  // Bonus: the rail then lives OUTSIDE the tile's click target, so FB's
+  // delegated click handler no longer opens the reel theater on button clicks.
+  function feedUnitAnchor(mediaEl) {
+    const feed = mediaEl.closest?.('[role="feed"]');
+    if (!feed) return null;
+    let n = mediaEl;
+    while (n && n.parentElement !== feed) n = n.parentElement;
+    return n || null;
   }
 
-  // Where the per-video rail is allowed: the reel player and video-permalink
-  // pages. NOT the home/profile feed — there you just open the reel to grab it,
+  // Where the per-video rail is allowed: the reel player, video-permalink
+  // pages, and hashtag feeds (research surface — grab posts/photos in place).
+  // NOT the home/profile feed — there you just open the reel to grab it,
   // and decorating every scrolling feed video was noise (and churn).
   function surfaceAllowsMediaButtons() {
     const p = location.pathname;
@@ -770,6 +1173,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       /\/reel\//.test(p) ||
       /\/videos\//.test(p) ||
       /\/watch\b/.test(p) ||
+      /\/hashtag\//.test(p) ||
       /[?&]v=\d/.test(location.search)
     );
   }
@@ -800,7 +1204,8 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
         if (area > reelBestArea) { reelBestArea = area; reelBest = v; }
         continue;
       }
-      const anchor = anchorFor(v);
+      if (feedUnitAnchor(v)) continue; // feed media → overlay rails (remount-proof)
+      const anchor = v.parentElement;
       if (anchor && !anchor.querySelector(":scope > .fbw-acts")) targets.push([anchor, "video", v]);
     }
     let staleReelRails = [];
@@ -811,7 +1216,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       staleReelRails = Array.from(document.querySelectorAll(".fbw-acts")).filter(
         (el) => !el.parentElement || !el.parentElement.contains(reelBest),
       );
-      const anchor = anchorFor(reelBest);
+      const anchor = reelBest.parentElement;
       if (anchor && !anchor.querySelector(":scope > .fbw-acts")) targets.push([anchor, "video", reelBest]);
     }
     // Standalone photo posts: a large fbcdn image with NO video in its post unit.
@@ -819,9 +1224,10 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       const r = img.getBoundingClientRect();
       if (r.width < BTN.minImg || r.height < BTN.minImg) continue;
       if (r.bottom < -vh || r.top > vh * 2) continue;
+      if (feedUnitAnchor(img)) continue; // feed media → overlay rails (remount-proof)
       const unit = findPostUnit(img) || img.closest('[role="article"]');
       if (!unit || unit.querySelector("video")) continue; // videos own their rail
-      const anchor = anchorFor(img);
+      const anchor = img.parentElement;
       if (anchor && !anchor.querySelector(":scope > .fbw-acts")) targets.push([anchor, "image", img]);
     }
     if (!targets.length && !staleReelRails.length) return;
@@ -831,6 +1237,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     for (const [anchor, kind, el] of targets) {
       // Re-check after the disconnect — a concurrent pass may have decorated it.
       if (anchor.querySelector(":scope > .fbw-acts")) continue;
+      if (getComputedStyle(anchor).position === "static") anchor.style.position = "relative";
       anchor.appendChild(kind === "video" ? buildVideoRail(el, onReel) : buildImageRail(el));
     }
     if (btnObserver) observeForBtns();
@@ -895,13 +1302,22 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     document.body.appendChild(thumbBtn);
   }
 
+  // An extension reload re-injects this script but leaves the previous
+  // context's rails in the DOM with dead listeners — strip them so the fresh
+  // pass doesn't stack a second rail next to a zombie one.
+  document
+    .querySelectorAll(".fbw-acts, .fbw-thumbbtn, #fbw-btn-style, #fbw-overlay")
+    .forEach((el) => el.remove());
+
   let btnTimer = null;
   function scheduleDecorate() {
+    if (fbwDisabled) return;
     clearTimeout(btnTimer);
     btnTimer = setTimeout(() => {
+      if (fbwDisabled) return;
       if (typeof requestIdleCallback === "function")
-        requestIdleCallback(() => { decorateMedia(); ensureThumbBtn(); }, { timeout: 700 });
-      else { decorateMedia(); ensureThumbBtn(); }
+        requestIdleCallback(() => { decorateMedia(); syncOverlayRails(); ensureThumbBtn(); }, { timeout: 700 });
+      else { decorateMedia(); syncOverlayRails(); ensureThumbBtn(); }
     }, 350);
   }
   btnObserver = new MutationObserver(scheduleDecorate);

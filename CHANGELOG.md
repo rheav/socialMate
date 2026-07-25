@@ -18,6 +18,498 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.64.0] — 2026-07-25
+
+### Added — per-platform identity retint
+- **The panel now takes the active platform's brand gradient.** `platforms.jsx` has
+  always defined a per-platform `THEMES` map whose comment claimed it was "applied to
+  `<html>` on switch", but nothing ever applied it (0.63.0 documented this as dead
+  code). Now `applyPlatformIdentity()` wires it up, so the logo squircle, the
+  `socialMate` wordmark, the active switcher glyph + glow, the segmented thumb, the
+  Start button and the toggles all retint: Facebook blue→cyan, Instagram
+  orange→pink→purple, TikTok cyan→red. Home restores the default.
+- **Only the four identity vars are applied** (`--sw-from`, `--sw-to`, `--sw-grad`,
+  `--sw-glow`) — deliberately *not* `PLATFORMS[p].theme` wholesale, because that
+  object spreads a `NEUTRAL` bundle of **light-mode** tokens (`--primary: 240 6% 10%`,
+  `--ring`, `--radius`, `--sw-wash`); inline-styling those on `<html>` would beat the
+  `.dark` block and wreck dark mode.
+- **Label contrast pinned.** Dark mode's `--primary-foreground` is *black*, tuned for
+  the Brute red→yellow accent whose yellow end kills white text. A platform gradient
+  needs white, so `--primary-foreground` is pinned to white while a platform identity
+  is active and removed at Home. Re-runs on the light/dark toggle.
+
+## [0.63.0] — 2026-07-25
+
+### Added — per-platform workspaces that follow the active browser tab
+- **The panel now mirrors the active tab's platform.** Previously the platform was
+  detected **once on mount** (no `chrome.tabs` listeners existed), so moving from a
+  TikTok tab to an Instagram tab left the panel on TikTok until you manually went
+  back to Platforms and re-picked.
+- **Each platform keeps its own workspace and resumes it.** Nav state moved from a
+  flat `{tab, platform, toolId}` (`sw_nav2`, which *reset* `toolId` on every platform
+  change) to `{tab, platform, perPlatform:{<platform>:{toolId}}}` under the new key
+  **`sw_nav3`**. Pick Stories on Instagram and Comments on TikTok, bounce between
+  tabs, and each platform comes back where you left it. The legacy `sw_nav2` value is
+  migrated on first run (last platform + tool preserved), never mutated.
+- **Reliability/perf guards** (all in `lib/navState.js` + `useFollowActiveTab`):
+  - Listeners live in the **panel**, not the background SW — zero cost while the
+    panel is closed, no storage round-trip, no extra MV3 wakeups.
+  - **Own-window filter**: a side panel belongs to one window, so tab events from
+    other windows are ignored. `windows.onFocusChanged` is deliberately *not* used
+    (another window gaining focus isn't a change to our window's tab).
+  - `onUpdated` pre-filtered to real navigations of the active tab, then a **150 ms
+    debounce** → a page load's event burst costs one `tabs.query`.
+  - **Monotonic ticket** drops out-of-order async resolutions from fast tab switching.
+  - Every `withPlatform`/`withToolId`/`withTab` returns the **same object reference**
+    when nothing changes, so repeat events cause **no re-render**.
+  - **Non-platform tabs are sticky** — switching to gmail/localhost keeps your last
+    workspace instead of blanking the panel.
+  - **Library is never disturbed** by a tab switch; the workspace updates underneath.
+  - A remembered tool that no longer exists falls back to the platform's first tool.
+  - Exactly **one platform's tools stay mounted** (unchanged) — deliberately *not*
+    mounting all three, which would triple the tools' 2.5 s polling intervals.
+- 18 new unit tests (`lib/navState.test.js`); no content-script, bridge, background,
+  or tool-data changes. Spec: `docs/superpowers/specs/2026-07-25-per-platform-workspaces-design.md`.
+
+### Changed — UI
+- **Platform switcher moved into the header**, right of the `socialMate` wordmark
+  (was inside `ToolFrame`, only visible within a tool). It is now visible everywhere
+  and doubles as the indicator of which platform the panel is following; clicking a
+  glyph jumps straight into that platform's workspace.
+- **Flame glyph added inside the identity squircle** in the header (it was an empty
+  gradient tile), matching the extension icon.
+- **`"Sort + Download"` → `"Sort"`** (download is implicit) and `Segmented` buttons
+  gained `min-w-0`. Root cause of TikTok's clipped 5th tab: flex items default to
+  `min-width:auto`, so buttons wouldn't shrink below their label and the existing
+  `truncate` never engaged, overflowing the track.
+
+### Note
+- `platforms.jsx` defines a per-platform `THEMES` map whose comment claims it is
+  applied to `<html>` on switch — **nothing applies it** (no `setProperty` anywhere),
+  so the identity gradient comes from `index.css :root` on every platform. Left
+  as-is deliberately (wiring it would restyle the whole panel); documented so it
+  isn't mistaken for a regression introduced here.
+
+## [0.62.0] — 2026-07-25
+
+### Added — TikTok Stories + Playlists/Collections tools
+- **Two new TikTok tools**, unblocked after finding a creator (@edu_limoncelli) that
+  actually has them — the shapes are now verified populated:
+  - **Stories** — passive tee of `/api/story/item_list` (each item is a full video
+    struct: HD + captions + stats). Grouped by creator; per-item **Download HD**,
+    **Transcribe** (caption-first), **Save**. Verified: edu had 2 active stories.
+  - **Playlists** — passive tee of `/api/user/playlist` + `/api/user/collection_list`
+    (bucket metadata: `{id/mixId, name, videoCount, cover}` — edu had 10 playlists)
+    plus `/api/{mix,collection}/item_list` for the videos inside. Collapsible bucket
+    list; open a playlist on TikTok to load its videos, then Download-HD-all / Save.
+- Capture routing added to `tt-capture` (`STORY_RE`/`MIX_RE`/`LISTMETA_RE`); the
+  bridge gains `stories` + `lists` stores and `FBW_TT_STORIES` / `FBW_TT_LISTS`
+  (both cleared by `FBW_TT_CLEAR`). Story/playlist videos reuse the HD + caption-first
+  paths from 0.61.0.
+
+## [0.61.0] — 2026-07-25
+
+### Added — HD-everywhere downloads
+- **TikTok downloads now pick the highest-quality rendition.** `tt-capture` reads
+  `video.bitrateInfo[]` and selects the gear with the largest resolution (tie-break
+  bitrate) as `hd_url` — verified live: a 1080×1920 h265 gear above TikTok's default
+  720 `playAddr`. Sort-tool download + on-page overlay download both use `hd_url`
+  (falls back to `downloadAddr`/`playAddr`). Instagram already serves the largest
+  `image_versions2.candidates[0]` / `video_versions[0]`, and Facebook uses the
+  delivered progressive/DASH, so TikTok is where the upgrade lands.
+
+### Added — caption-first transcription (skip Whisper when captions exist)
+- **TikTok ships ASR caption tracks** (`video.subtitleInfos[]`, `Format:"webvtt"`,
+  direct `Url`). Transcription now downloads and parses that webvtt into text +
+  timestamped chunks **instead of running Whisper** — far faster/cheaper. Whisper
+  stays the fallback when no caption URL is present (and if the caption fetch fails
+  but media exists). New `parseWebVtt` in `background.js`; the transcript record is
+  tagged `source:"caption"`. The existing Library SRT/txt export works unchanged
+  (chunks mirror the Whisper shape). `FBW_TRANSCRIBE` gains `captionUrl`.
+
+### Added — Instagram story-link stickers
+- **Swipe-up / link-sticker destinations are now captured** (`liteStory` reads
+  `story_link_stickers[].story_link.url`, defensively) and shown as a tappable
+  **link** chip on each story card in the Stories tool — surfacing competitors'
+  actual funnel/landing-page URLs.
+
+### Deferred (need a populated account to verify shapes)
+- **TikTok Stories** (`/api/story/item_list`) and **Collections/Playlists**
+  (`/api/user/{collection_list,playlist}`) — endpoints verified firing, but the
+  test creator (@zachking) had no active stories and no playlists, so the populated
+  item shapes couldn't be nailed. Deferred until a creator that has them is available.
+
+## [0.60.0] — 2026-07-24
+
+### Added — Refresh + auto-follow current video (FB / IG / TikTok)
+- **Passive-capture tools accumulated across videos/surfaces** — the panel could
+  show a *previous* video's comments/posts after you'd moved on. Fixed two ways:
+  - **Auto-follow the current video.** The TikTok bridge now tracks
+    `lastCommentAweme` (the video whose comments last loaded) and returns a
+    `current` id in `FBW_TT_LIST`/`FBW_TT_COMMENTS`; the Comments tool auto-selects
+    it until you manually pick a video.
+  - **Refresh button** on IG Sort, IG Stories, TikTok Sort, TikTok Comments, and FB
+    Comments. New `FBW_TT_CLEAR` / `FBW_IG_CLEAR` bridge messages wipe the captured
+    store and re-pull the current surface, so switching context drops stale items.
+    (FB Reels already re-scans live DOM via "Collect all"; FB Comments refresh jumps
+    to the newest/streaming scrape.)
+
+### Added — TikTok on-page action overlay
+- **A floating action stack on TikTok videos** (feed + detail), so you can act
+  without opening the side panel — mirrors the FB/IG on-page buttons. Pinned to the
+  window's right edge (clear of TikTok's own rail), **no backdrop-blur**. Buttons:
+  **Save** to Library, **Download** MP4, **Transcribe** (Whisper), **Scrape
+  comments** (opens the comment panel + auto-scrolls to bulk-load into the passive
+  capture, incl. expanding replies), **Like** (clicks TikTok's native control).
+  Resolves the current video from the captured record (`byId` keyed by the URL /
+  most-centered-video's aweme id); media actions disable when no record is captured
+  yet. Lives in `content/tt/tt-relay.js` (isolated world, import-free).
+
+## [0.59.0] — 2026-07-24
+
+### Added — TikTok Sort + Download + Comments (new platform tools)
+- **TikTok now has scraping tools, not just warming.** Two new tools in the TikTok
+  workspace: **Sort + Download** (mirror of IG Sort) and **Comments**.
+- **Capture = passive fetch/XHR response tee, NOT a JSON.parse hook.** TikTok parses
+  its API responses with `fetch().json()` (native — a JSON.parse monkey-patch caught
+  0/167 calls live), so `content/tt/main-world.js` wraps `window.fetch` (+ XHR) at
+  document_start and tees the response bodies of `/api/{post,recommend,challenge,
+  search}/item_list` and `/api/comment/list`. Passive — reads what the page already
+  fetched, so **no request signing** (msToken/X-Bogus/X-Gnarly) and no flagging risk.
+  `content/tt/bridge.js` (isolated, import-free like ig/bridge) keeps a surface-scoped
+  video map + a per-video comment store, answering `FBW_TT_LIST` / `FBW_TT_COMMENTS`.
+- **Sort + Download**: 2-col 9:16 card grid, sort by **views / likes / comments /
+  shares / saves / ER% / date** (TikTok exposes shares AND saves on the list — richer
+  than IG), per-card download MP4 + thumbnail + save-to-Library + transcribe (reuses
+  the Whisper pipeline via the direct `playAddr` MP4). Surfaces: profile, hashtag,
+  search, For You.
+- **Comments**: capture-on-open (opening a video loads its comments → teed). Pick a
+  captured video, search text/author, sort by thread/likes, reply-nested rows, copy
+  corpus, export JSON.
+- **Download referer fix**: TikTok's video CDN 403s a hotlinked download (no Referer);
+  `fetch`/`downloads` can't set Referer (forbidden header), so a lazy
+  `chrome.declarativeNetRequest` session rule injects `Referer: tiktok.com` on the
+  video-CDN hosts (new `declarativeNetRequest` permission). Also covers the offscreen
+  audio fetch for TikTok transcription.
+- New pure libs `lib/ttMedia.js` + `lib/ttComments.js` (31 unit tests).
+- Spec: `docs/superpowers/specs/2026-07-24-tiktok-scrape-design.md`.
+
+### Performance — backdrop-blur removed from every scroll/grid surface
+- Following the 0.58.3 IG on-page fix, removed `backdrop-filter`/`backdrop-blur` from
+  **all remaining rail-over-scrolling-media surfaces** where it caused the same
+  repaint-per-frame jank: the side-panel card grids (**IgSort, IgStories, FbReels**
+  stat rails + action buttons, **Library/Transcripts** buttons) and the **Facebook
+  on-page** action buttons (`transcription/inject.js`, was `blur(9px) saturate(140%)`).
+  Compensated with darker solid backgrounds; identity styling (blue border/glow) kept.
+- Left intentionally: the options dropdown/tooltip and the transcript modal — static,
+  one-shot overlays that don't sit over a scrolling grid.
+
+## [0.58.3] — 2026-07-24
+
+### Performance — Instagram overlay scroll jank
+- **Removed `backdrop-filter` blur from all IG on-page overlay styles** (grid stat
+  rails, tile action buttons, story-viewer buttons). Measured live: with 28 tiles
+  annotated the DOM held 112 blur surfaces, each re-rastering the moving grid
+  behind it every scrolled frame — avg frame 68.3ms (~15fps, p95 96ms) vs 8.3ms
+  (120fps) with blur disabled and *identical* 8.3ms with overlays hidden, i.e.
+  the blur was 100% of the overlay cost. Load-time extension cost (32ms), the
+  MAIN-world `JSON.parse` hook (3.6ms), and the overlay render pass (0.05ms
+  selector scan) were all measured negligible.
+- Compensated visually with darker solid backgrounds: rail/buttons
+  `rgba(0,0,0,.42)`+blur → `.62` solid (hover `.78`); story buttons `.55`+blur →
+  `.68` solid (hover `.84`). Blue border, outer glow, and text-shadow unchanged.
+  `OVL.blurPx` config key removed.
+- Known remaining instance (out of scope tonight): Facebook's on-page buttons
+  (`transcription/inject.js`, `blur(9px) saturate(140%)`) have the same defect.
+- Spec + measurements: `docs/superpowers/specs/2026-07-24-ig-overlay-blur-perf-design.md`.
+
+## [0.58.2] — 2026-07-20
+
+### Performance — storage I/O during live scrape
+- **Live scrape no longer re-serializes the whole comment archive every tick.**
+  Streaming now writes a single-post key (`fbw_comments_live`); the finished
+  scrape merges that post into the archive (`fbw_comments`, ≤8 posts) and clears
+  the live key. So each ~1.4s flush writes ~one post (~200KB) instead of all 8
+  (~800KB).
+- **Panel updates from the `storage.onChanged` event's `newValue`** (no
+  re-`get`), and archive vs live are separate state — during a scrape only the
+  live key changes, so the archive is never re-read either. Backward compatible:
+  the archive schema is unchanged, so previously-scraped posts still show (no
+  migration). A stale live key (tab navigated away mid-scrape) is ignored after
+  10 min; a failed scrape clears it.
+
+## [0.58.1] — 2026-07-20
+
+### Performance — comment scrape hot path
+- **Incremental extraction.** `collect()` re-ran the heavy `extractComment`
+  (5× `querySelectorAll` + `innerText` reflows per article) over EVERY loaded
+  article on EVERY tick — O(N²) (~130k extractions for a 512-comment thread).
+  Now each article node is read at most once during the growth loops (a
+  `WeakSet` guard), with two full re-reads at the end to pick up late reactions
+  / expanded "Ver mais" text — ~1.5k extractions total (≈99% fewer). Output is
+  byte-identical.
+- **Rail-scoped load-more scan.** `clickLoadMore` scanned every `[role="button"]`
+  in the document (hundreds once comments load); now scoped to the comment rail
+  (`[role="complementary"]`).
+- One `querySelectorAll` per tick reused for both collect + count (was 2–3), and
+  `nudgeRail` no longer copies a 512-element array to grab the last node.
+
+## [0.58.0] — 2026-07-20
+
+### Added — live streaming + virtualized comment list
+- The side-panel **Comments** tool now fills in **live during the scrape** (was
+  a single write at the end). The scraper streams the growing thread to storage
+  on a **throttled, growth-gated flush** (~1.4s, only when the count changed —
+  so the whole array isn't re-serialized every tick), tagging the record
+  `scraping: true` until done. The tool follows the active scrape, shows a
+  spinner + `N shown · M…`, and marks the streaming post with ⏳ in the picker.
+- The comment list is **virtualized with `@tanstack/react-virtual`** (dynamic
+  row measurement) — a 500–1000-comment thread renders only the ~15 visible
+  rows, so scrolling and live updates stay smooth.
+- Default sort is now **Thread order** (calm during live streaming — new
+  comments append); **Reactions** still available to rank.
+
+## [0.57.0] — 2026-07-20
+
+### Changed — button look
+- The **Scrape comments** button now lives **in the reel action rail, below
+  Transcribe** (was a detached floating pill) — a third icon-square built by
+  `transcription/inject.js`; the scraper (`comments-scrape.js`, same isolated
+  world) is triggered via a `__fbwScrapeComments` window event and reports
+  progress back to the button via `__fbwScrapeProgress`.
+- **All on-page buttons are now blue-tinted, translucent, and blurred**
+  (`rgba(46,96,200,.40)` + `blur(9px) saturate(140%)` + blue border), and every
+  button gets an instant **hover tooltip** (`[data-tip]:hover::after`).
+
+### Added — side-panel Comments tool
+- New **Comments** tool in the Facebook workspace renders a scraped thread:
+  search (text/author), sort by **reactions**, filter **All / Top-level / Replies**,
+  reply-indented rows with author link + reactions + badges + time, **Copy text**,
+  re-**export JSON**, and clear. A post selector switches between recent scrapes.
+- The scraper now also **stores each scrape** in `chrome.storage.local`
+  (`fbw_comments`, 8 most-recent posts) alongside the JSON download, so the tool
+  updates live via `storage.onChanged`.
+
+## [0.56.0] — 2026-07-20
+
+### Added — Facebook comment scraper
+- A floating **"Scrape comments"** button on FB reel/post permalinks harvests the
+  whole comment thread (top-level **and** replies) to a JSON file, for mining
+  hooks / objections / sentiment from the audience's own words. Per comment:
+  text, **reactions** total, author (name + profile URL + id), relative time,
+  top-fan badges, `is_reply` + `parent_id`, and permalink. Output:
+  `~/Downloads/socialmate-comments/fb-<reelId>-<timestamp>.json`.
+- New `src/content/fb/comments-scrape.js` (isolated) + `src/lib/fbComments.js`
+  (unit-tested pure helpers) + a `FBW_DL_JSON` background handler (reuses the
+  run-log `jsonDataUrl` → `chrome.downloads`). No new permissions.
+- Verified live on a 571-comment reel: 443 comments captured (author name +
+  comment_id on 443/443, clean bodies, reactions, badges).
+
+### Notes — how FB comments load (learned live)
+- Unlike the feed/reels grid (off-thread), **comment pagination parses on the
+  main thread**. But in the immersive reel viewer comments **paginate via a
+  "Ver mais comentários" button, not infinite scroll** — and the only scroll
+  container there is the reel FEED (scrolling it navigates to the next reel).
+  So the scraper is **button-driven** (clicks "load more" + expands
+  "Ver N respostas" replies + "Ver mais" truncations), never scrolls the feed.
+- **Replies are flat siblings, not nested articles**; they're identified by the
+  permalink's `reply_comment_id` (own id) + `comment_id` (parent). The author
+  link and the timestamp permalink both carry `comment_id`, so ids come from the
+  reel-permalink link (clean numeric), authors from the profile link.
+- v1 is DOM-only (no JSON.parse hook), FB-only, single open post, JSON export,
+  total-reactions only — each deferred item is an additive follow-up.
+
+## [0.55.0] — 2026-07-16
+
+### Added — Facebook Reels Sort (mirrors the IG Sort tool)
+- New **Reels Sort** tool in the Facebook workspace: on a profile's
+  `?sk=reels_tab` grid, collect every reel and sort them in the side panel by
+  **Views / Comments / Shares** (asc/desc), as a 2-col 9:16 card grid with a
+  stat rail, per-card **Save to Library** + **Download thumbnail**, and
+  **download all thumbnails**.
+- New `src/content/fb/reels-capture.js` (isolated) reads the grid from the
+  **DOM tiles** (reel id, thumbnail, localized view count) and enriches the
+  first batch with comment/share counts from the initial embedded
+  `<script type="application/json">` blocks. FB paginates the reels grid off
+  the main thread, so — unlike Instagram — there is no `JSON.parse` capture;
+  a **Collect all** button auto-scrolls the grid to load the full list.
+- New `src/lib/fbReels.js` (unit-tested): `parseCount` for localized abbreviated
+  counts (`"14 mil"` → 14000, `"1,5 mil"` → 1500, `"1.2M"` → 1200000), the
+  view/comment/share sort comparators, and card/filename helpers.
+
+### Notes / limits
+- **Views is the universal metric** (present on every tile). Comments/shares
+  are available only for the reels in the initial embedded payload; paginated
+  reels show views only. **Likes/reactions are not exposed on the FB grid** (they
+  live inside the reel viewer), so there is no likes sort or ER — this is a
+  Facebook data limitation, not an omission.
+- Video download / transcription of a reel stays on the existing on-page reel
+  buttons (open the reel); the grid tool is thumbnail + save + sort.
+
+## [0.54.1] — 2026-07-16
+
+### Changed — feed resolution reworked (0.54.0 MAIN-world capture reverted)
+- 0.54.0 tried the IG pattern (a MAIN-world `JSON.parse` hook) on Facebook. It
+  doesn't work here: instrumented live, **58 `JSON.parse` calls during a feed
+  scroll carried 0 video payloads** — FB paginates the feed OFF the main thread
+  (Worker), so a page-thread hook never sees the media. Removed
+  `src/content/fb/`.
+- Kept the honest signal it surfaced: FB's initial embedded
+  `<script type="application/json">` blocks carry each video's real id, its
+  **accurate** `playable_duration_in_ms` (efg's `duration_s` lies —
+  preview-cut values on full videos), and its caption. New `fbEmbeddedResolve`
+  (isolated world, on demand) matches a clicked feed post to its video id by
+  caption (unique) then accurate duration.
+- Feed jobs resolve in order: permalink id → embedded-JSON caption/duration →
+  prime-window wire attribution (`pickByWindow`, the always-available fallback
+  for paginated posts). All three yield a confident id or bail; none can cross
+  to a neighbour.
+
+## [0.53.7] — 2026-07-16
+
+### Fixed — duration matching was built on sand; replaced with wire attribution
+- Registry dump (new `FBW_DEBUG_REGISTRY`) proved **efg `duration_s` is
+  unreliable**: FB stamped ~29s (a preview-cut) on the 80s video's own tracks,
+  so the "unique duration match" confidently returned the wrong neighbour —
+  the crossing that survived 0.53.4–0.53.6.
+- Feed resolution is now **prime-window attribution**: the tracks that hit the
+  wire while the content script played THIS video are its tracks
+  (`pickByWindow`, unit-tested). efg duration only breaks ties among the
+  fresh set; with no fresh tracks it falls back to the strict duration match
+  (own ambiguity guard). The confident PRE-prime duration lookup is gone —
+  feed jobs always prime first.
+- `primeVideo` now **seeks into an unbuffered stretch** when the video is
+  already (partly) buffered — an MSE replay emits no fetches, which starved
+  the window of evidence.
+
+## [0.53.6] — 2026-07-15
+
+### Fixed — 0.53.5's feed-detection had a hole FB's remounts walked through
+- Live repro of the crossing AGAIN: between the first message build and the
+  post-prime rebuild, FB remounted the clicked video — the held node went
+  detached, so `duration` read NaN (no hint) and `closest('[role="feed"]')`
+  returned null (classified as NOT feed) → the candidates fallback fired and a
+  neighbour's id won, overwriting the neighbour's Library card with this
+  post's metadata.
+- Three layers now close it: `onFeed` derives from the **button** (overlay
+  rails only exist on feed) and rides through both message builds; the live
+  video is re-resolved geometrically after priming; and the background strips
+  `candidates` from any message flagged `feedSurface` (defense in depth).
+
+## [0.53.5] — 2026-07-15
+
+### Fixed — fourth and last crossing path: the not-yet-loaded video
+- Clicking Transcribe on a feed video whose metadata hadn't loaded yet
+  (`duration` still NaN → no hint) fell back to the candidates message — and
+  feed markup embeds NEIGHBOURING videos' ids, so the job inherited the
+  neighbour's transcript under this post's metadata AND overwrote the
+  neighbour's Library card (same record id). Feed posts now never send
+  candidates; a job with no id, no direct URL, and no duration fails fast at
+  the button (✗) instead of letting the background guess by recency.
+
+### Added
+- **Library history**: `fbw_transcripts` keeps the newest **20** records
+  (rolling). Fixes the "cards keep replacing each other" feel and bounds
+  storage (thumbs are 10-20KB each).
+
+## [0.53.4] — 2026-07-15
+
+### Fixed — the audio crossing had a THIRD path, found via the wire log
+- 0.53.3 closed the embedded-JSON crossing but the same symptom re-appeared:
+  the record's id (`1586262063063962`) turned out to be a **29s neighbour**,
+  while the clicked video's true id (`1371677391606167`, 80s) was sitting in
+  the registry. Cause: with no permalink and no duration match yet, the job
+  fell back to `candidates[0]` — a junk 15-19-digit markup id that happened to
+  BE a real captured video's id, and `resolveTracks` step 1 trusted it exactly.
+- Feed jobs are now **duration-only end to end**: no junk fallback into
+  `videoId`, candidates omitted whenever a duration hint rides the message, and
+  a hinted `resolveTracks` call never falls through to the candidate scan.
+- Same-duration ties (29.3s vs 29.9s spam clones, live on the test feed) break
+  via `primedAt`: after priming, only tracks fetched during the prime window
+  count; still ambiguous → explicit error instead of a guess.
+
+## [0.53.3] — 2026-07-15
+
+### Fixed — one post's metadata carried ANOTHER video's transcript
+- Live repro: the "middle of the night" post transcribed the neighbouring
+  "222" video's audio. Two crossing paths closed:
+  - **Embedded-JSON lookup now gets confident ids only** (permalink or
+    duration-matched). It used to be seeded with every 15-19-digit run from the
+    post markup — story/actor/comment ids that sit as JSON ancestors of a
+    *different* video's media object in the hashtag page's combined scripts,
+    handing back the wrong progressive/audio URL.
+  - **`pickByDuration` returns null when two DIFFERENT videos fall inside the
+    ±2s window** — no transcript beats a wrong transcript; the caller primes
+    the video and exact-id paths get another chance.
+- **Thumbnails were pixelated** in the Library grid: capture bumped from
+  90px/q0.45 to 180px/q0.6 (card renders ~250px wide).
+
+## [0.53.2] — 2026-07-15
+
+### Fixed — rails STILL flickered; busy spinner reset mid-job
+- 0.53.1's post-unit anchor wasn't enough: FB's virtualized feed remounts the
+  **whole post subtree**, not just the player — any rail parented anywhere
+  inside the feed dies with it (flicker), taking its busy/ok state along
+  (the observed click → spin → reset). Feed rails now live in a
+  **fixed-position overlay on `<html>`** — outside FB's React root entirely —
+  and are positioned over their media on each sync tick + rAF-repositioned on
+  scroll. Rail identity is keyed by video duration / image src (things that
+  survive remounts), so the button element is never re-created and a running
+  job's spinner keeps spinning until its result arrives.
+- Button handlers bind a live getter (the tracked record's current media node)
+  with a geometric fallback (the video under the rail), so clicks work no
+  matter how many times FB has swapped the node since decoration.
+- Reel/watch surfaces keep the verified in-DOM rail (their players don't
+  churn); the overlay engages only on feed surfaces.
+
+## [0.53.1] — 2026-07-15
+
+### Fixed — first live pass on the hashtag feed
+- **Rails flickered once per second and clicks opened the reel theater.** Both
+  had one root cause: the rail was anchored to the video's parent, which FB
+  destroys + re-creates every second while a video plays (rail died with it),
+  and which sits inside the tile's click target (FB's delegated handler treated
+  the button click as a tile click). Feed rails now hang on the post unit
+  (`[role="feed"]` direct child) — stable across player re-renders and outside
+  the click target — offset to the media's corner.
+- The rail can now outlive the <video> node it was built with, so button
+  handlers re-resolve the live video from the post unit when the bound node is
+  detached.
+- Re-injection after an extension reload strips the previous context's zombie
+  rails instead of stacking a second rail next to them.
+
+## [0.53.0] — 2026-07-15
+
+### Added — hashtag-feed research surface
+- **Download/Transcribe rails now show on hashtag feeds** (`/hashtag/<tag>/`),
+  including the photo-download rail on image posts — not just reel/watch/video
+  pages. Scoped live on `/hashtag/auralytrend/`.
+- **Duration-keyed track matching.** Hashtag/feed posts bury the real
+  `video_id` in page JSON only — the post markup never names it, so the old
+  permalink/candidate resolution came up empty (or worse, guessed a junk
+  15-19-digit id). The DOM video's `duration` now pairs it to a captured efg
+  `duration_s` (±2s): new `pickByDuration` in `lib/fbcdn.js` (unit-tested), a
+  `FBW_MATCH_TRACKS` background query so the content script gets a
+  deterministic record id *before* building the job (embedded progressive/audio
+  lookup then works for cached videos too), and a duration step inside
+  `resolveTracks`. The hint is only sent when there's no permalink id, so
+  reel/watch jobs can never cross to a same-length neighbour. Recency alone was
+  provably wrong here: FB prefetches future posts' tracks while an earlier
+  video plays.
+- Jobs built without a trusted id (`!idConfident`) now prime the video first
+  and skip the eager Library card, so a guessed id never mints an orphan record.
+
+### Fixed — FB anti-scrape noise poisoned post scraping
+- `findPostUnit` climbed onto junk on feed surfaces: FB scatters dozens of
+  aria-hidden "Facebook" watermark spans inside each post, and the old scramble
+  guard `/(?:Facebook ){4}/` expected spaces where innerText emits newlines.
+  Feed posts now anchor to the `[role="feed"]` direct-child boundary (clean:
+  author + caption + action bar, one video), and the guard matches `\s*`.
+- `grabCaption` picked FB's invisible decoy blocks (scrambled strings, fake
+  domains) over the real caption; `grabAuthor` could hit the same decoys. Both
+  now skip `[aria-hidden="true"]` subtrees and zero-size rects — verified: all
+  decoys render 0×0, real captions are visible and aria-exposed.
+
 ## [0.52.0] — 2026-07-13
 
 ### Fixed — found by reading the first real run log

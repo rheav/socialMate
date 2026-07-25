@@ -8,22 +8,19 @@ import {
   MessageCircle,
   Eye,
   Zap,
-  Repeat2,
+  Share2,
   Calendar,
   Play,
-  Images,
-  Image as ImageIcon,
   ImageDown,
   FileText,
   Loader2,
   Copy,
   Check,
   X,
+  Pin,
   RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectTrigger,
@@ -41,27 +38,36 @@ import {
   filterBySurface,
   engagementRate,
   fmtER,
-} from "@/lib/igMedia";
+} from "@/lib/ttMedia";
 
-const SORT_LABEL = { default: "Default", views: "Views", likes: "Likes", comments: "Comments", er: "ER %", date: "Date" };
-const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
+const SORT_LABEL = {
+  default: "Default",
+  views: "Views",
+  likes: "Likes",
+  comments: "Comments",
+  shares: "Shares",
+  saves: "Saves",
+  er: "ER %",
+  date: "Date",
+};
 
-// Small frosted icon button overlaid on a card thumbnail.
+// Small icon button overlaid on a card thumbnail.
 function IconBtn({ children, ...props }) {
   return (
     <button
       {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
+      className="grid size-6 place-items-center rounded-md bg-black/55 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
     >
       {children}
     </button>
   );
 }
 
-// Instagram Sort + Download. Reads the passive JSON.parse capture (via the IG
-// content bridge, FBW_IG_LIST), sorts it in-panel as a 2-col grid of 9:16 cards
-// with a right-side stat rail, and downloads media/thumbnail via FBW_DL_MEDIA.
-export default function IgSortTool() {
+// TikTok Sort + Download. Reads the passive fetch capture (via the TikTok content
+// bridge, FBW_TT_LIST), sorts it in-panel as a 2-col grid of 9:16 cards with a
+// right-side stat rail, and downloads media/thumbnail via FBW_DL_MEDIA. TikTok
+// exposes shares AND saves on the list (Instagram doesn't), so the rail is richer.
+export default function TtSortTool() {
   const [records, setRecords] = useState([]);
   const [surface, setSurface] = useState(null);
   const [showAll, setShowAll] = useState(false);
@@ -69,26 +75,13 @@ export default function IgSortTool() {
   const [sortDir, setSortDir] = useState("desc");
   const [noTab, setNoTab] = useState(false);
   const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
-  const [overlay, setOverlay] = useState(true);
   const tabId = useRef(null);
 
-  useEffect(() => {
-    chrome?.storage?.local?.get("sw_ig_overlay").then((r) => {
-      if (r?.sw_ig_overlay != null) setOverlay(!!r.sw_ig_overlay);
-    });
-  }, []);
-  const toggleOverlay = (v) => {
-    setOverlay(v);
-    chrome?.storage?.local?.set({ sw_ig_overlay: v });
-  };
-
-  // Live mirrors of the shared stores: transcript status per post (spinner /
-  // green / red on the card button; green opens the transcript) and saved ids
-  // (yellow-filled bookmark). Both update via storage.onChanged.
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
-  const [txModal, setTxModal] = useState(null); // { id, username, text }
+  const [txModal, setTxModal] = useState(null);
   const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     if (!chrome?.storage?.local) return;
     const load = () =>
@@ -102,22 +95,22 @@ export default function IgSortTool() {
         setSavedIds(s);
       });
     load();
-    const onCh = (c, area) => {
-      if (area === "local" && (c.fbw_transcripts || c.fbw_saved)) load();
+    const onCh = (ch, area) => {
+      if (area === "local" && (ch.fbw_transcripts || ch.fbw_saved)) load();
     };
     chrome.storage.onChanged.addListener(onCh);
     return () => chrome.storage.onChanged.removeListener(onCh);
   }, []);
 
   const listFromTab = useCallback(async () => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
+    if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
     if (tabId.current == null) {
       setNoTab(true);
       return;
     }
     setNoTab(false);
     try {
-      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_LIST" });
+      const res = await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_LIST" });
       if (res && Array.isArray(res.records)) {
         setRecords(res.records);
         setSurface(res.surface || null);
@@ -133,13 +126,13 @@ export default function IgSortTool() {
     return () => clearInterval(id);
   }, [listFromTab]);
 
-  // Drop everything captured so far (other profiles/hashtags) and re-pull the
-  // current surface — so switching context doesn't leave stale posts in the grid.
+  // Drop everything captured so far (other profiles/surfaces) and re-pull the
+  // current one — so switching context doesn't leave stale videos in the grid.
   const refresh = useCallback(async () => {
     setRecords([]);
     try {
-      if (tabId.current == null) tabId.current = await resolvePlatformTab("instagram");
-      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_IG_CLEAR" });
+      if (tabId.current == null) tabId.current = await resolvePlatformTab("tiktok");
+      if (tabId.current != null) await chrome.tabs.sendMessage(tabId.current, { type: "FBW_TT_CLEAR" });
     } catch {
       tabId.current = null;
     }
@@ -151,64 +144,36 @@ export default function IgSortTool() {
 
   const bg = (msg) =>
     new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-
   const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
 
   async function downloadRecord(rec) {
-    const id = rec.code || rec.pk;
-    setStatus(id, "downloading");
+    setStatus(rec.id, "downloading");
     try {
-      if (rec.media_type === "carousel" && Array.isArray(rec.carousel)) {
-        let i = 0;
-        for (const child of rec.carousel) {
-          i += 1;
-          const isVid = child.media_type === "video" && child.video;
-          const url = isVid ? child.video : child.image;
-          if (!url) continue;
-          await bg({
-            type: "FBW_DL_MEDIA",
-            kind: isVid ? "video" : "image",
-            url,
-            filename: filenameFor(rec, extFromUrl(url, isVid ? "video" : "image"), i),
-          });
-        }
-      } else if (rec.video) {
-        await bg({
-          type: "FBW_DL_MEDIA",
-          kind: "video",
-          url: rec.video,
-          filename: filenameFor(rec, extFromUrl(rec.video, "video")),
-        });
-      } else if (rec.image) {
-        await bg({
-          type: "FBW_DL_MEDIA",
-          kind: "image",
-          url: rec.image,
-          filename: filenameFor(rec, extFromUrl(rec.image, "image")),
-        });
-      }
-      setStatus(id, "done");
+      const url = rec.hd_url || rec.download_url || rec.video; // always highest quality
+      if (!url) throw new Error("no video url");
+      await bg({
+        type: "FBW_DL_MEDIA",
+        kind: "video",
+        url,
+        filename: filenameFor(rec, extFromUrl(url, "video")),
+      });
+      setStatus(rec.id, "done");
     } catch {
-      setStatus(id, "error");
+      setStatus(rec.id, "error");
     }
   }
 
-  // Download just the cover image (thumbnail), suffixed -thumb.
   async function downloadThumb(rec) {
-    const id = rec.code || rec.pk;
-    const url = rec.image || rec.thumb;
+    const url = rec.cover || rec.dynamic_cover;
     if (!url) return;
-    setStatus(id, "downloading");
+    setStatus(rec.id, "downloading");
     try {
       const ext = extFromUrl(url, "image");
-      const filename = filenameFor(rec, ext).replace(
-        new RegExp("\\." + ext + "$"),
-        "-thumb." + ext,
-      );
+      const filename = filenameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
       await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename });
-      setStatus(id, "done");
+      setStatus(rec.id, "done");
     } catch {
-      setStatus(id, "error");
+      setStatus(rec.id, "error");
     }
   }
 
@@ -219,31 +184,30 @@ export default function IgSortTool() {
     }
   }
 
-  // Toggle: first tap saves to the shared Library, second removes.
   async function saveToLibrary(rec) {
     try {
       const r = await chrome.storage.local.get("fbw_saved");
       const map = r.fbw_saved || {};
-      const id = rec.code || rec.pk;
-      if (map[id]) {
-        delete map[id];
+      if (map[rec.id]) {
+        delete map[rec.id];
         await chrome.storage.local.set({ fbw_saved: map });
         return;
       }
-      map[id] = {
-        videoId: id,
-        platform: "instagram",
-        thumb: rec.thumb || rec.image || null,
-        caption: rec.caption || null,
-        author: { name: rec.username || rec.full_name || "unknown", url: rec.username ? `/${rec.username}/` : null },
+      map[rec.id] = {
+        videoId: rec.id,
+        platform: "tiktok",
+        thumb: rec.cover || rec.dynamic_cover || null,
+        caption: rec.desc || null,
+        author: {
+          name: rec.username || rec.nickname || "unknown",
+          url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null,
+        },
         counts: {
-          like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+          like: rec.digg_count != null ? fmtCount(rec.digg_count) : null,
           comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
           views: rec.play_count != null ? fmtCount(rec.play_count) : null,
         },
-        code: rec.code || null,
-        pk: rec.pk || null,
-        media_type: rec.media_type || null,
+        code: rec.id,
         updatedAt: Date.now(),
       };
       await chrome.storage.local.set({ fbw_saved: map });
@@ -252,41 +216,37 @@ export default function IgSortTool() {
     }
   }
 
-  // Transcribe a reel: hand the background the direct MP4 URL (captured via the
-  // always-on full-stats fetch). It reuses the same Whisper pipeline as Facebook;
-  // the result streams into fbw_transcripts → Library → Transcripts.
   function transcribe(rec) {
-    const id = rec.code || rec.pk;
-    if (!rec.video) return;
+    if (!rec.video && !rec.subtitle) return;
     chrome.runtime.sendMessage({
       type: "FBW_TRANSCRIBE",
-      videoId: id,
+      videoId: rec.id,
       mediaUrl: rec.video,
-      platform: "instagram",
-      caption: rec.caption || null,
+      platform: "tiktok",
+      captionUrl: rec.subtitle?.url || null, // caption-first, skips Whisper
+      captionFormat: rec.subtitle?.format || null,
+      caption: rec.desc || null,
       author: {
-        name: rec.username || rec.full_name || "unknown",
-        url: rec.username ? `/${rec.username}/` : null,
+        name: rec.username || rec.nickname || "unknown",
+        url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null,
       },
-      thumb: rec.thumb || rec.image || null,
+      thumb: rec.cover || rec.dynamic_cover || null,
+      sourceUrl: rec.username ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
       counts: {
-        like: rec.like_count != null ? fmtCount(rec.like_count) : null,
+        like: rec.digg_count != null ? fmtCount(rec.digg_count) : null,
         comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
         views: rec.play_count != null ? fmtCount(rec.play_count) : null,
       },
     });
-    setTxMap((m) => ({ ...m, [id]: "running" })); // optimistic; store listener corrects
+    setTxMap((m) => ({ ...m, [rec.id]: "running" }));
   }
 
-  // Green button → read the finished transcript from the shared store and show
-  // it in a small modal with one-tap copy.
   async function openTranscript(rec) {
-    const id = rec.code || rec.pk;
     const r = await chrome.storage.local.get("fbw_transcripts");
-    const t = (r.fbw_transcripts || {})[id];
+    const t = (r.fbw_transcripts || {})[rec.id];
     if (!t?.text) return;
     setCopied(false);
-    setTxModal({ id, username: rec.username || rec.full_name || "unknown", text: t.text });
+    setTxModal({ id: rec.id, username: rec.username || rec.nickname || "unknown", text: t.text });
   }
 
   async function copyTranscript() {
@@ -302,7 +262,7 @@ export default function IgSortTool() {
   if (noTab)
     return (
       <div className="rounded-md bg-amber-500/10 text-amber-700 text-xs px-3 py-2">
-        Open Instagram in a tab, then reopen this panel.
+        Open TikTok in a tab (logged in), then reopen this panel.
       </div>
     );
 
@@ -346,17 +306,9 @@ export default function IgSortTool() {
         </button>
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
-        <Label htmlFor="ig-overlay" className="text-xs text-foreground cursor-pointer">
-          Stats overlay on Instagram
-        </Label>
-        <Switch id="ig-overlay" checked={overlay} onCheckedChange={toggleOverlay} />
-      </div>
-
-
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
-          Scroll the Instagram feed to collect posts, then sort here.
+          Scroll a TikTok profile / hashtag / feed to collect videos, then sort here.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -364,7 +316,6 @@ export default function IgSortTool() {
             const c = recordToCard(rec);
             const st = busy[c.id];
             const er = engagementRate(rec);
-            const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
             return (
               <div
                 key={c.id}
@@ -373,10 +324,10 @@ export default function IgSortTool() {
                 {c.thumb ? (
                   c.permalink ? (
                     <a href={c.permalink} target="_blank" rel="noreferrer" className="absolute inset-0">
-                      <img src={c.thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      <img src={c.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
                     </a>
                   ) : (
-                    <img src={c.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+                    <img src={c.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" />
                   )
                 ) : null}
 
@@ -386,23 +337,10 @@ export default function IgSortTool() {
                     title={savedIds[c.id] ? "Saved — tap to remove" : "Save to Library"}
                     onClick={() => saveToLibrary(rec)}
                   >
-                    <Bookmark
-                      className={
-                        "size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")
-                      }
-                    />
+                    <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                   </IconBtn>
-                  <IconBtn
-                    title="Download media"
-                    onClick={() => downloadRecord(rec)}
-                    disabled={st === "downloading"}
-                  >
-                    <Download
-                      className={
-                        "size-3.5 " +
-                        (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")
-                      }
-                    />
+                  <IconBtn title="Download video" onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
+                    <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
                   </IconBtn>
                   <IconBtn title="Download thumbnail" onClick={() => downloadThumb(rec)}>
                     <ImageDown className="size-3.5" />
@@ -416,41 +354,30 @@ export default function IgSortTool() {
                             ? "Transcription failed — tap to retry"
                             : "Transcribe"
                       }
-                      onClick={() =>
-                        txMap[c.id] === "done" ? openTranscript(rec) : transcribe(rec)
-                      }
+                      onClick={() => (txMap[c.id] === "done" ? openTranscript(rec) : transcribe(rec))}
                       disabled={txMap[c.id] === "running"}
                     >
                       {txMap[c.id] === "running" ? (
                         <Loader2 className="size-3.5 animate-spin" />
                       ) : (
-                        <FileText
-                          className={
-                            "size-3.5 " +
-                            (txMap[c.id] === "done"
-                              ? "text-emerald-400"
-                              : txMap[c.id] === "error"
-                                ? "text-red-400"
-                                : "")
-                          }
-                        />
+                        <FileText className={"size-3.5 " + (txMap[c.id] === "done" ? "text-emerald-400" : txMap[c.id] === "error" ? "text-red-400" : "")} />
                       )}
                     </IconBtn>
                   )}
                 </div>
 
-                {/* media type — top-right, opens the post */}
+                {/* type / pin — top-right, opens the video */}
                 <a
                   href={c.permalink || undefined}
                   target="_blank"
                   rel="noreferrer"
-                  title="Open on Instagram"
-                  className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/65 p-1 text-white transition-colors hover:bg-black/80"
+                  title="Open on TikTok"
+                  className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/55 p-1 text-white transition-colors hover:bg-black/80"
                 >
-                  <TypeIcon className="size-3.5" />
+                  {c.pinned ? <Pin className="size-3.5" /> : <Play className="size-3.5" />}
                 </a>
 
-                {/* stat rail — right side, subtle blue glow */}
+                {/* stat rail — right side, blue glow */}
                 <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
                   {c.views != null && (
                     <div className="flex items-center gap-1 text-[14px] font-extrabold leading-none">
@@ -458,23 +385,24 @@ export default function IgSortTool() {
                       {fmtCount(c.views)}
                     </div>
                   )}
-                  <div
-                    className={
-                      "flex items-center gap-1 leading-none " +
-                      (c.views == null ? "text-[14px] font-extrabold" : "text-[11.5px] font-bold")
-                    }
-                  >
-                    <Heart className={c.views == null ? "size-3.5" : "size-3"} />
+                  <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                    <Heart className="size-3" />
                     {fmtCount(c.likes)}
                   </div>
                   <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
                     <MessageCircle className="size-3" />
                     {fmtCount(c.comments)}
                   </div>
-                  {c.reposts != null && (
+                  {c.shares != null && (
                     <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
-                      <Repeat2 className="size-3" />
-                      {fmtCount(c.reposts)}
+                      <Share2 className="size-3" />
+                      {fmtCount(c.shares)}
+                    </div>
+                  )}
+                  {c.saves != null && (
+                    <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                      <Bookmark className="size-3" />
+                      {fmtCount(c.saves)}
                     </div>
                   )}
                   {er != null && (
@@ -508,10 +436,9 @@ export default function IgSortTool() {
         </div>
       )}
 
-      {/* transcript viewer — small modal with one-tap copy */}
       {txModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
           onClick={() => setTxModal(null)}
         >
           <div

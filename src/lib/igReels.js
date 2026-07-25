@@ -52,6 +52,7 @@ export function storyToCard(item) {
     isCarousel: type === "carousel",
     date: storyDate(item),
     duration: item.duration || null,
+    links: Array.isArray(item.links) ? item.links : null, // swipe-up funnel URLs
   };
 }
 

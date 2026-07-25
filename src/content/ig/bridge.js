@@ -14,8 +14,10 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
   // (`npm run build`) and Reload ↻ the extension. (The side-panel card's
   // matching styles live in src/components/tools/IgSortTool.jsx.)
   const OVL = {
-    blurPx: 4, // backdrop blur strength behind the rail
-    bgOpacity: 0.42, // rail background darkness (0–1)
+    // No backdrop blur: each blurred surface re-rasters the moving grid behind
+    // it every scrolled frame (measured 68ms → 8ms avg frame after removal).
+    bgOpacity: 0.62, // rail background darkness (0–1) — darker to compensate for no blur
+
     fontPrimary: 17, // headline (views) font size, px
     fontRow: 13, // other rows font size, px
     iconPrimary: 17, // headline icon size, px
@@ -245,6 +247,15 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       sendResponse({ reels: out });
       return;
     }
+    if (msg?.type === "FBW_IG_CLEAR") {
+      byId.clear();
+      for (const k in igMedia) delete igMedia[k];
+      reels.clear();
+      requestReplay(); // re-pull the current surface so the panel isn't left empty
+      scheduleRender();
+      sendResponse?.({ ok: true });
+      return;
+    }
     if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");
     if (msg?.type === "FBW_RUN_DOWNLOAD") run("download");
     if (msg?.type === "FBW_PING") { lastKey = null; publishCurrent(); sendResponse?.({ ok: true }); }
@@ -364,7 +375,6 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     s.textContent = `
       .sw-ovl{position:absolute;right:${OVL.gap}px;bottom:${OVL.gap}px;display:flex;flex-direction:column;gap:4px;
         padding:8px 11px;border-radius:${OVL.radius}px;background:rgba(0,0,0,${OVL.bgOpacity});
-        -webkit-backdrop-filter:blur(${OVL.blurPx}px) saturate(125%);backdrop-filter:blur(${OVL.blurPx}px) saturate(125%);
         border:1px solid ${OVL.borderColor};box-shadow:0 0 12px ${OVL.glow},inset 0 0 0 1px rgba(160,190,255,.12);
         color:#fff;pointer-events:none;z-index:5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         text-shadow:0 1px 2px rgba(0,0,0,.45)}
@@ -373,16 +383,16 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       .sw-ovl svg{flex:none}
       .sw-acts{position:absolute;top:7px;left:7px;display:flex;flex-direction:column;gap:5px;z-index:6}
       .sw-actbtn{display:grid;place-items:center;width:${OVL.btnSize}px;height:${OVL.btnSize}px;border-radius:8px;cursor:pointer;color:#fff;
-        background:rgba(0,0,0,${OVL.bgOpacity});-webkit-backdrop-filter:blur(${OVL.blurPx}px);backdrop-filter:blur(${OVL.blurPx}px);
+        background:rgba(0,0,0,${OVL.bgOpacity});
         border:1px solid ${OVL.borderColor};box-shadow:0 0 8px ${OVL.glow};transition:background .15s}
-      .sw-actbtn:hover{background:rgba(0,0,0,.66)}
+      .sw-actbtn:hover{background:rgba(0,0,0,.78)}
       .sw-actbtn.sw-saved{color:#facc15;border-color:rgba(250,204,21,.55);box-shadow:0 0 8px rgba(250,204,21,.3)}
       .sw-actbtn.sw-saved svg{fill:#facc15}
       .sw-stdl{position:fixed;z-index:2147483000;display:flex;flex-direction:column;gap:8px}
       .sw-stbtn{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;cursor:pointer;color:#fff;
-        border:1px solid ${OVL.borderColor};background:rgba(0,0,0,.55);
-        -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);box-shadow:0 0 10px ${OVL.glow};transition:background .15s,color .15s}
-      .sw-stbtn:hover{background:rgba(0,0,0,.78)}
+        border:1px solid ${OVL.borderColor};background:rgba(0,0,0,.68);
+        box-shadow:0 0 10px ${OVL.glow};transition:background .15s,color .15s}
+      .sw-stbtn:hover{background:rgba(0,0,0,.84)}
       .sw-stbtn.ok{color:#34d399;border-color:rgba(52,211,153,.6)}`;
     (document.head || document.documentElement).appendChild(s);
   }

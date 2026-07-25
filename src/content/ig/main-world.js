@@ -86,9 +86,26 @@
     const it = reel.items && reel.items[0];
     return it ? bestImage(it) : null; // live stories have no cover → first frame
   }
+  // Swipe-up / link-sticker destinations on a story — competitors' actual funnel
+  // URLs. Defensive: IG's shape is story_link_stickers[].story_link.url, but we
+  // walk for any url-ish field so a rename degrades instead of dropping the link.
+  function storyLinks(item) {
+    const out = [];
+    const seen = new Set();
+    const push = (u) => { if (u && /^https?:/.test(u) && !seen.has(u)) { seen.add(u); out.push(u); } };
+    const stickers = item.story_link_stickers || item.link_stickers || [];
+    for (const s of Array.isArray(stickers) ? stickers : []) {
+      const link = s.story_link || s.link || s;
+      push(link && (link.url || link.web_uri || link.link_url || link.deeplink_url));
+    }
+    // Also catch CTA/bio link shapes some story payloads use.
+    if (item.story_cta_url) push(item.story_cta_url);
+    return out;
+  }
   function liteStory(item, reelId, ownerUsername) {
     const img = item.image_versions2 && item.image_versions2.candidates && item.image_versions2.candidates[0];
     const vid = item.video_versions && item.video_versions[0];
+    const links = storyLinks(item);
     return {
       __kind: "story",
       pk: String(item.pk || item.id || ""),
@@ -104,6 +121,7 @@
       expiring_at: item.expiring_at != null ? item.expiring_at : null,
       duration: item.video_duration != null ? Math.round(item.video_duration) : null,
       code: item.code || null,
+      links: links.length ? links : null,
     };
   }
   const reelSent = new Map(); // reel_id / "s:"+pk -> signature
