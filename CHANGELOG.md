@@ -18,6 +18,19 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.66.0] — 2026-07-25
+
+- **New platform: Pinterest.** Fourth platform in the switcher, with a single `Board` tool.
+- **Active fetch, not passive capture.** Pinterest's `/resource/*` API is unsigned and cookie-authenticated, so `src/content/pin/pin-api.js` calls it directly and walks the cursor — a whole board is harvested without the user scrolling. This is the first platform in the extension that works this way.
+- **`filter_section_pins: false`** is what makes bulk possible; Pinterest's own site sends `true`, which returns only un-sectioned pins (a 6689-pin board returns 6).
+- **HLS→MP4.** ~80% of Pinterest videos expose only an HLS manifest. Guessing MP4 paths does not work; the variant filename is read from the master `.m3u8` and the directory swapped `/hls/` → `/expMp4/`.
+- Full-resolution images come from `images.orig` — the common `/236x/` → `/originals/` rewrite 403s when the original's extension differs.
+- No background or engine changes: `FBW_DL_MEDIA` already covered both media kinds; Pinterest has no Warm adapter.
+
+### Fixed
+- **Platform switcher unreachable for new platforms.** `NAV_PLATFORMS` in `src/lib/navState.js` maintains a hardcoded allowlist; as the sole code path that ever sets the active platform in the panel, any newly registered platform would have been silently unreachable — selecting Pinterest would collapse straight back to Home. A latent bug any future platform would have hit. Pinterest was added to the allowlist; note this is a second registration site (alongside `PLATFORMS`/`PLATFORM_ORDER` in `platforms.jsx`, `PLATFORM_HOST` in `tabs.js`, and `TOOLS` in `tools.jsx`).
+- **Author links nested for absolute URLs.** `VideoCard` in `src/components/TranscriptsPanel.jsx` unconditionally prepended an origin to `author.url`, assuming relative paths; for absolute URLs this nested one URL inside another, breaking the link. Fixed for Pinterest; also repairs author links on already-saved **TikTok** records (which store absolute URLs), so existing Library transcripts now surface correct clickable author links — a silent repair to pre-existing data.
+
 ## [0.65.0] — 2026-07-25
 
 Audit-driven cleanup pass: dead code removal, memory-leak fixes and hot-path
