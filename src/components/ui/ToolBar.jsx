@@ -64,6 +64,9 @@ const TIGHTEN_WHEN_NARROW = "@max-[308px]/toolbar:px-2 @max-[390px]/toolbardense
 
 // ============================================================================
 // TOOLTIPS FOR THE ICON-ONLY STATE  (styles: src/index.css, `.sw-tip`)
+// The same mechanism drives components/ui/Segmented.jsx — one implementation,
+// two hosts. Anything exported from here that another host needs lives in
+// TipCarrier below.
 //
 // WHY THE TOOLTIP IS CSS AND NOT A REACT COMPONENT
 // Whether a control still shows its text label is decided ENTIRELY by the
@@ -97,9 +100,16 @@ const TIGHTEN_WHEN_NARROW = "@max-[308px]/toolbar:px-2 @max-[390px]/toolbardense
 //     therefore re-anchor from the row to the button for the duration of every
 //     click — the bubble would visibly jump and re-wrap mid-press. Outside, its
 //     containing block is always the row (ToolBar marks it `relative`).
-// `when` is the container-query gate; omitted means "always" (a control that is
-// icon-only at every width).
-function TipCarrier({ text, when }) {
+// `when` is the container-query gate; omitted means "always" — either a control
+// that is icon-only at every width (ToolIconButton), or a host that already
+// knows in JS whether it is collapsed and so renders the carrier conditionally
+// (Segmented). Exported for that second case: the markup contract
+// (aria-hidden + data-sw-tip + .sw-tip) must exist in exactly one place.
+//
+// It is `aria-hidden` and empty — the text is CSS `content: attr(data-sw-tip)`,
+// so screen readers never see it and nothing focusable was hidden. The
+// accessible name stays the control's own `aria-label`.
+export function TipCarrier({ text, when }) {
   if (!text) return null;
   return <span aria-hidden="true" data-sw-tip={text} className={cn("sw-tip", when)} />;
 }
@@ -133,7 +143,10 @@ export function ToolBar({ dense, className, children, ...props }) {
       }
       {...props}
     >
-      <div className={cn("sw-toolbar flex min-w-0 items-center gap-1.5", className)}>{children}</div>
+      {/* `sw-tips` marks this box as a tooltip HOST — see index.css. The same
+          class is on Segmented's track, so there is one bubble implementation
+          for both the tool rows and the navigation above them. */}
+      <div className={cn("sw-tips flex min-w-0 items-center gap-1.5", className)}>{children}</div>
     </div>
   );
 }

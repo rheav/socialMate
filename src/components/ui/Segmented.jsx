@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { TipCarrier } from "@/components/ui/ToolBar";
 import { cn } from "@/lib/utils";
 
 // Per-button metrics, mirrored from the classes below. Used to compute how wide
@@ -16,9 +17,18 @@ const TRACK_PAD = 8; // p-1 on the track
 //
 // Narrow panels: TikTok has FIVE tools, and pt-BR labels ("Comentários",
 // "Playlists") are long. Rather than clip the last tab, the control measures
-// whether the labels fit and degrades to ICONS ONLY when they don't. Every
-// button always carries title + aria-label, so the icon-only form is still
-// hoverable and still announced.
+// whether the labels fit and degrades to ICONS ONLY when they don't.
+//
+// In that icon-only state each button gets the shared CSS bubble (TipCarrier +
+// `.sw-tips` on the track — the one implementation, see index.css); when the
+// labels are showing it gets nothing, because a tooltip repeating a visible
+// label is noise. That is also why the native `title` is gone: it could not be
+// conditioned on the collapsed state and fired at every width. `aria-label` is
+// on every button at every width, so the announced name never changed.
+//
+// Segmented is the one host that can gate the carrier in JS honestly: unlike
+// ToolBar — where the collapse is a container query React cannot see — `compact`
+// IS the collapsed state, measured right here. No second source of truth.
 export default function Segmented({ value, onChange, items }) {
   const trackRef = useRef(null);
   const btnRefs = useRef({});
@@ -78,7 +88,13 @@ export default function Segmented({ value, onChange, items }) {
   }, [value, items, compact]);
 
   return (
-    <div ref={trackRef} className="relative flex min-w-0 items-center gap-1 rounded-lg bg-muted p-1">
+    // `sw-tips` marks the track as a tooltip host and `relative` (already here
+    // for the thumb) makes it the carriers' containing block, so a bubble is
+    // clamped to `max-width: 100%` OF THE TRACK — it cannot cross the panel edge
+    // however many tools a platform grows. The carriers are absolutely
+    // positioned, so they add no flex item and no `gap`: every button keeps the
+    // exact geometry the thumb measures.
+    <div ref={trackRef} className="sw-tips relative flex min-w-0 items-center gap-1 rounded-lg bg-muted p-1">
       <div
         className={cn(
           "pointer-events-none absolute top-1 bottom-1 rounded-md shadow-sm",
@@ -89,38 +105,45 @@ export default function Segmented({ value, onChange, items }) {
       {items.map(({ id, label, Icon }) => {
         const active = value === id;
         return (
-          <button
-            key={id}
-            ref={(el) => (btnRefs.current[id] = el)}
-            type="button"
-            onClick={() => onChange(id)}
-            title={label}
-            aria-label={label}
-            aria-pressed={active}
-            className={cn(
-              // min-w-0 is load-bearing: flex items default to min-width:auto, so
-              // without it the buttons refuse to shrink below their label, `truncate`
-              // never engages and 5 tools overflow the track (clipped last tab).
-              "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200",
-              // the icon↔label gap has to go with the label, or a collapsed
-              // (0-width) span would still cost 6px per button.
-              compact ? "gap-0" : "gap-1.5",
-              active
-                ? "text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Icon size={13} strokeWidth={active ? 2.25 : 1.75} className="shrink-0" />
-            <span
-              ref={(el) => (labelRefs.current[id] = el)}
+          <Fragment key={id}>
+            <button
+              ref={(el) => (btnRefs.current[id] = el)}
+              type="button"
+              onClick={() => onChange(id)}
+              aria-label={label}
+              aria-pressed={active}
               className={cn(
-                "truncate transition-[max-width,opacity] duration-200 ease-out",
-                compact ? "max-w-0 opacity-0" : "max-w-full opacity-100"
+                // min-w-0 is load-bearing: flex items default to min-width:auto, so
+                // without it the buttons refuse to shrink below their label, `truncate`
+                // never engages and 5 tools overflow the track (clipped last tab).
+                "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200",
+                // the icon↔label gap has to go with the label, or a collapsed
+                // (0-width) span would still cost 6px per button.
+                compact ? "gap-0" : "gap-1.5",
+                active
+                  ? "text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {label}
-            </span>
-          </button>
+              <Icon size={13} strokeWidth={active ? 2.25 : 1.75} className="shrink-0" />
+              <span
+                ref={(el) => (labelRefs.current[id] = el)}
+                className={cn(
+                  "truncate transition-[max-width,opacity] duration-200 ease-out",
+                  compact ? "max-w-0 opacity-0" : "max-w-full opacity-100"
+                )}
+              >
+                {label}
+              </span>
+            </button>
+            {/* Only while the label is collapsed — `compact` IS that state, so
+                the bubble and the label can never both be on. The carrier must
+                be a SIBLING of the button, not a child: the button is
+                `relative`, so a child would anchor to the button instead of the
+                track and lose the track-width clamp that keeps the bubble inside
+                the panel. */}
+            {compact ? <TipCarrier text={label} /> : null}
+          </Fragment>
         );
       })}
     </div>

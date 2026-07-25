@@ -189,22 +189,34 @@
   animation: sw-heat-slide 2.2s linear infinite;
 }
 
-/* ===== tooltips for icon-only toolbar controls =====================
-   Markup: components/ui/ToolBar.jsx renders a carrier <span class="sw-tip"
-   data-sw-tip="…"> right after each control, inside the row it marks
-   `.sw-toolbar`.
+/* ===== tooltips for icon-only controls =============================
+   ONE implementation, two hosts. A host is any `position: relative` strip that
+   marks itself `.sw-tips`; it renders a carrier <span class="sw-tip"
+   data-sw-tip="…"> immediately after each control:
+
+     • components/ui/ToolBar.jsx  — the tool control rows
+     • components/ui/Segmented.jsx — the platform/tool navigation
+
+   The host class is what the rules key on, so a control used OUTSIDE a host
+   gets no bubble at all rather than a mispositioned one.
 
    WHY THIS IS CSS AND NOT A REACT TOOLTIP
-   Whether a control still shows its text label is decided by a Tailwind
-   CONTAINER QUERY on the row's own width — pure CSS that React never observes.
-   Mirroring it with a ResizeObserver would be a second source of truth for one
-   fact and the two could drift (mid-drag, first paint, or the day someone moves
-   one threshold and not the other). Instead the carrier is rendered with the
-   EXACT COMPLEMENT of the query that hides the label, so in every width where
-   the label is on screen the carrier is `display:none` — and a display:none
-   element generates no ::after. Label visible <=> no tooltip, by construction.
-   The native `title` was dropped for the same reason: it could not be gated and
-   fired even when the label was right there. `aria-label` is untouched.
+   In ToolBar, whether a control still shows its text label is decided by a
+   Tailwind CONTAINER QUERY on the row's own width — pure CSS that React never
+   observes. Mirroring it with a ResizeObserver would be a second source of truth
+   for one fact and the two could drift (mid-drag, first paint, or the day
+   someone moves one threshold and not the other). So the carrier is rendered
+   with the EXACT COMPLEMENT of the query that hides the label: in every width
+   where the label is on screen the carrier is `display:none` — and a
+   display:none element generates no ::after. Label visible <=> no tooltip, by
+   construction. (Segmented is the one place that already owns the collapsed
+   state in JS — it measures it — so there it simply renders the carrier only
+   while `compact`. Same invariant, established at the only other place where it
+   can be established honestly.)
+
+   The native `title` was dropped from both for the same reason: it could not be
+   gated and fired even when the label was right there. `aria-label` is untouched
+   everywhere.
 
    These rules are deliberately UNLAYERED, so they outrank Tailwind's utility
    layer — that is what lets `.sw-tip` beat SelectTrigger's `[&>span]:truncate`.
@@ -212,24 +224,26 @@
 .sw-tip {
   /* Out of flow on purpose: the carrier is a SIBLING of its control, and
      absolutely positioned children are skipped by flex and grid layout, so it
-     adds neither an item nor a `gap` to the row. Its containing block is the
-     ToolBar box (marked `relative`), i.e. it stretches over the whole ROW. */
+     adds neither an item nor a `gap` — no control's geometry changes because a
+     carrier appeared next to it (which also keeps Segmented's measured thumb in
+     sync). Its containing block is the host's padding box, i.e. it stretches
+     over the whole STRIP. */
   position: absolute;
   inset: 0;
-  pointer-events: none; /* it covers the row — it must never eat a click */
+  pointer-events: none; /* it covers the strip — it must never eat a click */
   overflow: visible;    /* beats [&>span]:truncate inside a SelectTrigger */
 }
 
-.sw-toolbar .sw-tip::after {
+.sw-tips .sw-tip::after {
   content: attr(data-sw-tip);
   position: absolute;
   top: calc(100% + 0.3rem);
   left: 0;
   right: 0;
-  margin-inline: auto;      /* centred over the row … */
+  margin-inline: auto;      /* centred over the strip … */
   width: max-content;
-  /* … and NEVER wider than the row. This is the whole reason the carrier spans
-     the row rather than the button: the anti-clipping guarantee is geometric
+  /* … and NEVER wider than the strip. This is the whole reason the carrier spans
+     the host rather than the control: the anti-clipping guarantee is geometric
      (100% of a box that already sits inside the panel gutters) instead of a
      guessed pixel budget that a future 5-control row would quietly break. The
      15rem cap only bites on wide panels, where a long `hint` would otherwise
@@ -253,24 +267,29 @@
   transition: opacity 90ms ease, visibility 90ms;
 }
 
-/* Edge controls. Centring over the row is right in the middle of the row, but
-   the first and last control read better pinned to their own side. They are
-   found by carrier ORDER rather than `:first-child`/`:last-child`, because the
-   carriers interleave with the controls and because rows are sometimes grids
-   with conditionally rendered members. */
-.sw-toolbar .sw-tip:not(.sw-tip ~ .sw-tip)::after {
+/* Edge controls. Centring over the strip is right in the middle of it, but the
+   first and last control read better pinned to their own side — and in Segmented
+   they are hard against the panel gutters, so this is also what keeps their
+   bubbles inside the panel.
+
+   Matching is by carrier ORDER, never `:first-child`/`:last-child`: carriers
+   interleave with the controls, ToolBar rows are sometimes grids with
+   conditionally rendered members, and Segmented's track opens with an
+   absolutely-positioned thumb <div>. Keying on `.sw-tip` siblings alone is blind
+   to all three. */
+.sw-tips .sw-tip:not(.sw-tip ~ .sw-tip)::after {
   margin-inline: 0 auto;
   text-align: left;
 }
-.sw-toolbar .sw-tip ~ .sw-tip:not(:has(~ .sw-tip))::after {
+.sw-tips .sw-tip ~ .sw-tip:not(:has(~ .sw-tip))::after {
   margin-inline: auto 0;
   text-align: right;
 }
 
 /* Hover AND keyboard focus — the carrier always immediately follows its control,
    hence the adjacent-sibling combinator. Short delay, not the ~1s of `title`. */
-.sw-toolbar :hover + .sw-tip::after,
-.sw-toolbar :focus-visible + .sw-tip::after {
+.sw-tips :hover + .sw-tip::after,
+.sw-tips :focus-visible + .sw-tip::after {
   opacity: 1;
   visibility: visible;
   transition-delay: 140ms;
@@ -286,14 +305,14 @@
 
 /* An open Select already covers its own trigger; a bubble behind the listbox is
    just noise. Same specificity as the reveal above, so source order wins. */
-.sw-toolbar [data-state="open"] + .sw-tip::after {
+.sw-tips [data-state="open"] + .sw-tip::after {
   opacity: 0;
   visibility: hidden;
   transition-delay: 0s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sw-toolbar .sw-tip::after { transition: none; }
+  .sw-tips .sw-tip::after { transition: none; }
 }
 
 /* themed scrollbars */
