@@ -28,6 +28,9 @@ import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import {
   sortRecords,
   recordToCard,
@@ -73,7 +76,6 @@ export default function IgSortTool() {
   const [showAll, setShowAll] = useState(false);
   const [sortKey, setSortKey] = useState("default");
   const [sortDir, setSortDir] = useState("desc");
-  const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const [overlay, setOverlay] = useState(true);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
 
@@ -139,15 +141,13 @@ export default function IgSortTool() {
   const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
 
-  const bg = (msg) =>
-    new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  // Per-action status. The key is namespaced per action: a failed COVER download
+  // used to share the record's key and so painted the media-download icon red.
+  const { run, statusOf, errorOf } = useItemStatus();
 
   async function downloadRecord(rec) {
     const id = rec.code || rec.pk;
-    setStatus(id, "downloading");
-    try {
+    await run(statusKey(id), async () => {
       if (rec.media_type === "carousel" && Array.isArray(rec.carousel)) {
         let i = 0;
         for (const child of rec.carousel) {
@@ -155,7 +155,7 @@ export default function IgSortTool() {
           const isVid = child.media_type === "video" && child.video;
           const url = isVid ? child.video : child.image;
           if (!url) continue;
-          await bg({
+          await requireOk({
             type: "FBW_DL_MEDIA",
             kind: isVid ? "video" : "image",
             url,
@@ -163,40 +163,36 @@ export default function IgSortTool() {
           });
         }
       } else if (rec.video) {
-        await bg({
+        await requireOk({
           type: "FBW_DL_MEDIA",
           kind: "video",
           url: rec.video,
           filename: filenameFor(rec, extFromUrl(rec.video, "video")),
         });
       } else if (rec.image) {
-        await bg({
+        await requireOk({
           type: "FBW_DL_MEDIA",
           kind: "image",
           url: rec.image,
           filename: filenameFor(rec, extFromUrl(rec.image, "image")),
         });
+      } else {
+        throw new Error("nenhuma mídia neste registro");
       }
-      setStatus(id, "done");
-    } catch {
-      setStatus(id, "error");
-    }
+    });
   }
 
-  // Download just the cover image (thumbnail), suffixed -thumb.
+  // Download just the cover image (thumbnail), suffixed -thumb. Its own status key
+  // ("<id>:thumb") so a cover failure marks THIS button, not the media one.
   async function downloadThumb(rec) {
     const id = rec.code || rec.pk;
     const url = rec.image || rec.thumb;
     if (!url) return;
-    setStatus(id, "downloading");
-    try {
-      const ext = extFromUrl(url, "image");
-      // Covers go to miniaturas, not in with the full-size media.
-      await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) });
-      setStatus(id, "done");
-    } catch {
-      setStatus(id, "error");
-    }
+    const ext = extFromUrl(url, "image");
+    // Covers go to miniaturas, not in with the full-size media.
+    await run(statusKey(id, "thumb"), () =>
+      requireOk({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) }),
+    );
   }
 
   async function downloadAll() {
@@ -206,36 +202,38 @@ export default function IgSortTool() {
     }
   }
 
-  // Toggle: first tap saves to the shared Library, second removes.
+  // Toggle: first tap saves to the shared Library, second removes. The write
+  // itself belongs to the background, which serializes it — a read-modify-write
+  // here would drop the page overlay's concurrent save. The background decides
+  // insert-vs-remove from the id, and answers with the state AFTER the toggle.
   async function saveToLibrary(rec) {
+    const id = rec.code || rec.pk;
     try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      const id = rec.code || rec.pk;
-      if (map[id]) {
-        delete map[id];
-        await chrome.storage.local.set({ fbw_saved: map });
-        return;
-      }
-      map[id] = {
-        videoId: id,
+      const entry = buildSavedEntry({
+        id,
         platform: "instagram",
-        thumb: rec.thumb || rec.image || null,
-        caption: rec.caption || null,
-        author: { name: rec.username || rec.full_name || "desconhecido", url: rec.username ? `/${rec.username}/` : null },
-        counts: {
-          like: rec.like_count != null ? fmtCount(rec.like_count) : null,
-          comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
-          views: rec.play_count != null ? fmtCount(rec.play_count) : null,
-        },
-        code: rec.code || null,
-        pk: rec.pk || null,
-        media_type: rec.media_type || null,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch {
-      /* ignore */
+        thumb: rec.thumb || rec.image,
+        caption: rec.caption,
+        // username before full_name — the precedence this pane has always used.
+        authorName: rec.username || rec.full_name,
+        username: rec.username,
+        // Raw numbers: the Library formats at render time and sorts on these.
+        counts: { like: rec.like_count, comment: rec.comment_count, view: rec.play_count },
+        code: rec.code,
+        pk: rec.pk,
+        mediaType: rec.media_type,
+      });
+      const res = await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+      // Authoritative, so the bookmark flips without waiting for onChanged
+      // (which still runs and would agree).
+      setSavedIds((s) => {
+        const next = { ...s };
+        if (res.saved) next[id] = true;
+        else delete next[id];
+        return next;
+      });
+    } catch (e) {
+      console.warn("[IgSortTool] falha ao salvar na biblioteca", id, e);
     }
   }
 
@@ -256,10 +254,11 @@ export default function IgSortTool() {
         url: rec.username ? `/${rec.username}/` : null,
       },
       thumb: rec.thumb || rec.image || null,
+      // Raw numbers, like the Library entries — VideoCard formats at render time.
       counts: {
-        like: rec.like_count != null ? fmtCount(rec.like_count) : null,
-        comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
-        views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+        like: rec.like_count ?? null,
+        comment: rec.comment_count ?? null,
+        views: rec.play_count ?? null,
       },
     });
     setTxMap((m) => ({ ...m, [id]: "running" })); // optimistic; store listener corrects
@@ -353,7 +352,8 @@ export default function IgSortTool() {
         <div className="grid grid-cols-2 gap-2">
           {sorted.map((rec) => {
             const c = recordToCard(rec);
-            const st = busy[c.id];
+            const st = statusOf(statusKey(c.id));
+            const stThumb = statusOf(statusKey(c.id, "thumb"));
             const er = engagementRate(rec);
             const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
             return (
@@ -384,7 +384,7 @@ export default function IgSortTool() {
                     />
                   </IconBtn>
                   <IconBtn
-                    title="Baixar mídia"
+                    title={statusTitle("Baixar mídia", st, errorOf(statusKey(c.id)))}
                     onClick={() => downloadRecord(rec)}
                     disabled={st === "downloading"}
                   >
@@ -395,8 +395,21 @@ export default function IgSortTool() {
                       }
                     />
                   </IconBtn>
-                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)}>
-                    <ImageDown className="size-3.5" />
+                  <IconBtn
+                    title={statusTitle("Baixar miniatura", stThumb, errorOf(statusKey(c.id, "thumb")))}
+                    onClick={() => downloadThumb(rec)}
+                    disabled={stThumb === "downloading"}
+                  >
+                    <ImageDown
+                      className={
+                        "size-3.5 " +
+                        (stThumb === "done"
+                          ? "text-emerald-400"
+                          : stThumb === "error"
+                            ? "text-red-400"
+                            : "")
+                      }
+                    />
                   </IconBtn>
                   {(rec.video || txMap[c.id] === "done") && (
                     <IconBtn

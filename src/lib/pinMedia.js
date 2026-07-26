@@ -10,6 +10,8 @@
 //   2. GET must NOT carry x-csrftoken; POST MUST.
 
 import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+import { fmtCount } from "./shared/counts.js";
+export { fmtCount };
 
 export const PWS_HANDLERS = {
   home: "www/index.js",
@@ -323,12 +325,7 @@ export function extFromUrl(url, kind) {
   return kind === "video" ? "mp4" : "jpg";
 }
 
-export function fmtCount(n) {
-  if (n == null) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
+
 
 export function fmtDate(unixSeconds) {
   if (!unixSeconds) return "";

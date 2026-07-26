@@ -24,7 +24,10 @@ import { Button } from "@/components/ui/button";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import {
   sortRecords,
   recordToCard,
@@ -72,7 +75,6 @@ export default function TtSortTool() {
   const [showAll, setShowAll] = useState(false);
   const [sortKey, setSortKey] = useState("default");
   const [sortDir, setSortDir] = useState("desc");
-  const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
 
   const [txMap, setTxMap] = useState({});
@@ -125,39 +127,33 @@ export default function TtSortTool() {
   const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
 
-  const bg = (msg) =>
-    new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  // Per-action status. The key is namespaced per action: a failed COVER download
+  // used to share the record's key and so painted the media-download icon red.
+  const { run, statusOf, errorOf } = useItemStatus();
 
   async function downloadRecord(rec) {
-    setStatus(rec.id, "downloading");
-    try {
+    await run(statusKey(rec.id), async () => {
       const url = rec.hd_url || rec.download_url || rec.video; // always highest quality
-      if (!url) throw new Error("no video url");
-      await bg({
+      if (!url) throw new Error("sem URL de vídeo");
+      await requireOk({
         type: "FBW_DL_MEDIA",
         kind: "video",
         url,
         filename: filenameFor(rec, extFromUrl(url, "video")),
       });
-      setStatus(rec.id, "done");
-    } catch {
-      setStatus(rec.id, "error");
-    }
+    });
   }
 
+  // Own status key ("<id>:thumb") so a cover failure marks THIS button instead of
+  // the video-download icon next to it.
   async function downloadThumb(rec) {
     const url = rec.cover || rec.dynamic_cover;
     if (!url) return;
-    setStatus(rec.id, "downloading");
-    try {
-      const ext = extFromUrl(url, "image");
-      // Covers go to miniaturas, not in with the videos.
-      await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) });
-      setStatus(rec.id, "done");
-    } catch {
-      setStatus(rec.id, "error");
-    }
+    const ext = extFromUrl(url, "image");
+    // Covers go to miniaturas, not in with the videos.
+    await run(statusKey(rec.id, "thumb"), () =>
+      requireOk({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) }),
+    );
   }
 
   async function downloadAll() {
@@ -169,36 +165,33 @@ export default function TtSortTool() {
 
   async function saveToLibrary(rec) {
     try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[rec.id]) {
-        delete map[rec.id];
-        await chrome.storage.local.set({ fbw_saved: map });
-        return;
-      }
-      map[rec.id] = {
-        videoId: rec.id,
+      const entry = buildSavedEntry({
+        id: rec.id,
         platform: "tiktok",
-        thumb: rec.cover || rec.dynamic_cover || null,
-        caption: rec.desc || null,
-        author: {
-          name: rec.username || rec.nickname || "desconhecido",
-          url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null,
-        },
+        thumb: rec.cover || rec.dynamic_cover,
+        caption: rec.desc,
+        // The card has always shown the @handle first, with the nickname only as a
+        // fallback — the builder prefers authorName, so keep that order here.
+        authorName: rec.username || rec.nickname,
+        username: rec.username,
+        // share/save too — tt-relay.js's page-side save stores them for the same
+        // record, and this pane renders both, so omitting them here meant a video
+        // saved from the panel carried less than one saved from the page.
         counts: {
-          like: rec.digg_count != null ? fmtCount(rec.digg_count) : null,
-          comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
-          views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+          like: rec.digg_count,
+          comment: rec.comment_count,
+          view: rec.play_count,
+          share: rec.share_count,
+          save: rec.collect_count,
         },
         code: rec.id,
-        // Same shape as the transcribe path below — without it VideoCard falls back
-        // to a dead facebook.com/reel/<id> link.
-        sourceUrl: rec.username ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch {
-      /* ignore */
+      });
+      // The background owns the write and decides insert-vs-remove by whether the
+      // id is already there, so it answers with the state AFTER the toggle.
+      const res = await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+      setSavedIds((s) => ({ ...s, [rec.id]: !!res.saved }));
+    } catch (e) {
+      console.warn("[fbw] salvar na biblioteca falhou", e);
     }
   }
 
@@ -218,10 +211,11 @@ export default function TtSortTool() {
       },
       thumb: rec.cover || rec.dynamic_cover || null,
       sourceUrl: rec.username ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
+      // Raw numbers, like the Library entries — VideoCard formats at render time.
       counts: {
-        like: rec.digg_count != null ? fmtCount(rec.digg_count) : null,
-        comment: rec.comment_count != null ? fmtCount(rec.comment_count) : null,
-        views: rec.play_count != null ? fmtCount(rec.play_count) : null,
+        like: rec.digg_count ?? null,
+        comment: rec.comment_count ?? null,
+        views: rec.play_count ?? null,
       },
     });
     setTxMap((m) => ({ ...m, [rec.id]: "running" }));
@@ -304,7 +298,8 @@ export default function TtSortTool() {
         <div className="grid grid-cols-2 gap-2">
           {sorted.map((rec) => {
             const c = recordToCard(rec);
-            const st = busy[c.id];
+            const st = statusOf(statusKey(c.id));
+            const stThumb = statusOf(statusKey(c.id, "thumb"));
             const er = engagementRate(rec);
             return (
               <div
@@ -329,11 +324,20 @@ export default function TtSortTool() {
                   >
                     <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Baixar vídeo" onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
+                  <IconBtn title={statusTitle("Baixar vídeo", st, errorOf(statusKey(c.id)))} onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
                     <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)}>
-                    <ImageDown className="size-3.5" />
+                  <IconBtn
+                    title={statusTitle("Baixar miniatura", stThumb, errorOf(statusKey(c.id, "thumb")))}
+                    onClick={() => downloadThumb(rec)}
+                    disabled={stThumb === "downloading"}
+                  >
+                    <ImageDown
+                      className={
+                        "size-3.5 " +
+                        (stThumb === "done" ? "text-emerald-400" : stThumb === "error" ? "text-red-400" : "")
+                      }
+                    />
                   </IconBtn>
                   {(rec.video || txMap[c.id] === "done") && (
                     <IconBtn

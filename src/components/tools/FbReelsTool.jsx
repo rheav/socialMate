@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  Download,
   Bookmark,
   ArrowUp,
   ArrowDown,
@@ -14,8 +13,11 @@ import {
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label — a whole word, never an ellipsis. Values are unchanged.
@@ -47,7 +49,6 @@ export default function FbReelsTool() {
   const [onReelsTab, setOnReelsTab] = useState(true);
   const [sortKey, setSortKey] = useState("views");
   const [sortDir, setSortDir] = useState("desc");
-  const [busy, setBusy] = useState({}); // id -> 'downloading'|'done'|'error'
   const [harvesting, setHarvesting] = useState(false);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("facebook");
 
@@ -101,19 +102,17 @@ export default function FbReelsTool() {
 
   const sorted = sortRecords(records, sortKey, sortDir);
 
-  const bg = (msg) =>
-    new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  // Per-action status. The thumbnail is the only action routed through this hook
+  // (the card's save button reports through the savedIds mirror instead), so the
+  // record's primary key is enough — and a failure now keeps its reason for the
+  // button's tooltip instead of only painting the icon red.
+  const { run, statusOf, errorOf } = useItemStatus();
 
   async function downloadThumb(rec) {
     if (!rec.thumb) return;
-    setStatus(rec.id, "downloading");
-    try {
-      await bg({ type: "FBW_DL_MEDIA", kind: "image", url: rec.thumb, filename: filenameFor(owner, rec.id) });
-      setStatus(rec.id, "done");
-    } catch {
-      setStatus(rec.id, "error");
-    }
+    await run(statusKey(rec.id), () =>
+      requireOk({ type: "FBW_DL_MEDIA", kind: "image", url: rec.thumb, filename: filenameFor(owner, rec.id) }),
+    );
   }
 
   async function downloadAllThumbs() {
@@ -124,33 +123,30 @@ export default function FbReelsTool() {
   }
 
   // Toggle: first tap saves the reel to the shared Library, second removes.
+  // The background owns the write (serialized, so the panel and a page overlay
+  // can't clobber each other) and replies with the state AFTER the toggle.
   async function saveToLibrary(rec) {
+    // Counts go in RAW — fmtCount is render-time only (see the stat rail below).
+    const entry = buildSavedEntry({
+      id: rec.id,
+      platform: "facebook",
+      thumb: rec.thumb,
+      authorName: owner,
+      counts: { comment: rec.comments, share: rec.shares, view: rec.views },
+    });
+    if (!entry) return;
     try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[rec.id]) {
-        delete map[rec.id];
-        await chrome.storage.local.set({ fbw_saved: map });
-        return;
-      }
-      map[rec.id] = {
-        videoId: rec.id,
-        platform: "facebook",
-        thumb: rec.thumb || null,
-        caption: null,
-        author: { name: owner || "desconhecido", url: null },
-        counts: {
-          like: null,
-          comment: rec.comments != null ? fmtCount(rec.comments) : null,
-          share: rec.shares != null ? fmtCount(rec.shares) : null,
-          views: rec.views != null ? fmtCount(rec.views) : null,
-        },
-        sourceUrl: `https://www.facebook.com/reel/${rec.id}`,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch {
-      /* ignore */
+      const { saved } = await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+      // Trust the reply over guessing; the storage.onChanged mirror above also
+      // re-syncs, so this only removes the one-tick lag.
+      setSavedIds((s) => {
+        const next = { ...s };
+        if (saved) next[rec.id] = true;
+        else delete next[rec.id];
+        return next;
+      });
+    } catch (e) {
+      console.warn("[fbw] falha ao salvar reel na biblioteca", e);
     }
   }
 
@@ -218,7 +214,7 @@ export default function FbReelsTool() {
         <div className="grid grid-cols-2 gap-2">
           {sorted.map((rec) => {
             const c = recordToCard(rec);
-            const st = busy[c.id];
+            const st = statusOf(statusKey(c.id));
             return (
               <div
                 key={c.id}
@@ -238,7 +234,11 @@ export default function FbReelsTool() {
                   >
                     <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
                   </IconBtn>
-                  <IconBtn title="Baixar miniatura" onClick={() => downloadThumb(rec)} disabled={st === "downloading"}>
+                  <IconBtn
+                    title={statusTitle("Baixar miniatura", st, errorOf(statusKey(c.id)))}
+                    onClick={() => downloadThumb(rec)}
+                    disabled={st === "downloading"}
+                  >
                     {st === "downloading" ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (

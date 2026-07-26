@@ -18,6 +18,137 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.69.0] — 2026-07-26
+
+Os ajudantes que os content scripts copiavam à mão agora são embutidos pela build a
+partir de uma única fonte testada, a Biblioteca passa a ter um formato de registro e
+um único escritor, e um download que falha diz por quê.
+
+### Adicionado
+- **`src/lib/shared/` + `npm run gen:inline`.** Um content script **não pode
+  importar**: qualquer `import` faz o CRXJS gerar um `*-loader.js` que chama
+  `await import(chrome.runtime.getURL(...))` em vez de um IIFE autocontido — dá para
+  ver em `dist/manifest.json`, onde só `content.js` e `pin-api.js` têm loader. Num
+  script de mundo MAIN esse import dinâmico obedece à CSP **da página**, que no
+  Facebook/Instagram pode matá-lo e desligar a captura em silêncio.
+  A solução anterior era copiar os ajudantes à mão com um comentário "espelho de
+  `src/lib/x.js`" — nada garantia a cópia, e seis delas já haviam divergido. Agora a
+  fonte canônica (testada, e reexportada pelas libs do painel) é copiada para uma
+  região marcada de cada content script:
+  ```js
+  // <<< inline:src/lib/shared/counts.js
+  // >>> inline:end
+  ```
+  `npm run build` e a suíte de testes rodam `--check` e **falham** se alguma cópia
+  estiver velha. Ver `src/lib/shared/README.md`.
+- **`src/lib/bg.js`** (`sendBg`/`requireOk`) e **`src/lib/useItemStatus.js`**: uma
+  conversa com o service worker e um estado por item para os painéis, em vez de sete
+  cópias de cada.
+
+### Corrigido
+- **Divergência real que estava em produção:** a cópia de `parseCount` dentro de
+  `comments-scrape.js` tinha **5** palavras de unidade localizadas contra as **13**
+  da lib testada, então uma contagem de reações como `"1,2 rb"` (id/nórdico/polonês)
+  virava `null` na página enquanto os testes passavam. Também: `parseReactions` tinha
+  um regex mais estreito, e o `catch` de `cleanAuthorUrl` devolvia `id: null` em vez
+  de derivar o slug — perdendo a identidade do autor. As três cópias agora vêm da
+  mesma fonte.
+- **`MAX_PHOTOS`/`MAX_SCROLLS` tinham duas casas** (o content script e
+  `HARVEST_CAPS`); agora só `src/lib/shared/fbPhotoIds.js`.
+- **A Biblioteca (`fbw_saved`) tinha dez escritores e cinco formatos.** Cada um fazia
+  seu próprio `get → mutate → set`, que é uma corrida de atualização perdida (painel
+  + overlay da página, ou duas abas, e um sobrescreve o outro em silêncio). E os
+  formatos divergiam: contagens pré-formatadas por um `fmtCount(null)` **sem guarda**,
+  o Pinterest gravando a string `"—"` em views onde os outros gravavam `null`,
+  `sourceUrl` presente em alguns e ausente em outros (sem ele o VideoCard cai num
+  link morto `facebook.com/reel/<id>`), e o TikTok guardando como `thumb` uma URL de
+  CDN assinada que expira.
+  Agora: `src/lib/shared/savedEntry.js` monta o registro (contagens em **números
+  crus**, `schema: 2`, permalink e URL de perfil **derivados** por plataforma, para
+  ninguém esquecer), e o background é o único escritor, com as escritas
+  serializadas numa fila (`FBW_SAVED_TOGGLE` / `_UPSERT` / `_REMOVE`).
+  A formatação virou responsabilidade de renderização no `TranscriptsPanel`, que
+  ainda aceita as strings dos registros antigos.
+- **Um download que falhava não dizia por quê:** o `catch` de cada painel só pintava
+  o ícone de vermelho e descartava a mensagem. Agora o motivo aparece no `title` do
+  botão ("Falhou: …").
+- **Uma falha ao baixar a MINIATURA pintava o botão de mídia ao lado**, porque as
+  duas ações compartilhavam a mesma chave de estado. Cada ação tem a sua
+  (`statusKey(id, "thumb")`).
+- Paridade de contagens no TikTok: `share`/`save` eram gravados pelo overlay da
+  página e ignorados pelos painéis, então o mesmo vídeo virava registros diferentes
+  dependendo de onde você salvava.
+- **Os marcadores do Pinterest e das Coleções do TikTok nunca acendiam** (não havia
+  espelho de `fbw_saved` nesses painéis), então salvar parecia não fazer nada e o
+  segundo toque removia o item em silêncio. Agora acendem, ficam vermelhos com o
+  motivo em caso de falha e ficam desabilitados durante a escrita.
+
+### Notas
+- 19 arquivos de teste, 345 testes. Dois deles são guardas de contrato, não testes de
+  unidade: `src/lib/inline.test.js` roda `gen-inline --check` (uma cópia velha
+  quebra a suíte) e o bloco do livro-caixa em `sessionMath.test.js` exige que
+  `persist()` e o resume cubram o mesmo conjunto de chaves.
+
+---
+
+## [0.68.0] — 2026-07-26
+
+Nenhum arquivo de relatório é mais baixado ao fim de cada execução, os limites de
+segurança do aquecimento deixam de zerar a cada navegação, e um download que falha
+para de se mostrar como sucesso.
+
+### Removido
+- **O JSON de telemetria baixado ao fim de TODA execução acabou.** Não existe mais
+  `Downloads/social-mate/sessoes/run-*.json`, nem a mensagem `FBW_WRITE_RUN_LOG`, nem
+  o buffer `fbw_run_events` em `chrome.storage`, nem o fluxo de eventos estruturados
+  (`emit()`, `runMeta()`, `runCounters()`, `flushEvents()`, `flushOrphanRun()`,
+  `loadEventBuffer()`) — cerca de 300 linhas de `src/content.js` que só existiam para
+  alimentar aquele arquivo. **Não reintroduza um download aqui.** A execução continua
+  se reportando pelas três superfícies que o painel já lê: `fbw_session` (ao vivo),
+  `fbw_history` (últimas 50 execuções) e `fbw_last_summary` (o card de resumo).
+  A chave `fbw_run_events` deixada por versões anteriores é apagada uma vez no
+  `onInstalled`.
+- `fbSavePost()` de `src/content.js`: código morto (o aquecimento no Facebook é
+  somente curtir; reels usam `fbSaveReel`) e o regex do menu era só em inglês,
+  contradizendo os dicionários localizados usados em todo o resto.
+- `requiresTab` em `src/lib/tools.jsx` (declarado, nunca lido) e a chave `commented`
+  duplicada no literal de `persist()`.
+
+### Corrigido
+- **Os limites de segurança sobreviviam mal a uma navegação.** `persist()` gravava os
+  contadores mas não o *livro-caixa* de segurança, e o resume o recriava zerado — ou
+  seja, `MAX_LIKES_PER_HOUR`, `MAX_LIKES_PER_AUTHOR` e os limites por autor de
+  comentário voltavam a zero em toda navegação. E toda execução no modo A começa com
+  uma (`location.assign` até a hashtag), assim como o fim de resultados da busca do
+  TikTok (`location.reload`). Agora `likeTimes`, `authorLikes`, `commentTimes`,
+  `authorComments`, `commentedIds`, `capturedIds`, `consecLikes`, `consecFollows`,
+  `consecComments`, `softFailStreak` e `lastPhrase` são persistidos e restaurados.
+- **Downloads que falhavam apareciam como sucesso.** O `bg()` local de cada painel
+  nunca lia `chrome.runtime.lastError` e nenhum chamador checava o `.ok` que o
+  service worker realmente envia — o botão ficava verde tivesse o arquivo chegado ao
+  disco ou não. Agora existe um único `src/lib/bg.js` (`sendBg`/`requireOk`) usado
+  por todos os painéis, e os overlays injetados (Instagram, TikTok, Pinterest, que
+  são import-free de propósito) checam a resposta e piscam o estado de erro.
+- **Transcrição desistia cedo demais no feed do Facebook.** Quando a legenda falhava,
+  o Whisper só era tentado se houvesse `mediaUrl` ou `candidates` — que é exatamente
+  o que um job de feed não tem (os `candidates` são removidos de propósito: ids de
+  vizinhos contaminam). Agora `durationHint`/`primedAt` também contam, e é o
+  `resolveTracks` que decide.
+- **A terceira varredura do coletor de comentários era código morto.** A fase 1 só
+  sai quando `stable` chega a 4 e a fase 3 exigia `stable < 3` sem reiniciar o
+  contador. Além disso, uma página sem painel de comentários rodava a coleta inteira
+  (~7 min) sobre um DOM vazio e baixava `{count: 0}` — agora aborta na hora.
+- O estado de erro dos botões injetados existia no CSS mas nunca era acionado
+  (`progress("err")` nunca era enviado); uma coleta que falha agora fica vermelha em
+  vez de girar para sempre.
+- `EMPTY_SCROLL_LIMIT` era declarado como 14 e ignorado por um `> 10` fixo no
+  `postsLoop`, enquanto o `videoLoop` usava a constante.
+
+### Notas
+- `src/content.js` saiu de 2997 para 2732 linhas.
+
+---
+
 ## [0.67.0] — 2026-07-25
 
 Tradução completa para pt-BR, Facebook ganha download em massa de fotos, e todos os

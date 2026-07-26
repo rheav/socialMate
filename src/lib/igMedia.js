@@ -1,6 +1,8 @@
 // Pure, DOM-free helpers for the IG Sort tool (panel side). Unit-tested.
 
 import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+import { fmtCount } from "./shared/counts.js";
+export { fmtCount };
 
 // ER weights — matches IG Sorter's defaults (comments & reposts each count 4×,
 // likes 1×). Tweak to reweight. Mirrored in the DOM overlay
@@ -130,12 +132,7 @@ export function extFromUrl(url, kind) {
 }
 
 // Compact engagement count for display: 964490 -> "964.5K", 1200000 -> "1.2M".
-export function fmtCount(n) {
-  if (n == null) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
+
 
 // Scope captured records to a surface. IG's JSON.parse also parses suggested/
 // recommended media (explore rails, "suggested for you") while you're on a page,

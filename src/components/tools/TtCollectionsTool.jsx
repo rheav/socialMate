@@ -5,6 +5,9 @@ import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 
 // TikTok Collections + Playlists. Reads the passive capture of /api/user/playlist
 // + /api/user/collection_list (bucket metadata) and /api/mix|collection/item_list
@@ -14,7 +17,6 @@ import { startPolling } from "@/lib/poll";
 export default function TtCollectionsTool() {
   const [lists, setLists] = useState([]);
   const [open, setOpen] = useState({});
-  const [busy, setBusy] = useState({});
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
 
   const pull = useCallback(async () => {
@@ -34,35 +36,60 @@ export default function TtCollectionsTool() {
     pull();
   }, [send, pull]);
 
-  const bg = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  // Per-action status. The key is namespaced per action: a failed SAVE used to
+  // share the record's key and so painted the video-download icon red.
+  const { run, statusOf, errorOf } = useItemStatus();
+
+  // Mirror fbw_saved so the bookmark reflects reality — without this the icon never
+  // fills, so a toggle looks like a no-op and a second tap silently un-saves.
+  const [savedIds, setSavedIds] = useState({});
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    const load = () =>
+      chrome.storage.local.get("fbw_saved", (r) => {
+        const s = {};
+        for (const k in r.fbw_saved || {}) s[k] = true;
+        setSavedIds(s);
+      });
+    load();
+    const onCh = (c, area) => {
+      if (area === "local" && c.fbw_saved) load();
+    };
+    chrome.storage.onChanged.addListener(onCh);
+    return () => chrome.storage.onChanged.removeListener(onCh);
+  }, []);
 
   async function download(item) {
-    setStatus(item.id, "downloading");
-    try {
+    await run(statusKey(item.id), async () => {
       const url = item.hd_url || item.download_url || item.video;
-      if (!url) throw new Error("no url");
-      await bg({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor(item, extFromUrl(url, "video")) });
-      setStatus(item.id, "done");
-    } catch { setStatus(item.id, "error"); }
+      if (!url) throw new Error("sem URL de vídeo");
+      await requireOk({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor(item, extFromUrl(url, "video")) });
+    });
   }
   async function save(item) {
-    try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[item.id]) delete map[item.id];
-      else map[item.id] = {
-        videoId: item.id, platform: "tiktok", thumb: item.cover || null, caption: item.desc || null,
-        author: { name: item.username || item.nickname || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
-        counts: { like: fmtCount(item.digg_count), comment: fmtCount(item.comment_count), views: fmtCount(item.play_count) },
+    // The background owns the write (serialized) and decides insert-vs-remove by
+    // whether the id is already in fbw_saved — no read-modify-write here.
+    await run(statusKey(item.id, "save"), async () => {
+      const entry = buildSavedEntry({
+        id: item.id,
+        platform: "tiktok",
+        thumb: item.cover,
+        caption: item.desc,
+        // @handle first, nickname only as fallback — the precedence this pane and
+        // both sibling TikTok writers (TtSortTool, tt-relay) have always used.
+        authorName: item.username || item.nickname,
+        username: item.username,
+        counts: {
+          like: item.digg_count,
+          comment: item.comment_count,
+          view: item.play_count,
+          share: item.share_count,
+          save: item.collect_count,
+        },
         code: item.id,
-        // This file has no transcribe path to mirror; same shape as TtSortTool's —
-        // without it VideoCard falls back to a dead facebook.com/reel/<id> link.
-        sourceUrl: item.username ? `https://www.tiktok.com/@${item.username}/video/${item.id}` : null,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch { /* ignore */ }
+      });
+      await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+    });
   }
 
   async function downloadAll(items) {
@@ -153,16 +180,35 @@ export default function TtCollectionsTool() {
                     </ToolBar>
                     <div className="grid grid-cols-3 gap-1.5">
                       {items.map((item) => {
-                        const st = busy[item.id];
+                        const st = statusOf(statusKey(item.id));
+                        const stSave = statusOf(statusKey(item.id, "save"));
                         return (
                           <div key={item.id} className="group relative aspect-[9/16] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
                             {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
                             <div className="absolute left-1 top-1 flex flex-col gap-1">
-                              <button onClick={() => download(item)} disabled={st === "downloading"} className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50">
+                              <button title={statusTitle("Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"} className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50">
                                 <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
                               </button>
-                              <button onClick={() => save(item)} className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80">
-                                <Bookmark className="size-3.5" />
+                              <button
+                                title={statusTitle(
+                                  savedIds[item.id] ? "Salvo — toque para remover" : "Salvar na biblioteca",
+                                  stSave,
+                                  errorOf(statusKey(item.id, "save")),
+                                )}
+                                onClick={() => save(item)}
+                                disabled={stSave === "downloading"}
+                                className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
+                              >
+                                <Bookmark
+                                  className={
+                                    "size-3.5 " +
+                                    (stSave === "error"
+                                      ? "text-red-400"
+                                      : savedIds[item.id]
+                                        ? "fill-current text-amber-300"
+                                        : "")
+                                  }
+                                />
                               </button>
                             </div>
                             {item.play_count != null && (

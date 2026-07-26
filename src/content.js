@@ -1,5 +1,7 @@
 import { franc } from "franc-min";
 import {
+  serializeLedger,
+  restoreLedger,
   shouldContinue,
   scheduleNextBreak,
   breakLengthMs,
@@ -103,14 +105,11 @@ import {
   const HISTORY_KEY = "fbw_history"; // per-run summaries for the History tab
   const SUMMARY_KEY = "fbw_last_summary"; // last run recap for the WarmTool summary card
   const LOG_CAP = 120;
-  // ---- run telemetry ----
-  // Structured, machine-readable events for the whole run. The human `S.log` is
-  // for the panel; this is the record we dump to disk and analyse afterwards.
-  // Mirrored into storage during the run so a closed tab / dead content script
-  // can't take the run down with it — the next start flushes the orphan.
-  const EVENTS_KEY = "fbw_run_events"; // in-flight run buffer (survives tab death)
-  const EVENT_CAP = 6000; // hard ceiling per run (a 60m run is ~1–2k events)
-  const EVENT_FLUSH_MS = 5000; // don't re-serialise the buffer on every log line
+  // A run reports itself through three surfaces, all of them in storage and all
+  // of them read by the panel: `fbw_session` (live), `fbw_history` (last 50 runs),
+  // `fbw_last_summary` (recap card). Nothing is written to disk — the structured
+  // per-event telemetry that used to dump a JSON into ~/Downloads/social-mate/sessoes/
+  // after every run was removed deliberately. Don't reintroduce a download here.
 
   function freshState() {
     return {
@@ -186,15 +185,9 @@ import {
       lastCursor: null, // last synthetic cursor {x,y} — curved moves start here
       // log ring buffer
       log: [],
-      // run telemetry (structured; dumped to disk at run end)
-      runId: "",
-      events: [],
-      eventsFlushedAt: 0,
-      itemSeq: 0, // per-item index within the run
       // runtime-only
       tickTimer: null,
       loopActive: false,
-      seen: new WeakSet(), // element-keyed (IG/TikTok video loops)
       seenIds: new Set(), // post-id-keyed (FB posts — survives feed virtualization)
       capturedIds: new Set(), // posts already auto-captured this run (dedup)
     };
@@ -246,10 +239,9 @@ import {
   // These translate internal codes to Portuguese ONLY at the point they're
   // rendered into a logLine()/startProgress() message string. The underlying
   // codes (A.noun, A.skipReason, reaction keys, comment-fail reasons, page
-  // surfaces, S.actions keys) are left untouched everywhere else — they're
-  // also written into the structured telemetry (emit()/runMeta()) and storage,
-  // so changing the values themselves would alter what's persisted/analysed,
-  // not just what's shown.
+  // surfaces, S.actions keys) are left untouched everywhere else — they're also
+  // written into `fbw_session`/`fbw_history`, so changing the values themselves
+  // would alter what's persisted, not just what's shown.
   const NOUN_PT = { reel: "reel", video: "vídeo" };
   const nounPT = (n) => NOUN_PT[n] || n;
   const REACTION_PT = {
@@ -291,156 +283,6 @@ import {
     editor_not_cleared: "editor não foi limpo",
   };
   const commentFailPT = (r) => COMMENT_FAIL_PT[r] || r;
-
-  // ============================================================
-  // RUN TELEMETRY — structured events → JSON file on disk at run end
-  // ============================================================
-  // emit() is the only way events enter the record. Every call is one fact about
-  // the run ("dwelled 7.2s on reel X and watched it fully", "wanted wow, got like").
-  // Keep the payloads flat and machine-readable — this file is meant to be read
-  // back and analysed, not skimmed.
-  function emit(type, data) {
-    if (!S.runId) return; // no run in flight → nothing to record
-    if (S.events.length >= EVENT_CAP) return; // hard ceiling; run keeps going
-    S.events.push({ t: Date.now() - S.startedAt, type, ...(data || {}) });
-    // Flush to storage on a timer, not per-event: re-serialising a few thousand
-    // events on every log line would be the most expensive thing in the loop.
-    if (Date.now() - S.eventsFlushedAt >= EVENT_FLUSH_MS) flushEvents();
-  }
-
-  function runMeta() {
-    return {
-      runId: S.runId,
-      startedAt: S.startedAt,
-      willEndAt: S.willEndAt,
-      platform: S.platform,
-      mode: S.mode,
-      keyword: S.keyword,
-      maxItems: S.maxItems,
-      quickMode: !!S.quickMode,
-      actions: { ...S.actions },
-      reactionsEnabled: { ...S.reactions },
-      commentSettings: S.commentSettings ? { ...S.commentSettings } : null,
-      personality: S.personalityMode,
-      sessionIntensity: S.sessionIntensity,
-      browseOnly: !!S.browseOnly,
-      warmupPosts: S.warmupPosts,
-      pacing: { ...S.pacing },
-      englishOnly: !!S.englishOnly,
-      relevanceMin: S.relevanceMin,
-      spamGuard: !!S.spamGuard,
-      userAgent: navigator.userAgent,
-      appVersion: chrome.runtime?.getManifest?.().version || null,
-    };
-  }
-
-  function runCounters() {
-    return {
-      processed: S.processed,
-      saved: S.saved,
-      liked: S.liked,
-      loved: S.loved,
-      followed: S.followed,
-      skipped: S.skipped,
-      commented: S.commented,
-      reactionCounts: { ...S.reactionCounts },
-      softFailStreak: S.softFailStreak,
-      missStreak: S.missStreak,
-      haltReason: S.haltReason,
-    };
-  }
-
-  // Mirror the in-flight run to storage. If the tab dies mid-run (navigation,
-  // close, crash) this is what survives — the next start() flushes it to disk as
-  // an "abandoned" run, which is exactly the run you most want to look at.
-  function flushEvents() {
-    if (!S.runId) return;
-    S.eventsFlushedAt = Date.now();
-    try {
-      chrome.storage?.local?.set({
-        [EVENTS_KEY]: {
-          meta: runMeta(),
-          counters: runCounters(),
-          events: S.events,
-          flushedAt: Date.now(),
-        },
-      });
-    } catch {
-      /* context invalidated */
-    }
-  }
-
-  // Hand a finished run to the background worker, which owns chrome.downloads and
-  // writes it to ~/Downloads/social-mate/sessoes/. Clears the in-flight buffer after.
-  function writeRunLog(outcome) {
-    const doc = {
-      schema: 1,
-      outcome,
-      endedAt: Date.now(),
-      durationMs: Date.now() - (S.startedAt || Date.now()),
-      meta: runMeta(),
-      counters: runCounters(),
-      log: S.log.map((e) => ({ t: e.t, msg: e.msg })), // human log, for context
-      events: S.events,
-    };
-    try {
-      chrome.runtime?.sendMessage?.({ type: "FBW_WRITE_RUN_LOG", doc }, () => {
-        void chrome.runtime.lastError; // fire-and-forget
-      });
-      chrome.storage?.local?.remove(EVENTS_KEY); // written → drop the buffer
-    } catch {
-      /* context invalidated — the storage buffer stays and gets flushed next run */
-    }
-  }
-
-  // Re-attach to this run's buffer after a navigation rebuilt the content script.
-  // Keyed by runId, so it can only ever pick up its own events.
-  async function loadEventBuffer() {
-    if (!S.runId) return;
-    try {
-      const buf = (await chrome.storage.local.get(EVENTS_KEY))[EVENTS_KEY];
-      if (buf?.meta?.runId === S.runId && Array.isArray(buf.events))
-        S.events = buf.events;
-    } catch {
-      /* noop */
-    }
-  }
-
-  // A previous run that never reached finishRun/halt (tab closed mid-run) left its
-  // buffer behind. Ship it as "abandoned" so the data isn't lost.
-  //
-  // Guarded by runId: start() kicks this off and then immediately writes its own
-  // buffer, so without the check a slow read could come back, mistake the run
-  // that just started for an orphan, and delete it.
-  async function flushOrphanRun() {
-    try {
-      const prev = (await chrome.storage.local.get(EVENTS_KEY))[EVENTS_KEY];
-      if (!prev?.events?.length) return;
-      if (prev.meta?.runId && prev.meta.runId === S.runId) return; // ours, not an orphan
-      chrome.runtime?.sendMessage?.(
-        {
-          type: "FBW_WRITE_RUN_LOG",
-          doc: {
-            schema: 1,
-            outcome: "abandoned",
-            endedAt: prev.flushedAt || Date.now(),
-            durationMs:
-              (prev.flushedAt || Date.now()) - (prev.meta?.startedAt || 0),
-            meta: prev.meta || {},
-            counters: prev.counters || {},
-            log: [],
-            events: prev.events,
-          },
-        },
-        () => {
-          void chrome.runtime.lastError;
-        },
-      );
-      await chrome.storage.local.remove(EVENTS_KEY);
-    } catch {
-      /* noop */
-    }
-  }
 
   function pickPersonality() {
     if (S.userSelectedPersonality)
@@ -491,16 +333,17 @@ import {
           loved: S.loved,
           followed: S.followed,
           skipped: S.skipped,
-          commented: S.commented,
           haltReason: S.haltReason,
           // A run navigates to its target surface (start → location.assign), which
           // kills this content script. Everything the rebuilt state needs to keep
-          // being the SAME run has to survive here — the telemetry identity and the
-          // session mood included, or the run silently restarts as a different one.
-          runId: S.runId,
-          itemSeq: S.itemSeq,
+          // being the SAME run has to survive here — the session mood and the
+          // SAFETY LEDGER included, or the run silently restarts as a different
+          // one with all of its rate limits back at zero.
           sessionIntensity: S.sessionIntensity,
           browseOnly: S.browseOnly,
+          // Safety ledger — one contract, shared with the resume path below, so
+          // the two ends can't drift again (see lib/sessionMath.js).
+          ...serializeLedger(S),
           log: S.log.slice(-LOG_CAP),
           savedAt: Date.now(),
         },
@@ -630,10 +473,8 @@ import {
     S.isRunning = false;
     logLine(`🛑 INTERROMPIDO: ${reason}`);
     clearInterval(S.tickTimer);
-    emit("halt", { reason, counters: runCounters() });
     logHistory("halt: " + reason);
     writeSummary("halt: " + reason);
-    writeRunLog("halt: " + reason);
     persist();
   }
 
@@ -727,13 +568,6 @@ import {
         await sleep(400);
       }
       endProgress(prog);
-      emit("dwell", {
-        item: S.itemSeq,
-        plannedMs: dwell,
-        actualMs: Date.now() - t0,
-        watchedFull: false,
-        quick: true,
-      });
       return false;
     }
     const vid =
@@ -765,18 +599,6 @@ import {
       await sleep(400);
     }
     endProgress(prog); // ✅ + final elapsed
-    emit("dwell", {
-      item: S.itemSeq,
-      plannedMs: dwell,
-      actualMs: Date.now() - t0,
-      videoDurationSec:
-        vid && isFinite(vid.duration) ? Math.round(vid.duration) : null,
-      watchFraction: frac,
-      watchedFull: full,
-      capMs, // the ceiling this item rolled
-      cappedAtMax: dwell >= capMs,
-      quick: false,
-    });
     return full;
   }
   async function waitWhilePaused() {
@@ -795,7 +617,6 @@ import {
       return;
     }
     S.breakUntil = now + len;
-    emit("break", { plannedMs: len, afterItems: S.processed });
     const prog = startProgress("☕", "pausa", len); // counts up in place like dwell
     persist();
     while (Date.now() < S.breakUntil && S.isRunning) {
@@ -979,7 +800,6 @@ import {
       await sleep(500);
     }
     endProgress(prog);
-    emit("idle", { plannedMs: ms, actualMs: Date.now() - t0 });
   }
 
   // "Almost acted" feint — hover the like control, consider, then drift away
@@ -993,7 +813,6 @@ import {
     likeBtn.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     likeBtn.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerId: 1 }));
     logLine("· passou o mouse, não reagiu");
-    emit("feint", { item: S.itemSeq });
     return true;
   }
 
@@ -1338,43 +1157,6 @@ import {
       };
     }
     return null;
-  }
-  async function fbSavePost(p) {
-    if (!p.menuBtn) return false;
-    p.menuBtn.click();
-    const menu = await waitFor(
-      () => document.querySelector('[role="menu"]'),
-      3000,
-    );
-    if (!menu) return false;
-    await sleep(rand(200, 500));
-    const row = Array.from(
-      menu.querySelectorAll('[role="button"], [role="menuitem"]'),
-    ).find((r) => /^save (post|video|reel)/i.test((r.innerText || "").trim()));
-    if (!row) {
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-      return false;
-    }
-    row.click();
-    const done = await waitFor(() => {
-      const b = document.querySelector('[role="button"][aria-label="Done"]');
-      return b && b.getBoundingClientRect().width > 0 ? b : null;
-    }, 2500);
-    if (done) {
-      await sleep(rand(300, 600));
-      done.click();
-      await sleep(rand(300, 600));
-    }
-    if (
-      document.querySelector('[role="dialog"]') ||
-      document.querySelector('[role="menu"]')
-    )
-      document.body.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    return true;
   }
 
   // Language detection via franc (trigram model, offline, ~all ISO 639-3 langs).
@@ -1919,7 +1701,7 @@ import {
           }
           humanScroll();
           await sleep(rand(1200, 2600));
-          if (++emptyScrolls > 10) {
+          if (++emptyScrolls > EMPTY_SCROLL_LIMIT) {
             note(false);
             if (!S.isRunning) break;
           }
@@ -2308,17 +2090,10 @@ import {
       const feinted = await maybeFeint(
         fbReact ? fbBarLikeBtn(c) : A.likeBtn && A.likeBtn(c),
       );
-      emit("no_react", {
-        item: S.itemSeq,
-        chance: +likeChance.toFixed(3),
-        feinted,
-        watchedFull,
-      });
     } else if (S.actions.like) {
       if (S.consecLikes >= MAX_CONSEC_LIKES) {
         S.consecLikes = 0;
         logLine("· intervalo de curtida");
-        emit("like_cooldown", { item: S.itemSeq });
         await sleep(rand(2000, 4000));
       } else if (!A.isLiked(c)) {
         // Facebook reels share the posts' reaction picker — pick a weighted
@@ -2327,16 +2102,6 @@ import {
           const want = pickReaction();
           const t0 = Date.now();
           const got = await fbReactWith({ root: c }, want);
-          emit("react", {
-            item: S.itemSeq,
-            want,
-            got: got || null,
-            landed: !!got,
-            degraded: !!got && got !== want, // picker missed → fell back to Like
-            ms: Date.now() - t0,
-            chance: +likeChance.toFixed(3),
-            watchedFull,
-          });
           if (got) {
             S.liked += got === "like" ? 1 : 0;
             if (got === "love") S.loved++;
@@ -2352,14 +2117,6 @@ import {
             await humanClick(btn);
             await sleep(rand(250, 500));
             const ok = A.isLiked(c);
-            emit("react", {
-              item: S.itemSeq,
-              want: "like",
-              got: ok ? "like" : null,
-              landed: ok,
-              degraded: false,
-              watchedFull,
-            });
             if (ok) {
               S.liked++;
               S.consecLikes++;
@@ -2388,55 +2145,40 @@ import {
   // simple. Reels/FB only; skips silently unless every gate passes.
   async function maybeComment(A, c, watchedFull) {
     const cs = S.commentSettings;
-    // Every gate records why it declined — a run where comments never fire is a
-    // question ("which gate ate them?"), and this is the answer.
-    const decline = (reason) => {
-      emit("comment_skip", { item: S.itemSeq, reason, watchedFull });
-    };
+    // Each gate below is named in an inline comment: a run where comments never
+    // fire is a question ("which gate ate them?") and these are the candidates.
     if (
       !A.commentable ||
       platformForHost() !== "facebook" ||
       !cs.enabled ||
       !(cs.phrases || []).length
     )
-      return; // not applicable at all — not worth an event per item
-    if (cs.onlyFullyWatched && !watchedFull) return decline("not_fully_watched");
-    if (S.processed < S.warmupPosts) return decline("warmup");
+      return; // not applicable at all
+    if (cs.onlyFullyWatched && !watchedFull) return; // gate: not_fully_watched
+    if (S.processed < S.warmupPosts) return; // gate: warmup
     if (S.consecComments >= 1) {
       S.consecComments = 0;
-      return decline("back_to_back");
+      return; // gate: back_to_back
     }
-    if (Math.random() >= cs.chance) return decline("dice");
+    if (Math.random() >= cs.chance) return; // gate: dice
 
     const reelId = (location.pathname.match(/\/reel\/(\d+)/) || [])[1] || null;
-    if (reelId && S.commentedIds.has(reelId)) return decline("already_commented");
+    if (reelId && S.commentedIds.has(reelId)) return; // gate: already_commented
     const authorKey = fbAuthorKey(c) || fbReelAuthorName(c);
     const nowT = Date.now();
     S.commentTimes = S.commentTimes.filter((t) => nowT - t < 3600000);
     if (S.commentTimes.length >= MAX_COMMENTS_PER_HOUR) {
       logLine("· limite horário de comentários — pular");
-      return decline("hourly_cap");
+      return; // gate: hourly_cap
     }
     if (authorKey && (S.authorComments[authorKey] || 0) >= MAX_COMMENTS_PER_AUTHOR)
-      return decline("author_cap");
+      return; // gate: author_cap
 
     const text = pickPhrase();
-    if (!text) return decline("no_phrase");
+    if (!text) return; // gate: no_phrase
     await sleep(rand(800, 2200)); // read-before-comment beat
     const t0 = Date.now();
     const { ok, reason, typed, via } = await fbCommentReel(text);
-    emit("comment", {
-      item: S.itemSeq,
-      reelId,
-      author: authorKey || null,
-      text,
-      posted: ok,
-      reason, // posted | no_comment_button | composer_never_opened | typing_failed | editor_not_cleared
-      via: via ?? null, // post_button | enter | post_button+enter — which submit path fired
-      typed: typed ?? null, // what actually made it into the box (typing bugs show here)
-      ms: Date.now() - t0,
-      watchedFull,
-    });
     if (ok) {
       S.commented++;
       S.consecComments++;
@@ -2494,7 +2236,6 @@ import {
         if (A.shouldSkip && A.shouldSkip(c)) {
           S.skipped++;
           logLine(`· pulado (${skipReasonPT(A.skipReason)})`);
-          emit("skip", { item: S.itemSeq, reason: A.skipReason || "non-standard" });
           persist();
           if (!A.advance()) {
             if (A.onEnd && endStreak < 2) {
@@ -2507,17 +2248,6 @@ import {
           await actionGap();
           continue;
         }
-
-        // open the item record — everything below (dwell/react/comment) tags to it
-        S.itemSeq++;
-        emit("item", {
-          item: S.itemSeq,
-          kind: A.noun,
-          id: (location.pathname.match(/\/reel\/(\d+)/) || [])[1] || null,
-          url: location.href,
-          author:
-            (platformForHost() === "facebook" && fbReelAuthorName(c)) || null,
-        });
 
         const watchedFull = await reelDwell(A, c);
         if (!S.isRunning || S.isPaused) continue;
@@ -2553,10 +2283,8 @@ import {
     );
     S.isRunning = false;
     clearInterval(S.tickTimer);
-    emit("run_end", { outcome: "complete", counters: runCounters() });
     logHistory("complete");
     writeSummary("complete");
-    writeRunLog("complete");
     persist();
   }
 
@@ -2806,12 +2534,6 @@ import {
     S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], now);
     rollSessionMood(); // per-session engagement intensity + browse-only chance
 
-    // telemetry: open the record, and ship any run the last tab took down with it
-    S.runId = `${new Date(now).toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}`;
-    flushOrphanRun();
-    emit("run_start", { meta: runMeta() });
-    flushEvents();
-
     logLine(
       `▶️ ${S.platform} · modo ${S.mode}${S.keyword ? ` "${S.keyword}"` : ""} · ${durationMin}min${S.maxItems ? ` · limite ${S.maxItems}` : ""} · ${
         Object.entries(S.actions)
@@ -2838,16 +2560,13 @@ import {
     S.isRunning = false;
     S.isPaused = false;
     clearInterval(S.tickTimer);
-    emit("run_end", { outcome: "stopped", counters: runCounters() });
     logHistory("stopped");
     writeSummary("stopped");
-    writeRunLog("stopped");
     persist();
   }
   function togglePause() {
     S.isPaused = !S.isPaused;
     logLine(S.isPaused ? "⏸ pausado" : "▶️ retomado");
-    emit(S.isPaused ? "pause" : "resume", {});
     persist();
   }
 
@@ -2965,19 +2684,17 @@ import {
         skipped: saved.skipped || 0,
         haltReason: null,
         log: Array.isArray(saved.log) ? saved.log.slice(-LOG_CAP) : [],
-        // same run, not a new one: keep its telemetry identity and its rolled mood
-        runId: saved.runId || "",
-        itemSeq: saved.itemSeq || 0,
+        // same run, not a new one: keep its rolled mood
         sessionIntensity:
           typeof saved.sessionIntensity === "number" ? saved.sessionIntensity : 1,
         browseOnly: !!saved.browseOnly,
+        // Safety ledger — MUST be restored or the rate caps reset on every
+        // navigation and stop capping anything. Mirror of persist().
+        ...restoreLedger(saved),
       });
       if (!S.personalityMode) pickPersonality();
       if (!S.nextBreakAt || S.nextBreakAt < Date.now())
         S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], Date.now());
-      // Pick the event buffer back up so events from before the navigation stay
-      // in the same record (it's keyed by runId, so it can only be ours).
-      await loadEventBuffer();
 
       const target = targetUrlForMode();
       if (target) {
@@ -2987,7 +2704,6 @@ import {
         return;
       }
       logLine("🔄 sessão retomada em " + surfacePT(pageSurface()));
-      emit("resumed", { surface: pageSurface(), url: location.href });
       runEngine();
       S.tickTimer = setInterval(tick, 1000);
     } catch (e) {

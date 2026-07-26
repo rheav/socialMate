@@ -24,16 +24,14 @@
 
 export const DOWNLOAD_ROOT = "social-mate";
 
-// Run logs belong to a session, not to a platform. Pass this as `platform` with a
-// null `kind`: downloadPath(SESSIONS, null, "run-….json").
-export const SESSIONS = "sessions";
-
+// Only real platforms live here. There used to be a SESSIONS pseudo-platform
+// mapping to "sessoes/" for the per-run telemetry JSON that got downloaded after
+// every run; that feature was removed in 0.68.0, so the folder went with it.
 const PLATFORM_DIRS = {
   facebook: "facebook",
   instagram: "instagram",
   tiktok: "tiktok",
   pinterest: "pinterest",
-  [SESSIONS]: "sessoes",
 };
 
 // Facebook says "fotos" where the others say "imagens" — that is the word Facebook
@@ -74,8 +72,8 @@ function safeSegment(s) {
  *
  *   downloadPath("instagram", "video", "ig-ivy-X1.mp4")
  *     -> "social-mate/instagram/videos/ig-ivy-X1.mp4"
- *   downloadPath(SESSIONS, null, "run-2026-07-25-ok.json")
- *     -> "social-mate/sessoes/run-2026-07-25-ok.json"
+ *   downloadPath("facebook", "comments", "fb-123-2026-07-26.json")
+ *     -> "social-mate/facebook/comentarios/fb-123-2026-07-26.json"
  *
  * `filename` is a path relative to the kind folder — usually a bare name, but it may
  * carry sub-folders (the reels-grid thumb dump groups by page author). Each segment

@@ -580,20 +580,16 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // in-view video post clears the user's thresholds. We grab that video's metadata
   // and kick off transcribe/download jobs and/or stash it in the Saved (favorites)
   // tab. The warmer already played the video, so its fbcdn tracks are captured.
+  // Auto-capture "favoritar". An UPSERT, never a toggle — favouriting a post that
+  // is already saved must refresh it, not remove it. The background performs the
+  // merge (keeping any existing transcript text/chunks) inside its serialized
+  // queue, so this can no longer lose an update to a concurrent save.
   async function saveFavorite(meta) {
     try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      const prev = map[meta.videoId] || {};
-      // merge: keep any existing transcript text/chunks, refresh the metadata
-      map[meta.videoId] = {
-        ...prev,
-        ...meta,
-        videoId: meta.videoId,
-        autoSaved: true,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
+      await chrome.runtime.sendMessage({
+        type: "FBW_SAVED_UPSERT",
+        entry: { ...meta, videoId: meta.videoId, autoSaved: true, updatedAt: Date.now() },
+      });
     } catch {}
   }
   async function autoCapture(opts) {
@@ -1007,6 +1003,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       b.classList.remove("busy", "ok", "err");
       if (state === "busy") { b.classList.add("busy"); b.innerHTML = btnIcon("cm"); }
       else if (state === "ok") { b.classList.add("ok"); b.innerHTML = btnIcon("ok"); }
+      else if (state === "err") { b.classList.add("err"); b.innerHTML = btnIcon("cm"); }
       else b.innerHTML = btnIcon("cm");
       const t = tip || "Coletar comentários";
       b.dataset.tip = t;

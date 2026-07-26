@@ -1,4 +1,5 @@
 import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script imports
+import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
 
 // Pinterest capture — the ONLY active-fetch platform in this extension.
 //
@@ -386,12 +387,17 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
         // panel's downloadRecord() uses, just called in-process here).
         const url = item.hls ? await resolveHls(item.url) : item.url;
         const ext = PIN.extFromUrl(url, item.kind);
-        await chrome.runtime.sendMessage({
+        // The background answers { ok:false, error } on failure; dropping that
+        // reply is what let a failed download flash green. `platform` matches
+        // every other sender so background logic keyed on it can't skip us.
+        const res = await chrome.runtime.sendMessage({
           type: "FBW_DL_MEDIA",
+          platform: "pinterest",
           kind: item.kind,
           url,
           filename: PIN.filenameFor(rec, ext, multi ? i + 1 : null),
         });
+        if (!res || res.ok === false) throw new Error(res?.error || "download falhou");
       }
       setBtnState(btn, "ok");
     } catch {
@@ -410,24 +416,23 @@ import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script im
     setBtnState(btn, "busy");
     try {
       const rec = await recordFor(id);
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[rec.id]) delete map[rec.id];
-      else
-        map[rec.id] = {
-          videoId: rec.id,
-          platform: "pinterest",
-          thumb: rec.thumb || null,
-          caption: rec.title || rec.description || null,
-          author: { name: rec.username || "unknown", url: rec.username ? `https://www.pinterest.com/${rec.username}/` : null },
-          counts: { like: PIN.fmtCount(rec.saves), comment: PIN.fmtCount(rec.comments), views: "—" },
-          code: rec.id,
-          // TranscriptsPanel only knows how to rebuild FB/IG permalinks, so
-          // Pinterest must always carry its own (see PinBoardTool.jsx's save()).
-          sourceUrl: rec.permalink,
-          updatedAt: Date.now(),
-        };
-      await chrome.storage.local.set({ fbw_saved: map });
+      // The background owns and serializes this write (one shape, one writer).
+      const entry = buildSavedEntry({
+        id: rec.id,
+        platform: "pinterest",
+        thumb: rec.thumb || null,
+        caption: rec.title || rec.description || null,
+        authorName: rec.username || null,
+        username: rec.username || null,
+        counts: { like: rec.saves, comment: rec.comments },
+        code: rec.id,
+        // TranscriptsPanel can only rebuild FB/IG permalinks, so Pinterest always
+        // carries its own.
+        sourceUrl: rec.permalink,
+      });
+      if (!entry) throw new Error("pin sem id");
+      const saveRes = await chrome.runtime.sendMessage({ type: "FBW_SAVED_TOGGLE", entry });
+      if (!saveRes || saveRes.ok === false) throw new Error(saveRes?.error || "falha ao salvar");
       setBtnState(btn, "ok");
     } catch {
       setBtnState(btn, "err");

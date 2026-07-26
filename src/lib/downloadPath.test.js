@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   DOWNLOAD_ROOT,
-  SESSIONS,
   downloadPath,
   underDownloadRoot,
   kindFromExt,
@@ -46,9 +45,9 @@ describe("downloadPath", () => {
     );
   });
 
-  it("files run logs under sessoes, with no platform folder", () => {
-    expect(downloadPath(SESSIONS, null, "run-2026-07-25T10-00-00-ok.json")).toBe(
-      "social-mate/sessoes/run-2026-07-25T10-00-00-ok.json",
+  it("has no session/run-log pseudo-platform (removed in 0.68.0 with the run logs)", () => {
+    expect(downloadPath("sessions", null, "run-2026-07-25.json")).toBe(
+      "social-mate/run-2026-07-25.json",
     );
   });
 

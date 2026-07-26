@@ -1,15 +1,16 @@
 {
   "name": "social-mate",
   "private": true,
-  "version": "0.67.0",
+  "version": "0.69.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/gen-inline.mjs --check && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen:inline": "node scripts/gen-inline.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",

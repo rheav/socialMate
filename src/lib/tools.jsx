@@ -35,7 +35,7 @@ export const TOOLS = [
   { id: "tt-comments", label: "Comentários", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
   { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool },
   { id: "tt-collections", label: "Playlists", Icon: ListVideo, platforms: ["tiktok"], Panel: TtCollectionsTool },
-  { id: "pin-board", label: "Pasta", Icon: ImageIcon, platforms: ["pinterest"], Panel: PinBoardTool, requiresTab: true },
+  { id: "pin-board", label: "Pasta", Icon: ImageIcon, platforms: ["pinterest"], Panel: PinBoardTool },
   { id: "library", label: "Biblioteca", Icon: LibraryIcon, platforms: "global", Panel: LibraryTool },
 ];
 

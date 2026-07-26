@@ -5,6 +5,9 @@ import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 
 function IconBtn({ children, ...props }) {
   return (
@@ -23,7 +26,6 @@ function IconBtn({ children, ...props }) {
 // (HD + captions), so download uses hd_url and transcribe is caption-first.
 export default function TtStoriesTool() {
   const [owners, setOwners] = useState([]);
-  const [busy, setBusy] = useState({});
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
@@ -62,17 +64,16 @@ export default function TtStoriesTool() {
     pull();
   }, [send, pull]);
 
-  const bg = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
+  // Per-item action status. One download per story item, so the record's primary
+  // key is the only one needed — and a failure keeps its reason for the tooltip.
+  const { run, statusOf, errorOf } = useItemStatus();
 
   async function download(item) {
-    setStatus(item.id, "downloading");
-    try {
+    await run(statusKey(item.id), async () => {
       const url = item.hd_url || item.download_url || item.video;
-      if (!url) throw new Error("no url");
-      await bg({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor({ ...item, username: item.reel_owner || item.username }, extFromUrl(url, "video")) });
-      setStatus(item.id, "done");
-    } catch { setStatus(item.id, "error"); }
+      if (!url) throw new Error("sem URL de vídeo");
+      await requireOk({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor({ ...item, username: item.reel_owner || item.username }, extFromUrl(url, "video")) });
+    });
   }
 
   function transcribe(item) {
@@ -89,22 +90,30 @@ export default function TtStoriesTool() {
 
   async function save(item) {
     try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[item.id]) { delete map[item.id]; }
-      else map[item.id] = {
-        videoId: item.id, platform: "tiktok", thumb: item.cover || item.dynamic_cover || null, caption: item.desc || null,
-        author: { name: item.reel_owner || item.username || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
-        counts: { like: fmtCount(item.digg_count), comment: fmtCount(item.comment_count), views: fmtCount(item.play_count) },
-        code: item.id,
+      const entry = buildSavedEntry({
+        id: item.id,
+        platform: "tiktok",
+        thumb: item.cover || item.dynamic_cover || null,
+        caption: item.desc || null,
+        authorName: item.reel_owner,
         // item.username, not reel_owner — same field this file's transcribe() above
-        // already uses for author.url. Without this VideoCard falls back to a dead
-        // facebook.com/reel/<id> link.
-        sourceUrl: item.username ? `https://www.tiktok.com/@${item.username}/video/${item.id}` : null,
-        updatedAt: Date.now(),
-      };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch { /* ignore */ }
+        // already uses for author.url, and what the permalink is derived from.
+        // Without it VideoCard falls back to a dead facebook.com/reel/<id> link.
+        username: item.username,
+        counts: {
+          like: item.digg_count,
+          comment: item.comment_count,
+          view: item.play_count,
+          share: item.share_count,
+          save: item.collect_count,
+        },
+        code: item.id,
+      });
+      // The background owns the write and decides insert-vs-remove; `saved` is the
+      // state AFTER the toggle, so trust it instead of guessing.
+      const res = await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+      setSavedIds((s) => ({ ...s, [item.id]: !!res.saved }));
+    } catch (e) { console.warn("[fbw] falha ao salvar na biblioteca", e); }
   }
 
   // One banner for every link failure, rendered in every branch below so the
@@ -155,13 +164,13 @@ export default function TtStoriesTool() {
           </a>
           <div className="grid grid-cols-3 gap-1.5">
             {items.map((item) => {
-              const st = busy[item.id];
+              const st = statusOf(statusKey(item.id));
               return (
                 <div key={item.id} className="group relative aspect-[9/16] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
                   {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
 
                   <div className="absolute left-1 top-1 flex flex-col gap-1">
-                    <IconBtn title="Baixar HD" onClick={() => download(item)} disabled={st === "downloading"}>
+                    <IconBtn title={statusTitle("Baixar HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
                       {st === "downloading" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />}
                     </IconBtn>
                     {(item.video || item.subtitle) && (

@@ -5,6 +5,12 @@ import {
   breakLengthMs,
   commitmentDwellMs,
   isStaleSession,
+  serializeLedger,
+  restoreLedger,
+  LEDGER_ARRAY_FIELDS,
+  LEDGER_MAP_FIELDS,
+  LEDGER_SET_FIELDS,
+  LEDGER_COUNTER_FIELDS,
 } from "./sessionMath.js";
 
 const NOW = 1_000_000_000;
@@ -82,5 +88,99 @@ describe("isStaleSession", () => {
     expect(
       isStaleSession({ isRunning: true, savedAt: NOW - 300_000, breakUntil: NOW - 61_000 }, NOW),
     ).toBe(true);
+  });
+});
+
+// The bug these guard: persist() wrote the counters but not the safety ledger, and
+// the resume path rebuilt it empty — so every navigation (which every Mode A run
+// performs by design) silently reset the hourly like cap and the per-author
+// throttles to zero. A round-trip through chrome.storage must be lossless.
+describe("safety ledger round-trip", () => {
+  const S = {
+    likeTimes: [1000, 2000, 3000],
+    authorLikes: { alice: 2, bob: 1 },
+    commentTimes: [1500],
+    authorComments: { alice: 1 },
+    commentedIds: new Set(["reel1", "reel2"]),
+    capturedIds: new Set(["post9"]),
+    consecLikes: 4,
+    consecFollows: 2,
+    consecComments: 1,
+    softFailStreak: 2,
+    lastPhrase: "love this",
+    // fields that are NOT part of the ledger must not leak into it
+    processed: 12,
+    tickTimer: 99,
+  };
+
+  it("survives a JSON round-trip (Sets included) with every field intact", () => {
+    const stored = JSON.parse(JSON.stringify(serializeLedger(S)));
+    const back = restoreLedger(stored);
+    expect(back.likeTimes).toEqual([1000, 2000, 3000]);
+    expect(back.authorLikes).toEqual({ alice: 2, bob: 1 });
+    expect(back.commentTimes).toEqual([1500]);
+    expect(back.authorComments).toEqual({ alice: 1 });
+    expect(back.commentedIds).toBeInstanceOf(Set);
+    expect([...back.commentedIds]).toEqual(["reel1", "reel2"]);
+    expect(back.capturedIds).toBeInstanceOf(Set);
+    expect([...back.capturedIds]).toEqual(["post9"]);
+    expect(back.consecLikes).toBe(4);
+    expect(back.consecFollows).toBe(2);
+    expect(back.consecComments).toBe(1);
+    expect(back.softFailStreak).toBe(2);
+    expect(back.lastPhrase).toBe("love this");
+  });
+
+  it("serializes Sets as arrays (chrome.storage cannot carry a Set)", () => {
+    const out = serializeLedger(S);
+    expect(Array.isArray(out.commentedIds)).toBe(true);
+    expect(Array.isArray(out.capturedIds)).toBe(true);
+    expect(JSON.parse(JSON.stringify(out)).commentedIds).toEqual(["reel1", "reel2"]);
+  });
+
+  it("carries no state outside the ledger", () => {
+    const out = serializeLedger(S);
+    expect(out.processed).toBeUndefined();
+    expect(out.tickTimer).toBeUndefined();
+    expect(Object.keys(out).sort()).toEqual(
+      [
+        ...LEDGER_ARRAY_FIELDS,
+        ...LEDGER_MAP_FIELDS,
+        ...LEDGER_SET_FIELDS,
+        ...LEDGER_COUNTER_FIELDS,
+        "lastPhrase",
+      ].sort(),
+    );
+  });
+
+  it("every ledger field persist() writes is one restore() reads back", () => {
+    // The drift guard: both directions must cover the identical key set.
+    expect(Object.keys(restoreLedger(serializeLedger(S))).sort()).toEqual(
+      Object.keys(serializeLedger(S)).sort(),
+    );
+  });
+
+  it("a pre-0.68 session with no ledger restores to empty, not undefined", () => {
+    const back = restoreLedger({ isRunning: true, processed: 3 });
+    expect(back.likeTimes).toEqual([]);
+    expect(back.authorLikes).toEqual({});
+    expect(back.commentedIds).toBeInstanceOf(Set);
+    expect(back.commentedIds.size).toBe(0);
+    expect(back.consecLikes).toBe(0);
+    expect(back.lastPhrase).toBeNull();
+  });
+
+  it("tolerates corrupt shapes instead of throwing mid-resume", () => {
+    const back = restoreLedger({
+      likeTimes: "not-an-array",
+      authorLikes: null,
+      commentedIds: null,
+      consecLikes: undefined,
+    });
+    expect(back.likeTimes).toEqual([]);
+    expect(back.authorLikes).toEqual({});
+    expect(back.commentedIds.size).toBe(0);
+    expect(back.consecLikes).toBe(0);
+    expect(serializeLedger(undefined).likeTimes).toEqual([]);
   });
 });

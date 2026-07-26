@@ -7,6 +7,8 @@
 // richer than IG's.
 
 import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+import { fmtCount } from "./shared/counts.js";
+export { fmtCount };
 
 // ER weights: like 1×, comment & share 4×, save (collect) 2×. Tunable.
 export const ER_WEIGHTS = { like: 1, comment: 4, share: 4, save: 2 };
@@ -40,12 +42,7 @@ export function fmtER(er) {
 }
 
 // Compact engagement count for display: 964490 -> "964.5K", 1200000 -> "1.2M".
-export function fmtCount(n) {
-  if (n == null) return "—";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
+
 
 // Parse a displayed abbreviated count back to a number: "51.9M" -> 51900000,
 // "964.5K" -> 964500, "1,2 mil" -> 1200, "222" -> 222. Used for the DOM-tile

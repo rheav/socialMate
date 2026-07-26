@@ -12,45 +12,13 @@
 import { fmtCount } from "./igMedia.js";
 export { fmtCount };
 import { downloadPath, sanitizeFilenamePart } from "./downloadPath.js";
+// parseCount lives in shared/ because the FB content scripts need it and cannot
+// import (an import turns a content script into a dynamic-import loader — see
+// src/lib/shared/README.md). Re-exported here so every existing caller and test
+// keeps its import path.
+import { parseCount, COUNT_UNITS } from "./shared/counts.js";
 
-// Localized abbreviated-count multipliers. FB renders tile view counts
-// abbreviated with a locale word/suffix: pt-br "mil"/"mi", en "K"/"M", plus a
-// few other locales' short forms.
-const UNIT = {
-  k: 1e3, mil: 1e3, rb: 1e3, tis: 1e3, tys: 1e3, tusen: 1e3,
-  m: 1e6, mi: 1e6, mio: 1e6, jt: 1e6, mln: 1e6,
-  b: 1e9, mrd: 1e9, bi: 1e9,
-};
-
-/**
- * Parse a localized count string off a reel tile into a number, or null.
- *   "14 mil" -> 14000   "1,5 mil" -> 1500   "1.2M" -> 1200000   "543" -> 543
- * When a unit word/suffix is present the numeric part is a small decimal, so a
- * comma is the decimal separator (pt-br "1,5"). Without a unit the value is a
- * plain integer whose separators are thousands groups and are stripped.
- */
-export function parseCount(text) {
-  if (text == null) return null;
-  const s = String(text).trim().toLowerCase().replace(/\s+/g, "");
-  if (!s) return null;
-  const m = s.match(/^([\d.,]+)([a-zçã]+)?$/);
-  if (!m) return null;
-  const rawNum = m[1];
-  const unitWord = m[2] || "";
-  const mult = unitWord ? UNIT[unitWord] : 1;
-  if (unitWord && mult == null) return null; // unknown suffix → not a count
-  let num;
-  if (mult === 1) {
-    // Plain integer: strip thousands separators (either "." or ",").
-    num = parseInt(rawNum.replace(/[.,]/g, ""), 10);
-  } else {
-    // Abbreviated decimal: last separator is the decimal point.
-    const norm = rawNum.replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
-    num = parseFloat(norm);
-  }
-  if (!Number.isFinite(num)) return null;
-  return Math.round(num * mult);
-}
+export { parseCount, COUNT_UNITS };
 
 const METRIC = {
   views: (r) => r.views,

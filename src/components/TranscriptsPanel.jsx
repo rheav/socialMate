@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "lucide-react";
 import { downloadPath } from "@/lib/downloadPath";
+import { fmtCount } from "@/lib/igMedia";
+import { sendBg } from "@/lib/bg";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
@@ -50,6 +52,9 @@ function useStore(key) {
   }, [key]);
   return items;
 }
+// Only for fbw_transcripts. Writes to fbw_saved go through the background
+// (FBW_SAVED_TOGGLE / _REMOVE), which serializes them — this pane and a page
+// overlay used to race each other with get→mutate→set.
 async function patchMap(key, id, value) {
   if (!hasStorage()) return;
   const r = await chrome.storage.local.get(key);
@@ -58,6 +63,13 @@ async function patchMap(key, id, value) {
   else map[id] = { ...value, updatedAt: Date.now() };
   await chrome.storage.local.set({ [key]: map });
 }
+
+// A transcript record doubles as a Library entry when the user stars it. It keeps
+// its own shape (it carries text/chunks); the background merges rather than
+// replaces, so starring never drops the transcript.
+const toggleSavedEntry = (entry) =>
+  sendBg({ type: "FBW_SAVED_TOGGLE", entry: { ...entry, updatedAt: Date.now() } });
+const removeSavedEntry = (ids) => sendBg({ type: "FBW_SAVED_REMOVE", ids });
 
 function useFlag(key) {
   const [val, setVal] = useState(false);
@@ -91,7 +103,16 @@ function ReloadHint() {
 // ---- grid tile: a big thumbnail on top, meta + transcript below ----
 function VideoCard({ it, saved, onToggleSave, onDelete }) {
   const [open, setOpen] = useState(false);
-  const c = it.counts || {};
+  // Counts are stored as raw numbers (schema 2) and formatted here. Records
+  // written before that carry pre-formatted strings — pass those through.
+  const n = (v) => (typeof v === "number" ? fmtCount(v) : v || null);
+  const raw = it.counts || {};
+  const c = {
+    like: n(raw.like),
+    comment: n(raw.comment),
+    views: n(raw.views),
+    share: n(raw.share),
+  };
   const hasCounts = c.like || c.comment || c.share || c.views;
   const base = it.platform === "instagram" ? "https://www.instagram.com" : "https://www.facebook.com";
   // author.url comes in two shapes: FB/IG store a relative path (needs an origin
@@ -231,10 +252,7 @@ export default function TranscriptsPanel() {
   const saved = useStore(SKEY);
   const savedIds = new Set(saved.map((s) => s.videoId));
 
-  const toggleSave = (it) => {
-    if (savedIds.has(it.videoId)) patchMap(SKEY, it.videoId, null);
-    else patchMap(SKEY, it.videoId, it);
-  };
+  const toggleSave = (it) => toggleSavedEntry(it);
 
   return (
     <div className="space-y-2.5">
@@ -299,7 +317,7 @@ export function SavedPanel() {
     <div className="space-y-3">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
-        <button className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={() => hasStorage() && chrome.storage.local.set({ [SKEY]: {} })}>
+        <button className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={() => removeSavedEntry(saved.map((x) => x.videoId))}>
           <Trash2 size={11} /> limpar tudo
         </button>
       </div>
@@ -322,7 +340,7 @@ export function SavedPanel() {
             {open && (
               <Grid>
                 {items.map((it) => (
-                  <VideoCard key={it.videoId} it={it} saved onToggleSave={() => patchMap(SKEY, it.videoId, null)} />
+                  <VideoCard key={it.videoId} it={it} saved onToggleSave={() => removeSavedEntry(it.videoId)} />
                 ))}
               </Grid>
             )}

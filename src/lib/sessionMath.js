@@ -29,6 +29,51 @@ export function commitmentDwellMs(fraction, videoDurationSec, dwellMinMs, dwellM
   return Math.round(Math.min(Math.max(target, dwellMinMs), 4 * dwellMaxMs));
 }
 
+// ---------------------------------------------------------------------------
+// The safety ledger.
+//
+// A run navigates to its target surface (start() → location.assign for every
+// Mode A run, TT_SEARCH's end-of-results → location.reload), which kills the
+// content script. Only what persist() wrote and the resume path read back
+// survives. These two functions ARE that contract, in one place, because when
+// the two ends drifted the counters came back but the ledger didn't — so
+// MAX_LIKES_PER_HOUR, MAX_LIKES_PER_AUTHOR and the per-author comment caps all
+// silently reset to zero on every navigation, i.e. the caps stopped capping.
+//
+// Sets can't go through chrome.storage, hence the Array/Set conversion.
+// ---------------------------------------------------------------------------
+export const LEDGER_ARRAY_FIELDS = ["likeTimes", "commentTimes"];
+export const LEDGER_MAP_FIELDS = ["authorLikes", "authorComments"];
+export const LEDGER_SET_FIELDS = ["commentedIds", "capturedIds"];
+export const LEDGER_COUNTER_FIELDS = [
+  "consecLikes",
+  "consecFollows",
+  "consecComments",
+  "softFailStreak",
+];
+
+export function serializeLedger(S) {
+  const out = {};
+  for (const k of LEDGER_ARRAY_FIELDS) out[k] = Array.isArray(S?.[k]) ? S[k] : [];
+  for (const k of LEDGER_MAP_FIELDS) out[k] = S?.[k] || {};
+  for (const k of LEDGER_SET_FIELDS) out[k] = Array.from(S?.[k] || []);
+  for (const k of LEDGER_COUNTER_FIELDS) out[k] = S?.[k] || 0;
+  out.lastPhrase = S?.lastPhrase ?? null;
+  return out;
+}
+
+export function restoreLedger(saved) {
+  const out = {};
+  for (const k of LEDGER_ARRAY_FIELDS)
+    out[k] = Array.isArray(saved?.[k]) ? saved[k] : [];
+  for (const k of LEDGER_MAP_FIELDS)
+    out[k] = saved?.[k] && typeof saved[k] === "object" ? saved[k] : {};
+  for (const k of LEDGER_SET_FIELDS) out[k] = new Set(saved?.[k] || []);
+  for (const k of LEDGER_COUNTER_FIELDS) out[k] = saved?.[k] || 0;
+  out.lastPhrase = saved?.lastPhrase ?? null;
+  return out;
+}
+
 // A persisted fbw_session that claims to be running but hasn't been persisted
 // for staleMs is an abandoned run (browser/tab killed). A future breakUntil
 // (+60s grace) means the engine is intentionally idle — not stale.

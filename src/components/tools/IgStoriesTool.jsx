@@ -15,6 +15,8 @@ import { useContentLink } from "@/lib/useContentLink";
 import { extFromUrl } from "@/lib/igMedia";
 import { groupReels, reelLabel, storyToCard, storyFilename } from "@/lib/igReels";
 import { startPolling } from "@/lib/poll";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import { requireOk } from "@/lib/bg";
 
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
@@ -34,7 +36,9 @@ function IconBtn({ children, ...props }) {
 // Instagram (nothing is fetched in the background). Downloads via FBW_DL_MEDIA.
 export default function IgStoriesTool() {
   const [reels, setReels] = useState([]);
-  const [busy, setBusy] = useState({}); // pk -> 'downloading'|'done'|'error'
+  // Per-item download status, keyed by story pk — keeps the failure REASON so a
+  // red icon can say why on hover.
+  const { run, statusOf, errorOf } = useItemStatus();
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
 
   const listFromTab = useCallback(async () => {
@@ -54,14 +58,9 @@ export default function IgStoriesTool() {
     listFromTab();
   }, [send, listFromTab]);
 
-  const bg = (msg) =>
-    new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
-
   async function downloadItem(item) {
     const id = item.pk;
-    setStatus(id, "downloading");
-    try {
+    await run(statusKey(id), async () => {
       if (item.media_type === "carousel" && Array.isArray(item.carousel)) {
         let i = 0;
         for (const ch of item.carousel) {
@@ -69,7 +68,7 @@ export default function IgStoriesTool() {
           const isVid = ch.media_type === "video" && ch.video;
           const url = isVid ? ch.video : ch.image;
           if (!url) continue;
-          await bg({
+          await requireOk({
             type: "FBW_DL_MEDIA",
             kind: isVid ? "video" : "image",
             url,
@@ -77,24 +76,23 @@ export default function IgStoriesTool() {
           });
         }
       } else if (item.video) {
-        await bg({
+        await requireOk({
           type: "FBW_DL_MEDIA",
           kind: "video",
           url: item.video,
           filename: storyFilename(item, extFromUrl(item.video, "video")),
         });
       } else if (item.image) {
-        await bg({
+        await requireOk({
           type: "FBW_DL_MEDIA",
           kind: "image",
           url: item.image,
           filename: storyFilename(item, extFromUrl(item.image, "image")),
         });
+      } else {
+        throw new Error("nenhuma mídia neste story");
       }
-      setStatus(id, "done");
-    } catch {
-      setStatus(id, "error");
-    }
+    });
   }
 
   async function downloadReel(reel) {
@@ -182,7 +180,7 @@ export default function IgStoriesTool() {
               <div className="grid grid-cols-3 gap-1.5">
                 {(reel.items || []).map((item) => {
                   const c = storyToCard(item);
-                  const st = busy[c.id];
+                  const st = statusOf(statusKey(c.id));
                   const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
                   return (
                     <div
@@ -199,7 +197,7 @@ export default function IgStoriesTool() {
 
                       <div className="absolute left-1 top-1">
                         <IconBtn
-                          title="Baixar"
+                          title={statusTitle("Baixar", st, errorOf(statusKey(c.id)))}
                           onClick={() => downloadItem(item)}
                           disabled={st === "downloading"}
                         >

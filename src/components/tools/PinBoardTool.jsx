@@ -4,6 +4,9 @@ import { ToolBar, ActionButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
+import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import { requireOk } from "@/lib/bg";
+import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
 
 const MAX_PAGES = 40; // ~1000 pins per run — surfaced in the UI, never a silent cap.
@@ -104,13 +107,33 @@ export default function PinBoardTool() {
 
   const sorted = sortRecords(records, sortKey, "desc");
 
-  const [busy, setBusy] = useState({});
-  const setStatus = (id, s) => setBusy((b) => ({ ...b, [id]: s }));
-  const bg = (msg) => new Promise((res) => chrome.runtime.sendMessage(msg, (r) => res(r || { ok: false })));
+  // Per-action status, shared hook: it keeps the failure REASON so the download
+  // arrow's tooltip can say why instead of just turning red.
+  const { run, statusOf, errorOf } = useItemStatus();
+
+  // Mirror fbw_saved so the bookmark reflects reality — without this the icon never
+  // fills, so a toggle action looks like a no-op and a second tap silently removes
+  // the item. The background is the only writer; this is a read-only mirror.
+  const [savedIds, setSavedIds] = useState({});
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    const load = () =>
+      chrome.storage.local.get("fbw_saved", (r) => {
+        const s = {};
+        for (const k in r.fbw_saved || {}) s[k] = true;
+        setSavedIds(s);
+      });
+    load();
+    const onCh = (c, area) => {
+      if (area === "local" && c.fbw_saved) load();
+    };
+    chrome.storage.onChanged.addListener(onCh);
+    return () => chrome.storage.onChanged.removeListener(onCh);
+  }, []);
 
   async function downloadRecord(rec) {
-    setStatus(rec.id, "downloading");
-    try {
+    // One status for the whole pin — an idea pin is several requests, one arrow.
+    await run(statusKey(rec.id), async () => {
       const multi = rec.items.length > 1;
       for (let i = 0; i < rec.items.length; i++) {
         const item = rec.items[i];
@@ -120,44 +143,45 @@ export default function PinBoardTool() {
         // text playlist.
         if (item.kind === "video" && item.hls) {
           const r = await send({ type: "FBW_PIN_RESOLVE", id: rec.id, itemIndex: i });
-          if (!r?.ok) throw new Error(r?.error || "could not resolve video");
+          if (!r?.ok) throw new Error(r?.error || "não foi possível resolver o vídeo");
           url = r.url;
         }
         const ext = extFromUrl(url, item.kind);
-        await bg({
+        await requireOk({
           type: "FBW_DL_MEDIA",
           kind: item.kind,
           url,
           filename: filenameFor(rec, ext, multi ? i + 1 : null),
         });
       }
-      setStatus(rec.id, "done");
-    } catch {
-      setStatus(rec.id, "error");
-    }
+    });
   }
 
   async function save(rec) {
-    try {
-      const r = await chrome.storage.local.get("fbw_saved");
-      const map = r.fbw_saved || {};
-      if (map[rec.id]) delete map[rec.id];
-      else
-        map[rec.id] = {
-          videoId: rec.id,
-          platform: "pinterest",
-          thumb: rec.thumb || null,
-          caption: rec.title || rec.description || null,
-          author: { name: rec.username || "desconhecido", url: rec.username ? `https://www.pinterest.com/${rec.username}/` : null },
-          counts: { like: fmtCount(rec.saves), comment: fmtCount(rec.comments), views: "—" },
-          code: rec.id,
-          // TranscriptsPanel only knows how to rebuild FB/IG permalinks, so Pinterest
-          // must always carry its own.
-          sourceUrl: rec.permalink,
-          updatedAt: Date.now(),
-        };
-      await chrome.storage.local.set({ fbw_saved: map });
-    } catch { /* ignore */ }
+    // Own status key — a failed save must not touch the download arrow's state,
+    // and its reason belongs on the bookmark's own tooltip.
+    await run(statusKey(rec.id, "save"), async () => {
+      // The background owns the write and decides insert-vs-remove by whether the
+      // id is already in `fbw_saved`, so this is a single toggle message — no
+      // read-modify-write here (that raced the page overlay) and no remove branch.
+      const entry = buildSavedEntry({
+        id: rec.id,
+        platform: "pinterest",
+        thumb: rec.thumb,
+        caption: rec.title || rec.description,
+        // rec.username, NOT fullName — pin-api.js's page-side save passes the
+        // username and documents that the two shapes match exactly.
+        authorName: rec.username,
+        username: rec.username,
+        // Raw numbers: formatting is a render-time concern in TranscriptsPanel.
+        counts: { like: rec.saves, comment: rec.comments },
+        code: rec.id,
+        // TranscriptsPanel only knows how to rebuild FB/IG permalinks, so Pinterest
+        // must always carry its own.
+        sourceUrl: rec.permalink,
+      });
+      await requireOk({ type: "FBW_SAVED_TOGGLE", entry });
+    });
   }
 
   // Serial with a 400 ms gap, matching IgSortTool/TtSortTool. Chrome will happily
@@ -254,23 +278,43 @@ export default function PinBoardTool() {
       <div className="grid grid-cols-3 gap-1.5">
         {sorted.map((rec) => {
           const card = recordToCard(rec);
+          const st = statusOf(statusKey(rec.id));
+          const stSave = statusOf(statusKey(rec.id, "save"));
           const Badge = card.mediaType === "video" ? Film : card.mediaType === "idea" ? Layers : ImageIcon;
           return (
             <div key={card.id} className="group relative aspect-[3/4] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
               <button
                 onClick={() => downloadRecord(rec)}
-                disabled={busy[rec.id] === "downloading"}
+                disabled={st === "downloading"}
                 className="absolute left-1 top-1 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
-                title={rec.items.length > 1 ? `Baixar ${rec.items.length} arquivos` : "Baixar"}
+                title={statusTitle(
+                  rec.items.length > 1 ? `Baixar ${rec.items.length} arquivos` : "Baixar",
+                  st,
+                  errorOf(statusKey(rec.id)),
+                )}
               >
-                <Download className={"size-3.5 " + (busy[rec.id] === "done" ? "text-emerald-400" : busy[rec.id] === "error" ? "text-red-400" : "")} />
+                <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
               </button>
               <button
                 onClick={() => save(rec)}
-                className="absolute left-1 top-8 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80"
-                title="Salvar na biblioteca"
+                disabled={stSave === "downloading"}
+                className="absolute left-1 top-8 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
+                title={statusTitle(
+                  savedIds[rec.id] ? "Salvo — toque para remover" : "Salvar na biblioteca",
+                  stSave,
+                  errorOf(statusKey(rec.id, "save")),
+                )}
               >
-                <Bookmark className="size-3.5" />
+                <Bookmark
+                  className={
+                    "size-3.5 " +
+                    (stSave === "error"
+                      ? "text-red-400"
+                      : savedIds[rec.id]
+                        ? "fill-current text-amber-300"
+                        : "")
+                  }
+                />
               </button>
               {card.thumb ? (
                 <img src={card.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />

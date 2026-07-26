@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { sendBg } from "@/lib/bg";
 import { useContentLink } from "@/lib/useContentLink";
 import { fmtCount } from "@/lib/ttMedia";
 import { startPolling } from "@/lib/poll";
@@ -45,6 +46,7 @@ export default function TtCommentsTool() {
   const [sortKey, setSortKey] = useState("thread");
   const [sortDir, setSortDir] = useState("desc");
   const [copied, setCopied] = useState(false);
+  const [exportErr, setExportErr] = useState(false);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
   // Follow the currently-open TikTok video until the user manually picks one.
   const follow = useRef(true);
@@ -101,13 +103,18 @@ export default function TtCommentsTool() {
     }
   }
 
-  function exportJson() {
+  async function exportJson() {
     if (!active) return;
-    chrome.runtime.sendMessage({
+    const res = await sendBg({
       type: "FBW_DL_JSON",
       data: buildExport(active),
       filename: exportFilename(active.aweme_id),
     });
+    // The link itself is the only feedback this export has, so it flashes the
+    // failure the same way Copiar flashes success — otherwise a download that
+    // never landed looks exactly like one that did.
+    setExportErr(!res.ok);
+    if (!res.ok) setTimeout(() => setExportErr(false), 2500);
   }
 
   // One banner for every link failure, rendered in every branch below so the
@@ -202,8 +209,11 @@ export default function TtCommentsTool() {
             {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
             {copied ? "Copiado" : "Copiar"}
           </button>
-          <button className="inline-flex items-center gap-1 underline" onClick={exportJson}>
-            <Download className="size-3" /> JSON
+          <button
+            className={"inline-flex items-center gap-1 underline " + (exportErr ? "text-red-400" : "")}
+            onClick={exportJson}
+          >
+            <Download className="size-3" /> {exportErr ? "Erro" : "JSON"}
           </button>
         </div>
       </div>

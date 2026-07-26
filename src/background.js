@@ -5,7 +5,7 @@
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
-import { downloadPath, underDownloadRoot, SESSIONS } from "./lib/downloadPath.js";
+import { downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
@@ -76,6 +76,10 @@ chrome.runtime.onInstalled.addListener(() => {
     .catch(() => {});
   syncBadge();
   reinjectContentScripts();
+  // Per-run event telemetry (and the JSON it used to download after every run)
+  // was removed; drop the buffer key left behind by pre-0.68 versions so it
+  // doesn't sit in storage forever holding a few thousand stale events.
+  chrome.storage.local.remove("fbw_run_events").catch(() => {});
 });
 
 // Re-inject content scripts into already-open platform tabs after an extension
@@ -199,25 +203,103 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes[SAVED_KEY]) capSavedStore(changes[SAVED_KEY].newValue);
 });
 
-// `fbw_saved` is written from NINE places (three content scripts + six panel tools),
-// none of which pruned — it was the only store in the extension that grew forever,
-// and records can carry a base64 thumbnail (~10-20KB each). Capping it in every
-// writer would mean nine copies of the same logic, so it's enforced here instead:
-// one listener, one place, and no writer needs to know. Trims oldest-first by
-// updatedAt. Writing back re-fires this listener, but by then we're at the cap so
-// the guard below stops immediately (no loop).
+// `fbw_saved` is the shared Library. It used to be written from TEN places (six
+// panel tools, three page overlays, the transcription rail), each doing its own
+// get → mutate → set, which is a lost-update race: two toggles in flight (panel +
+// page, or two tabs) and one silently overwrites the other. They also wrote five
+// different record shapes.
+//
+// Now every write goes through FBW_SAVED_TOGGLE below, serialized here. The cap
+// stays a single owner too: capping in every writer would have meant ten copies.
 const SAVED_KEY = "fbw_saved";
 const SAVED_CAP = 300;
-function capSavedStore(map) {
-  if (!map || typeof map !== "object") return;
+
+function capMap(map) {
   const keys = Object.keys(map);
-  if (keys.length <= SAVED_CAP) return;
+  if (keys.length <= SAVED_CAP) return map;
   const kept = keys
     .sort((a, b) => (map[b]?.updatedAt || 0) - (map[a]?.updatedAt || 0))
     .slice(0, SAVED_CAP);
   const next = {};
   for (const k of kept) next[k] = map[k];
-  chrome.storage.local.set({ [SAVED_KEY]: next });
+  return next;
+}
+
+// Backstop for anything still writing the key directly (and for records arriving
+// from an older build). Trims oldest-first by updatedAt; the write re-fires this
+// listener but by then we're at the cap, so the guard stops it (no loop).
+function capSavedStore(map) {
+  if (!map || typeof map !== "object") return;
+  if (Object.keys(map).length <= SAVED_CAP) return;
+  chrome.storage.local.set({ [SAVED_KEY]: capMap(map) });
+}
+
+// Serialize the read-modify-write. Every toggle queues behind the previous one, so
+// concurrent saves from different tabs/worlds can't clobber each other.
+let savedChain = Promise.resolve();
+function queueSavedWrite(fn) {
+  const next = savedChain.then(fn, fn);
+  savedChain = next.then(
+    () => {},
+    () => {},
+  );
+  return next;
+}
+
+// Toggle one entry: present → remove, absent → insert. Returns whether the item
+// is saved AFTER the call, so a caller can paint the bookmark from the truth
+// rather than from an optimistic guess.
+function toggleSaved(entry) {
+  return queueSavedWrite(async () => {
+    if (!entry || !entry.videoId) throw new Error("entrada inválida");
+    const id = String(entry.videoId);
+    const r = await chrome.storage.local.get(SAVED_KEY);
+    const map = r[SAVED_KEY] || {};
+    let saved;
+    if (map[id]) {
+      delete map[id];
+      saved = false;
+    } else {
+      map[id] = entry;
+      saved = true;
+    }
+    await chrome.storage.local.set({ [SAVED_KEY]: capMap(map) });
+    return saved;
+  });
+}
+
+// Insert-or-refresh, never remove — the auto-capture path (favorite a post while
+// warming) must not toggle a record off just because it was already there. Merges
+// by default so an existing record's transcript text/chunks survive a metadata
+// refresh.
+function upsertSaved(entry, merge = true) {
+  return queueSavedWrite(async () => {
+    if (!entry || !entry.videoId) throw new Error("entrada inválida");
+    const id = String(entry.videoId);
+    const r = await chrome.storage.local.get(SAVED_KEY);
+    const map = r[SAVED_KEY] || {};
+    map[id] = merge ? { ...map[id], ...entry, videoId: id } : entry;
+    if (!map[id].updatedAt) map[id].updatedAt = Date.now();
+    await chrome.storage.local.set({ [SAVED_KEY]: capMap(map) });
+    return true;
+  });
+}
+
+// Unconditional remove (the Library's per-item delete and "limpar tudo").
+function removeSaved(ids) {
+  return queueSavedWrite(async () => {
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+    const r = await chrome.storage.local.get(SAVED_KEY);
+    const map = r[SAVED_KEY] || {};
+    let removed = 0;
+    for (const id of list)
+      if (map[id]) {
+        delete map[id];
+        removed++;
+      }
+    if (removed) await chrome.storage.local.set({ [SAVED_KEY]: map });
+    return removed;
+  });
 }
 
 // initial paint (SW may spin up mid-session)
@@ -477,8 +559,14 @@ async function runTranscription(videoId, tabId, meta = {}) {
       notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: true, text: saved.text, chunks: saved.chunks });
       return;
     } catch (e) {
-      // Fall through to Whisper if we have media; else report the caption error.
-      if (!meta.mediaUrl && !meta.candidates) {
+      // Fall through to Whisper if any audio source could still be resolved.
+      // `durationHint`/`primedAt` count: that is the normal Facebook feed shape
+      // (candidates are deliberately stripped for feed jobs — neighbour-id
+      // poison) and resolveTracks below can still match it against the captured
+      // wire tracks. Only give up when there is genuinely nothing to try.
+      const canFallBack =
+        meta.mediaUrl || meta.candidates || meta.durationHint || meta.primedAt;
+      if (!canFallBack) {
         await putTranscript(id, { status: "error", error: e.message });
         notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: false, error: e.message });
         return;
@@ -684,14 +772,10 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     .catch(() => chrome.storage.local.set({ [NEED_RELOAD_KEY]: true }));
 });
 
-// ---- run logs ----
-// A finished run lands in ~/Downloads/social-mate/sessoes/ as one JSON file: config +
-// counters + the full structured event stream. That's the artifact you hand back
-// for analysis ("here's last night's run, what's tuning badly?").
-//
-// Service workers have no URL.createObjectURL, so the file goes out as a data:
+// ---- JSON exports ----
+// Service workers have no URL.createObjectURL, so JSON files go out as a data:
 // URL. It must be built through TextEncoder — btoa() alone throws on the emoji in
-// comment text, which would silently lose exactly the runs worth reading.
+// comment text, which would silently lose exactly the exports worth reading.
 function jsonDataUrl(obj) {
   const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 2));
   let bin = "";
@@ -701,22 +785,6 @@ function jsonDataUrl(obj) {
   return "data:application/json;base64," + btoa(bin);
 }
 
-async function writeRunLogFile(doc) {
-  if (!doc || !Array.isArray(doc.events)) return;
-  try {
-    const started = doc.meta?.startedAt || Date.now();
-    const stamp = new Date(started).toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const outcome = String(doc.outcome || "run").split(":")[0].trim();
-    await chrome.downloads.download({
-      url: jsonDataUrl(doc),
-      filename: downloadPath(SESSIONS, null, `run-${stamp}-${outcome}.json`),
-      saveAs: false,
-      conflictAction: "uniquify",
-    });
-  } catch (e) {
-    console.warn("[SW] run log write failed", e);
-  }
-}
 
 // ---- message router (content + panel) ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -815,16 +883,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ videoId: rec ? rec.videoId : null });
       return false;
     }
-    // debug: dump the live track registry (panel/devtools use; no page access)
-    // content → bg: a finished run's structured log → JSON file on disk.
-    case "FBW_WRITE_RUN_LOG": {
-      writeRunLogFile(msg.doc);
-      sendResponse({ ok: true });
-      return false;
+    // panel/content → bg: the ONLY writer of fbw_saved. Serialized here so two
+    // toggles in flight (panel + page overlay, or two tabs) can't lose an update.
+    // Replies { ok, saved } — `saved` is the state AFTER the toggle, so the caller
+    // paints the bookmark from the truth instead of guessing.
+    case "FBW_SAVED_TOGGLE": {
+      toggleSaved(msg.entry)
+        .then((saved) => sendResponse({ ok: true, saved }))
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    // Insert-or-refresh (auto-capture "favoritar"). Never removes, unlike TOGGLE.
+    case "FBW_SAVED_UPSERT": {
+      upsertSaved(msg.entry, msg.merge !== false)
+        .then(() => sendResponse({ ok: true, saved: true }))
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    case "FBW_SAVED_REMOVE": {
+      removeSaved(msg.ids ?? msg.id)
+        .then((removed) => sendResponse({ ok: true, removed }))
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
     }
     // content → bg: an arbitrary JSON payload → file on disk (comment scrapes).
-    // The SW has no URL.createObjectURL, so route through jsonDataUrl like the
-    // run-log writer (TextEncoder → base64 data URL, emoji-safe).
+    // The SW has no URL.createObjectURL, so route through jsonDataUrl
+    // (TextEncoder → base64 data URL, emoji-safe).
     case "FBW_DL_JSON": {
       try {
         chrome.downloads.download({
