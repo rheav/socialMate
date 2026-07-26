@@ -1,4 +1,5 @@
 import { franc } from "franc-min";
+import { parseCount } from "./lib/shared/counts.js";
 import {
   serializeLedger,
   restoreLedger,
@@ -1113,35 +1114,16 @@ import {
     const r = el.getBoundingClientRect();
     return r.top >= 60 && r.top < window.innerHeight - 120;
   }
-  // Engagement counts live as innerText on the action-bar buttons themselves:
-  // like button = total reactions, comment button = comments. FB localizes the
-  // magnitude suffix AND the separators: en "76.8K" / "1.2M" use "." decimal,
-  // pt-br "76,8 mil" / "1,2 mi" use "," decimal + "mil"/"mi" words (id "rb"/"jt").
-  function parseCount(t) {
-    let s = String(t || "")
-      .trim()
-      .toLowerCase();
-    if (!s) return 0;
-    // thousands: mil/k/rb/tis · millions: mi/mn/jt/m · billions: bi/b
-    let mult = 1;
-    const suf = s.match(/(mil|mi|mn|rb|jt|tis|bi|k|m|b)\.?$/);
-    if (suf) {
-      const u = suf[1];
-      mult = /^(mil|rb|tis|k)$/.test(u)
-        ? 1e3
-        : /^(mi|mn|jt|m)$/.test(u)
-          ? 1e6
-          : 1e9;
-      s = s.slice(0, suf.index).trim();
-    }
-    // With a suffix the lone separator is a decimal point ("76,8 mil" / "1.2k").
-    // Without one, "," / "." are digit-grouping ("76.800" / "1,234") → strip them.
-    const num =
-      mult > 1
-        ? parseFloat(s.replace(",", "."))
-        : parseFloat(s.replace(/[.,\s]/g, ""));
-    return isFinite(num) ? Math.round(num * mult) : 0;
+  // Engagement counts live as innerText on the action-bar buttons themselves: like
+  // button = total reactions, comment button = comments. The parsing itself is the
+  // shared one (it knows more locales than this file's private copy did); the only
+  // local rule is that a miss reads as 0, because the callers compare these
+  // numerically against the user's like/comment thresholds.
+  function parseCountOrZero(t) {
+    const n = parseCount(t);
+    return n == null ? 0 : n;
   }
+
   const FB_COMMENT_WORDS = [
     "leave a comment",
     "deixe um comentário",
@@ -1157,8 +1139,8 @@ import {
       p.root.querySelectorAll('[role="button"][aria-label]'),
     ).find((b) => FB_COMMENT_WORDS.includes(fbAria(b)));
     return {
-      likes: parseCount(likeBtn && likeBtn.innerText),
-      comments: parseCount(cb && cb.innerText),
+      likes: parseCountOrZero(likeBtn && likeBtn.innerText),
+      comments: parseCountOrZero(cb && cb.innerText),
     };
   }
   // Posts are the direct children of [role="feed"] carrying a like control. FB's

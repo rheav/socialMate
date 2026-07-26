@@ -8,6 +8,7 @@ import { startPolling } from "@/lib/poll";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import IconBtn from "@/components/ui/IconBtn";
 
 // TikTok Collections + Playlists. Reads the passive capture of /api/user/playlist
 // + /api/user/collection_list (bucket metadata) and /api/mix|collection/item_list
@@ -193,10 +194,10 @@ export default function TtCollectionsTool() {
                           <div key={item.id} className="group relative aspect-[9/16] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
                             {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
                             <div className="absolute left-1 top-1 flex flex-col gap-1">
-                              <button title={statusTitle("Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"} className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50">
+                              <IconBtn title={statusTitle("Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
                                 <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
-                              </button>
-                              <button
+                              </IconBtn>
+                              <IconBtn
                                 title={statusTitle(
                                   savedIds[item.id] ? "Salvo — toque para remover" : "Salvar na biblioteca",
                                   stSave,
@@ -204,7 +205,6 @@ export default function TtCollectionsTool() {
                                 )}
                                 onClick={() => save(item)}
                                 disabled={stSave === "downloading"}
-                                className="grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
                               >
                                 <Bookmark
                                   className={
@@ -216,7 +216,7 @@ export default function TtCollectionsTool() {
                                         : "")
                                   }
                                 />
-                              </button>
+                              </IconBtn>
                             </div>
                             {item.play_count != null && (
                               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-[9.5px] font-semibold text-white">

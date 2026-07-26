@@ -8,17 +8,7 @@ import { startPolling } from "@/lib/poll";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
-
-function IconBtn({ children, ...props }) {
-  return (
-    <button
-      {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
+import IconBtn from "@/components/ui/IconBtn";
 
 // TikTok Stories. Reads the passive fetch capture of /api/story/item_list (via the
 // bridge, FBW_TT_STORIES) — stories appear once you OPEN a creator's story ring or

@@ -246,7 +246,11 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     }
     // (b) word summary after the Share button
     const text = (container.innerText || "").replace(/\s+/g, " ");
-    const af = /\bShare\b/i.test(text) ? text.split(/\bShare\b/i).pop() : "";
+    // The summary line sits after the Share control. Splitting on the literal
+    // English word meant this read nothing on the pt-BR UI this extension is built
+    // for — every other label set in this file is already multi-locale.
+    const SHARE_W = /\b(?:share|compartilhar|compartilhamentos?|compartir|partager|condividi|teilen)\b/i;
+    const af = SHARE_W.test(text) ? text.split(SHARE_W).pop() : "";
     const num = "([\\d.,]+\\s?(?:mil|k|m|mi|rb|jt)?)";
     const w = (re) => {
       const m = af.match(new RegExp(re, "i"));
@@ -256,8 +260,14 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       [])[1];
     const counts = {
       like: bare[0] || (reactW ? reactW.trim() : null),
-      comment: w(num + "\\s+comments?\\b") || bare[1] || null,
-      share: w(num + "\\s+shares?\\b") || bare[2] || null,
+      comment:
+        w(num + "\\s+(?:comments?|coment[áa]rios?|comentarios?|commentaires?|commenti|kommentare?)\\b") ||
+        bare[1] ||
+        null,
+      share:
+        w(num + "\\s+(?:shares?|compartilhamentos?|compartidos?|partages?|condivisioni|freigaben)\\b") ||
+        bare[2] ||
+        null,
       views: w(num + "\\s*(?:views?|visualiz\\w*)\\b"),
     };
     return counts.like || counts.comment || counts.share || counts.views

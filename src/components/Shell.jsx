@@ -14,6 +14,7 @@ import {
   withTab,
 } from "@/lib/navState";
 import Segmented from "@/components/ui/Segmented";
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import ToolFrame from "@/components/ui/ToolFrame";
 import PlatformSwitcher from "@/components/ui/PlatformSwitcher";
 import LibraryTool from "@/components/tools/LibraryTool";
@@ -51,11 +52,32 @@ function useTheme() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Each window has its own side panel, so a toggle in one used to leave the other
+  // on the old theme until it was reopened. The stored value is the single source of
+  // truth; follow it.
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.onChanged) return;
+    const onCh = (changes, area) => {
+      if (area !== "local" || !changes[THEME_KEY]) return;
+      const next = changes[THEME_KEY].newValue;
+      if (next === "dark" || next === "light") {
+        setTheme(next);
+        applyTheme(next);
+      }
+    };
+    chrome.storage.onChanged.addListener(onCh);
+    return () => chrome.storage.onChanged.removeListener(onCh);
+  }, []);
   const toggle = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     applyTheme(next);
-    chrome?.storage?.local?.set({ [THEME_KEY]: next });
+    try {
+      chrome?.storage?.local?.set({ [THEME_KEY]: next });
+    } catch {
+      /* the toggle still applied locally; only the cross-window sync is lost */
+    }
   };
   return [theme, toggle];
 }
@@ -88,9 +110,14 @@ export default function Shell() {
       }
       let next = migrateNav(v3, v2);
       // Remember our own window so tab events from other windows can't retarget
-      // this panel (each window has its own side panel).
+      // this panel (each window has its own side panel). Three distinct states,
+      // because `ours()` fails CLOSED and must not be starved:
+      //   number → filter by it
+      //   "all"  → no windows API in this context (tests, plain dev) → accept
+      //   null   → not resolved yet / the call failed → ours() retries
       try {
-        ownWindowId.current = (await chrome.windows?.getCurrent())?.id ?? null;
+        if (!chrome?.windows?.getCurrent) ownWindowId.current = "all";
+        else ownWindowId.current = (await chrome.windows.getCurrent())?.id ?? null;
       } catch {
         ownWindowId.current = null;
       }
@@ -229,8 +256,24 @@ function useFollowActiveTab(ready, ownWindowId, setNav) {
       clearTimeout(timer);
       timer = setTimeout(sync, 150);
     };
-    const ours = (windowId) =>
-      ownWindowId.current == null || windowId === ownWindowId.current;
+    // Fail CLOSED: an unresolved window id used to accept EVERY window's events,
+    // which is exactly the cross-window retargeting this filter exists to stop.
+    // Unresolved is recoverable rather than permanent — re-ask, and drop only this
+    // event; tab events are frequent, so the next one lands with an id.
+    const ours = (windowId) => {
+      const own = ownWindowId.current;
+      if (own === "all") return true; // no windows API → nothing to filter by
+      if (own == null) {
+        chrome?.windows
+          ?.getCurrent?.()
+          .then((w) => {
+            if (w?.id != null) ownWindowId.current = w.id;
+          })
+          .catch(() => {});
+        return false;
+      }
+      return windowId === own;
+    };
 
     const onActivated = (info) => {
       if (ours(info?.windowId)) schedule();
@@ -299,8 +342,19 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
   const tools = toolsForPlatform(platform);
   // A remembered tool that no longer exists (renamed/removed) falls back to the
   // platform's first tool rather than rendering nothing.
-  const activeId = tools.some((t) => t.id === toolId) ? toolId : tools[0].id;
-  const Panel = getTool(activeId).Panel;
+  const activeId = tools.some((t) => t.id === toolId) ? toolId : tools[0]?.id;
+  const Panel = activeId ? getTool(activeId)?.Panel : null;
+
+  // A platform with no registry entries (or an entry without a Panel) used to throw
+  // here — on tools[0].id, then on the missing Panel — taking the panel down with it.
+  if (!Panel)
+    return (
+      <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
+        <p className="py-8 text-center text-sm leading-relaxed text-muted-foreground">
+          Nenhuma ferramenta para esta plataforma.
+        </p>
+      </ToolFrame>
+    );
 
   return (
     <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
@@ -311,7 +365,13 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
           items={tools.map((t) => ({ id: t.id, label: t.label, Icon: t.Icon }))}
         />
       )}
-      <Panel platform={platform} />
+      {/* Only the Panel is wrapped: a crashing tool must not take the header,
+          platform switcher or this sub-nav with it. The key remounts the boundary
+          when you switch tool/platform, so a stuck error card can't outlive the
+          tool that produced it. */}
+      <ErrorBoundary key={`${platform}:${activeId}`}>
+        <Panel platform={platform} />
+      </ErrorBoundary>
     </ToolFrame>
   );
 }

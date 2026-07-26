@@ -29,7 +29,19 @@ export default defineManifest({
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'",
   },
-  permissions: ["storage", "unlimitedStorage", "activeTab", "sidePanel", "tabs", "webRequest", "declarativeNetRequest", "offscreen", "downloads", "scripting"],
+  // Every one of these is load-bearing, and each is an install warning, so the list
+  // is worth re-auditing before any Web Store submission:
+  //   storage/unlimitedStorage — the Library holds base64 thumbs (~10-20KB each) up
+  //     to a 300-item cap, which is past the default quota. unlimitedStorage has no
+  //     chrome.* call site by design; it only raises that ceiling.
+  //   tabs + scripting — resolving the platform tab and the panel's one-click
+  //     re-injection recovery. `activeTab` was ALSO listed and is redundant: the
+  //     four host permissions below already authorise executeScript on every
+  //     surface this extension touches.
+  //   webRequest — read-only observer that builds the fbcdn DASH track registry.
+  //   declarativeNetRequest — one session rule adding a Referer for TikTok's CDN,
+  //     which fetch/downloads cannot set themselves (forbidden header).
+  permissions: ["storage", "unlimitedStorage", "sidePanel", "tabs", "webRequest", "declarativeNetRequest", "offscreen", "downloads", "scripting"],
   host_permissions: [
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",

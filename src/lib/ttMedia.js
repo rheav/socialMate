@@ -7,8 +7,11 @@
 // richer than IG's.
 
 import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
-import { fmtCount } from "./shared/counts.js";
-export { fmtCount };
+import { fmtCount, parseCount } from "./shared/counts.js";
+// parseCount used to be a private copy here that mis-read a lone pt-BR thousands
+// separator ("1.234" is 1234, not 1.234). The shared parser gets that right and
+// knows 14 locale unit words instead of 6.
+export { fmtCount, parseCount };
 
 // ER weights: like 1×, comment & share 4×, save (collect) 2×. Tunable.
 export const ER_WEIGHTS = { like: 1, comment: 4, share: 4, save: 2 };
@@ -47,22 +50,6 @@ export function fmtER(er) {
 // Parse a displayed abbreviated count back to a number: "51.9M" -> 51900000,
 // "964.5K" -> 964500, "1,2 mil" -> 1200, "222" -> 222. Used for the DOM-tile
 // fallback (data-e2e views), which show abbreviated strings. null when unparseable.
-export function parseCount(s) {
-  if (s == null) return null;
-  if (typeof s === "number") return Number.isFinite(s) ? s : null;
-  const t = String(s).trim().toLowerCase().replace(/\s+/g, " ");
-  const m = t.match(/^([\d.,]+)\s*(k|m|b|mil|mi|bi)?$/);
-  if (!m) return null;
-  // Normalize decimal: a comma is the decimal sep in pt-br ("1,2"); strip
-  // thousands dots when both are present.
-  let numPart = m[1];
-  if (numPart.includes(",") && numPart.includes(".")) numPart = numPart.replace(/\./g, "").replace(",", ".");
-  else numPart = numPart.replace(",", ".");
-  const base = parseFloat(numPart);
-  if (!Number.isFinite(base)) return null;
-  const mult = { k: 1e3, m: 1e6, b: 1e9, mil: 1e3, mi: 1e6, bi: 1e9 }[m[2]] || 1;
-  return Math.round(base * mult);
-}
 
 const METRIC = {
   views: (r) => r.play_count,

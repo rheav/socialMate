@@ -17,6 +17,20 @@ const NEED_RELOAD_KEY = "fbw_need_reload"; // panel hint: active FB tab has no l
 // first TikTok download and harmless if the CDN doesn't actually require it.
 const TT_REFERER_RULE_ID = 9101;
 let ttRefererReady = false;
+// Same hosts as the DNR rule below. This test was written out three times as an
+// inline regex, and it could drift from the rule's requestDomains list — a URL the
+// regex matched but the rule did not would silently 403.
+const TT_CDN_RE = /(?:^|\.)(?:tiktok|tiktokcdn|tiktokcdn-us|tiktokv|muscdn|ibytedtos)\.com/i;
+function isTiktokCdn(url) {
+  if (!url) return false;
+  try {
+    return TT_CDN_RE.test(new URL(String(url)).hostname);
+  } catch {
+    // Not a parseable URL (a bare name, a blob:) — fall back to a substring test
+    // rather than reporting "not TikTok" and losing the Referer header.
+    return /tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/i.test(String(url));
+  }
+}
 async function ensureTiktokReferer() {
   if (ttRefererReady || !chrome.declarativeNetRequest?.updateSessionRules) return;
   ttRefererReady = true;
@@ -566,7 +580,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
       ...(caption ? { caption } : {}), ...(platform ? { platform } : {}), ...(sourceUrl ? { sourceUrl } : {}),
     });
     try {
-      if (/tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(meta.captionUrl)) await ensureTiktokReferer();
+      if (isTiktokCdn(meta.captionUrl)) await ensureTiktokReferer();
       const r = await fetch(meta.captionUrl);
       if (!r.ok) throw new Error("caption fetch failed " + r.status);
       const { text, chunks } = parseWebVtt(await r.text());
@@ -606,7 +620,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
   }
   // TikTok audio comes off the same Referer-gated CDN as its video — install the
   // header rule so the offscreen fetch of the audio doesn't 403.
-  if (meta.platform === "tiktok" || /tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(audioUrl || "")) await ensureTiktokReferer();
+  if (meta.platform === "tiktok" || isTiktokCdn(audioUrl)) await ensureTiktokReferer();
   if (!audioUrl) {
     notifyTab(tabId, {
       type: "FBW_TRANSCRIBE_RESULT",
@@ -803,13 +817,19 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 // Service workers have no URL.createObjectURL, so JSON files go out as a data:
 // URL. It must be built through TextEncoder — btoa() alone throws on the emoji in
 // comment text, which would silently lose exactly the exports worth reading.
-function jsonDataUrl(obj) {
-  const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 2));
+// Bytes -> base64, chunked to keep String.fromCharCode off the argument-count
+// limit. Was written out twice (here and the FBW_DL_MEDIA image path).
+function bytesToBase64(bytes) {
   let bin = "";
-  const CHUNK = 0x8000; // keep String.fromCharCode off the arg-count limit
+  const CHUNK = 0x8000;
   for (let i = 0; i < bytes.length; i += CHUNK)
     bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  return "data:application/json;base64," + btoa(bin);
+  return btoa(bin);
+}
+
+function jsonDataUrl(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 2));
+  return "data:application/json;base64," + bytesToBase64(bytes);
 }
 
 
@@ -984,7 +1004,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       (async () => {
         try {
           // TikTok media (video or thumbnail) needs the Referer header injected.
-          if (/tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(msg.url || "")) await ensureTiktokReferer();
+          if (isTiktokCdn(msg.url)) await ensureTiktokReferer();
           const filename = resolveDownloadPath(msg, `media-${Date.now()}`);
           if (msg.kind === "video") {
             await chrome.downloads.download({ url: msg.url, filename });
@@ -997,12 +1017,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (!res || !res.ok)
             throw new Error("fetch failed " + (res ? res.status : "network"));
           const buf = new Uint8Array(await res.arrayBuffer());
-          let bin = "";
-          const CH = 0x8000;
-          for (let i = 0; i < buf.length; i += CH)
-            bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
           const type = res.headers.get("content-type") || "image/jpeg";
-          const dataUrl = `data:${type};base64,${btoa(bin)}`;
+          const dataUrl = `data:${type};base64,${bytesToBase64(buf)}`;
           await chrome.downloads.download({ url: dataUrl, filename });
           sendResponse({ ok: true });
         } catch (e) {

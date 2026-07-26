@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "lucide-react";
 import { downloadPath } from "@/lib/downloadPath";
 import { fmtCount } from "@/lib/igMedia";
@@ -34,6 +34,12 @@ function dl(platform, name, text) {
   // Free the blob once the download has been handed off.
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+// Same prefixes the media downloaders already stamp on their files (ig-, tt-, pin-),
+// so a transcript is recognisable as belonging to its video once both are on disk.
+// `dl()` defaults an unknown platform to facebook, so this map does too.
+const NAME_PREFIX = { facebook: "fb", instagram: "ig", tiktok: "tt", pinterest: "pin" };
+const namePrefix = (platform) => NAME_PREFIX[platform] || "fb";
 
 // ---- storage hooks ----
 function useStore(key) {
@@ -226,9 +232,9 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             )}
             <div className="mt-auto flex flex-wrap gap-x-2 gap-y-0.5 pt-1 text-[11px]">
               <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
-              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `fb-${it.videoId}.txt`, it.text)}>.txt</button>
+              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.txt`, it.text)}>.txt</button>
               {it.chunks?.length ? (
-                <button className="text-primary hover:underline" onClick={() => dl(it.platform, `fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
+                <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
               ) : null}
             </div>
           </>
@@ -244,6 +250,45 @@ function Grid({ children }) {
   // grid-cols-2 holds at 260px (two ~106px tiles); the tiles' own content all
   // truncates or wraps, so nothing inside them pushes the page wider.
   return <div className="grid min-w-0 grid-cols-2 gap-2.5">{children}</div>;
+}
+
+// Wipes a whole store with no undo, so the first tap only arms the button and a
+// second one commits. window.confirm is not an option: a native dialog belongs to
+// the parent tab and would sit behind the side panel, unreachable.
+function ClearAllButton({ onConfirm, className, children }) {
+  const [armed, setArmed] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!ref.current?.contains(e.target)) setArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [armed]);
+
+  return (
+    <button
+      ref={ref}
+      title={armed ? "Toque de novo para confirmar" : undefined}
+      className={
+        armed
+          ? "flex flex-none items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive"
+          : className
+      }
+      onClick={() => {
+        if (!armed) { setArmed(true); return; }
+        setArmed(false);
+        onConfirm();
+      }}
+    >
+      {armed ? <><Trash2 size={11} /> Confirmar?</> : children}
+    </button>
+  );
 }
 
 // ---- Transcripts tab ----
@@ -267,7 +312,7 @@ export default function TranscriptsPanel() {
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-1">
             <span className="text-xs font-medium text-foreground">{items.length} {items.length === 1 ? "transcrição" : "transcrições"}</span>
-            <button className="text-[11px] text-muted-foreground hover:text-foreground" onClick={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>limpar tudo</button>
+            <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground" onConfirm={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>limpar tudo</ClearAllButton>
           </div>
           <Grid>
             {items.map((it) => (
@@ -317,9 +362,9 @@ export function SavedPanel() {
     <div className="space-y-3">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
-        <button className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onClick={() => removeSavedEntry(saved.map((x) => x.videoId))}>
+        <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onConfirm={() => removeSavedEntry(saved.map((x) => x.videoId))}>
           <Trash2 size={11} /> limpar tudo
-        </button>
+        </ClearAllButton>
       </div>
 
       {platforms.map((p) => {

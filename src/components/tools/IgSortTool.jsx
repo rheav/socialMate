@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download,
   Bookmark,
@@ -20,6 +20,7 @@ import {
   Check,
   X,
   RotateCw,
+  Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -31,6 +32,7 @@ import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
+import IconBtn from "@/components/ui/IconBtn";
 import {
   sortRecords,
   recordToCard,
@@ -56,17 +58,6 @@ const SORT_OPTS = [
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
 // Small frosted icon button overlaid on a card thumbnail.
-function IconBtn({ children, ...props }) {
-  return (
-    <button
-      {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
 // Instagram Sort + Download. Reads the passive JSON.parse capture (via the IG
 // content bridge, FBW_IG_LIST), sorts it in-panel as a 2-col grid of 9:16 cards
 // with a right-side stat rail, and downloads media/thumbnail via FBW_DL_MEDIA.
@@ -194,11 +185,36 @@ export default function IgSortTool() {
     );
   }
 
+  // The 400 ms gap below is the whole reason this run has to be exclusive: a
+  // second loop started on top of it would interleave and double the requests the
+  // gap exists to spare the CDN. So one run at a time, and the button becomes its
+  // own stop control — it cannot simply be `disabled` while running or a long run
+  // would have no way out.
+  const [bulk, setBulk] = useState(null); // { done, total, stopping } while running
+  const stopBulkRef = useRef(false);
+
   async function downloadAll() {
-    for (const rec of sorted) {
-      await downloadRecord(rec);
-      await new Promise((r) => setTimeout(r, 400));
+    if (bulk) return;
+    stopBulkRef.current = false;
+    setBulk({ done: 0, total: sorted.length, stopping: false });
+    try {
+      for (const rec of sorted) {
+        if (stopBulkRef.current) break;
+        await downloadRecord(rec);
+        setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } finally {
+      setBulk(null);
     }
+  }
+
+  // Cooperative: the loop is mid-await on a download, so it can only honour this
+  // between items. A ref, not state — the running loop's closure would never see
+  // a state update.
+  function stopBulk() {
+    stopBulkRef.current = true;
+    setBulk((b) => (b ? { ...b, stopping: true } : b));
   }
 
   // Toggle: first tap saves to the shared Library, second removes. The write
@@ -315,12 +331,12 @@ export default function IgSortTool() {
           onClick={refresh}
         />
         <ActionButton
-          icon={Download}
-          label="Tudo"
-          hint="Baixar todos os posts listados"
+          icon={bulk ? Square : Download}
+          label={bulk ? (bulk.stopping ? "Parando…" : `Parar ${bulk.done}/${bulk.total}`) : "Tudo"}
+          hint={bulk ? "Parar o download de todos os posts" : "Baixar todos os posts listados"}
           variant="secondary"
-          onClick={downloadAll}
-          disabled={!sorted.length}
+          onClick={bulk ? stopBulk : downloadAll}
+          disabled={bulk ? bulk.stopping : !sorted.length}
         />
       </ToolBar>
 

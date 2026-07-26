@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download,
   DownloadCloud,
@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   RotateCw,
   Link2,
+  Square,
 } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
@@ -17,19 +18,9 @@ import { groupReels, reelLabel, storyToCard, storyFilename } from "@/lib/igReels
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { requireOk } from "@/lib/bg";
+import IconBtn from "@/components/ui/IconBtn";
 
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
-
-function IconBtn({ children, ...props }) {
-  return (
-    <button
-      {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
 
 // Instagram Stories & Highlights. Reads the passive reel capture (bridge
 // FBW_IG_REELS) — reels only exist here once you OPEN a story/highlight on
@@ -94,11 +85,38 @@ export default function IgStoriesTool() {
     });
   }
 
+  // Every reel has its own "Tudo", but only ONE may run: the 400 ms gap below is
+  // there because the CDN refuses a burst, and a second loop — the same reel tapped
+  // twice, or a neighbouring one — would interleave and defeat it. So the running
+  // reel's button becomes its own stop control (it cannot just be `disabled`, or a
+  // long run would have no way out) and every other one goes disabled meanwhile.
+  const [bulk, setBulk] = useState(null); // { reelId, done, total, stopping }
+  const stopBulkRef = useRef(false);
+  const isBulking = (reel) => bulk?.reelId === reel.reel_id;
+
   async function downloadReel(reel) {
-    for (const item of reel.items || []) {
-      await downloadItem(item);
-      await new Promise((r) => setTimeout(r, 400));
+    if (bulk) return;
+    const items = reel.items || [];
+    stopBulkRef.current = false;
+    setBulk({ reelId: reel.reel_id, done: 0, total: items.length, stopping: false });
+    try {
+      for (const item of items) {
+        if (stopBulkRef.current) break;
+        await downloadItem(item);
+        setBulk((b) => (b ? { ...b, done: b.done + 1 } : b));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } finally {
+      setBulk(null);
     }
+  }
+
+  // Cooperative: the loop is mid-await on a download, so it can only honour this
+  // between items. A ref, not state — the running loop's closure would never see
+  // a state update.
+  function stopBulk() {
+    stopBulkRef.current = true;
+    setBulk((b) => (b ? { ...b, stopping: true } : b));
   }
 
   // One banner for every link failure, rendered in every branch below so the
@@ -167,12 +185,22 @@ export default function IgStoriesTool() {
                   </div>
                 </div>
                 <ActionButton
-                  icon={DownloadCloud}
-                  label="Tudo"
-                  hint="Baixar todos os itens deste story"
+                  icon={isBulking(reel) ? Square : DownloadCloud}
+                  label={
+                    isBulking(reel)
+                      ? bulk.stopping
+                        ? "Parando…"
+                        : `Parar ${bulk.done}/${bulk.total}`
+                      : "Tudo"
+                  }
+                  hint={
+                    isBulking(reel)
+                      ? "Parar o download deste story"
+                      : "Baixar todos os itens deste story"
+                  }
                   variant="secondary"
-                  onClick={() => downloadReel(reel)}
-                  disabled={!reel.items?.length}
+                  onClick={() => (isBulking(reel) ? stopBulk() : downloadReel(reel))}
+                  disabled={bulk ? !isBulking(reel) || bulk.stopping : !reel.items?.length}
                 />
               </ToolBar>
 

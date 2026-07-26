@@ -1,3 +1,12 @@
+> **STATUS: NOT BUILT, AND NOW PARTLY STALE.** Planned 2026-07-16; 30+ releases
+> have shipped since without any PocketBase code. Its real remaining asset is the
+> §4-5 storage audit — and that audit predates the 0.65.0 store-cap rework, the
+> TikTok/Pinterest write paths, and 0.69.0 moving every `fbw_saved` write behind the
+> background worker, so REFRESH §4-5 FIRST if this is ever picked up. Other known
+> drift: the `platform` enum has no `pinterest`, and the hardcoded extension id
+> changes on Web Store publish. See `docs/ARCHITECTURE.md` for the current storage
+> registry.
+
 # PocketBase Migration Plan — socialMate
 
 Moving the research **library** (transcripts + saved videos) from `chrome.storage.local`

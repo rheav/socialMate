@@ -21,19 +21,31 @@ export default function OptionsDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef(null);
 
+  // Both listeners are document-wide, so they only exist while the popup does —
+  // a closed dropdown must not be inspecting every mousedown/keydown in the panel.
   useEffect(() => {
+    if (!isOpen) return;
     const onDown = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setIsOpen(false);
     };
+    const onKey = (e) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [isOpen]);
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         title="Opções"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
         className="flex items-center rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
         <Settings size={16} />
@@ -43,17 +55,25 @@ export default function OptionsDropdown({
         // max-w: the popup is right-anchored, so at a 260px panel a fixed 18rem
         // (270px) would hang off the LEFT edge and be unreachable. Cap it to the
         // viewport minus the page gutters.
-        <div className="absolute top-full right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-300 bg-white/95 backdrop-blur-md shadow-xl">
+        <div
+          role="dialog"
+          aria-label="Opções"
+          className="absolute top-full right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card/95 text-card-foreground backdrop-blur-md shadow-xl"
+        >
           <div className="max-h-96 overflow-y-auto p-4">
             <Section
               title="Ritmo"
               tooltip="Esperas aleatórias entre as ações e por quanto tempo cada vídeo é assistido (permanência). Os valores são intervalos — um ponto aleatório dentro deles é escolhido a cada vez, para que a sessão nunca pareça mecânica."
             >
               <div className="grid grid-cols-2 gap-2.5">
+                {/* min=1: a zero-second wait or dwell is not a setting, it is a
+                    broken session — the background already refuses 0 and falls
+                    back to its own default. */}
                 <Field
                   id="opt-amin"
                   label="Ação mín. (s)"
                   value={pacing.minDelay}
+                  min={1}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, minDelay: v }))}
                 />
@@ -61,6 +81,7 @@ export default function OptionsDropdown({
                   id="opt-amax"
                   label="Ação máx. (s)"
                   value={pacing.maxDelay}
+                  min={1}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, maxDelay: v }))}
                 />
@@ -68,6 +89,7 @@ export default function OptionsDropdown({
                   id="opt-rmin"
                   label="Permanência mín. (s)"
                   value={pacing.reelMin}
+                  min={1}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, reelMin: v }))}
                 />
@@ -75,6 +97,7 @@ export default function OptionsDropdown({
                   id="opt-rmax"
                   label="Permanência máx. (s)"
                   value={pacing.reelMax}
+                  min={1}
                   disabled={disabled}
                   onChange={(v) => setPacing((p) => ({ ...p, reelMax: v }))}
                 />
@@ -193,16 +216,32 @@ export default function OptionsDropdown({
   );
 }
 
-function Field({ id, label, value, onChange, disabled }) {
+// `min` is the field's floor: 0 where zero carries a meaning ("filtro
+// desativado", "sem limite") and 1 where it does not (see the pacing fields).
+function Field({ id, label, value, onChange, disabled, min = 0 }) {
+  // An <input type="number"> hands back a STRING, and the browser reports "" for
+  // anything it could not parse (a lone "-", a half-typed exponent) as well as
+  // for a genuinely emptied box. "" is passed through untouched so the field
+  // stays clearable while typing — coercing it here would park NaN in state and
+  // freeze the input; every consumer already reads a blank as its default.
+  const commit = (raw) => {
+    if (raw === "") return onChange("");
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return; // garbage: keep the last good value
+    onChange(Math.max(min, n));
+  };
+
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
         type="number"
+        min={min}
+        inputMode="numeric"
         value={value}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => commit(e.target.value)}
       />
     </div>
   );
@@ -228,7 +267,7 @@ function Tooltip({ children, targetRef, visible }) {
 
   return createPortal(
     <div
-      className="fixed w-56 p-2.5 rounded-lg z-[9999] shadow-xl bg-white/95 backdrop-blur-md text-slate-800 border border-slate-300 text-[10px] leading-relaxed"
+      className="fixed w-56 p-2.5 rounded-lg z-[9999] shadow-xl bg-card/95 backdrop-blur-md text-card-foreground border border-border text-[10px] leading-relaxed"
       style={{
         top: position.top,
         left: position.left,
@@ -236,7 +275,9 @@ function Tooltip({ children, targetRef, visible }) {
       }}
     >
       {children}
-      <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-white" />
+      {/* border-t-card/95 keeps the arrow the same colour as the bubble above it
+          in either theme — the arrow IS the background, drawn as a border. */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-card/95" />
     </div>,
     document.body,
   );

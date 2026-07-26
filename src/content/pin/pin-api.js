@@ -59,33 +59,68 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
   const csrfToken = () => document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/)?.[1] || null;
   // _auth is httpOnly so we can't read it; its absence here proves nothing. The
   // reliable signal is whether the API answers, so treat a 403 as "log in".
+  // WEAK: the csrftoken cookie survives a logout, so this can claim a session that
+  // no longer exists. The authoritative signal is a 403 from the first real call,
+  // which fetchWithBackoff translates into "faça login no Pinterest".
   const looksLoggedIn = () => !!csrfToken();
 
+  // Pinterest rate-limits a long harvest (40 pages at a fixed 350ms cadence invites
+  // it), and the whole run used to die on the first non-OK with a raw "HTTP 429".
+  // Retry the retryable statuses with exponential backoff, honouring Retry-After
+  // when it is sent, and translate the two statuses that mean something specific to
+  // the user. A 403 is the REAL logged-out signal — the csrftoken cookie survives a
+  // logout, so looksLoggedIn() can claim a session that no longer exists.
+  const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+  const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function describeStatus(name, status) {
+    if (status === 403) return "faça login no Pinterest e tente de novo";
+    if (status === 429) return "o Pinterest limitou as requisições — espere um pouco e colete de novo";
+    return `${name} HTTP ${status}`;
+  }
+
+  async function fetchWithBackoff(name, doFetch, attempts = 4) {
+    let wait = 800;
+    for (let i = 0; i < attempts; i++) {
+      const res = await doFetch();
+      if (res.ok) return res;
+      if (!RETRY_STATUS.has(res.status) || i === attempts - 1)
+        throw new Error(describeStatus(name, res.status));
+      const after = Number(res.headers.get("retry-after"));
+      await sleepMs(Number.isFinite(after) && after > 0 ? Math.min(after * 1000, 15000) : wait);
+      wait = Math.min(wait * 2, 8000);
+    }
+    throw new Error(describeStatus(name, 429)); // unreachable; keeps the shape honest
+  }
+
   async function resourceGet(name, options, surface) {
-    const url = PIN.resourceGetUrl(name, options, surface.sourceUrl);
-    const res = await fetch(url, {
-      method: "GET",
-      credentials: "include",
-      headers: PIN.resourceHeaders({ appVersion: appVersion(), sourceUrl: surface.sourceUrl, handler: surface.handler }),
-    });
-    if (!res.ok) throw new Error(`${name} HTTP ${res.status}`);
+    const res = await fetchWithBackoff(name, () =>
+      // The timestamp is rebuilt per attempt — a retry must not reuse the first
+      // attempt's cache-buster.
+      fetch(PIN.resourceGetUrl(name, options, surface.sourceUrl), {
+        method: "GET",
+        credentials: "include",
+        headers: PIN.resourceHeaders({ appVersion: appVersion(), sourceUrl: surface.sourceUrl, handler: surface.handler }),
+      }),
+    );
     return PIN.parseEnvelope(await res.json());
   }
 
   async function resourcePost(name, options, surface) {
-    const res = await fetch(`/resource/${name}/get/`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        ...PIN.resourceHeaders({ appVersion: appVersion(), sourceUrl: surface.sourceUrl, handler: surface.handler, csrfToken: csrfToken() }),
-        "content-type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        source_url: surface.sourceUrl,
-        data: JSON.stringify({ options, context: {} }),
-      }).toString(),
-    });
-    if (!res.ok) throw new Error(`${name} HTTP ${res.status}`);
+    const res = await fetchWithBackoff(name, () =>
+      fetch(`/resource/${name}/get/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          ...PIN.resourceHeaders({ appVersion: appVersion(), sourceUrl: surface.sourceUrl, handler: surface.handler, csrfToken: csrfToken() }),
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          source_url: surface.sourceUrl,
+          data: JSON.stringify({ options, context: {} }),
+        }).toString(),
+      }),
+    );
     return PIN.parseEnvelope(await res.json());
   }
 
@@ -103,12 +138,17 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
     return { id: b.id, name: b.name || surface.slug, url: b.url || `/${surface.username}/${surface.slug}/`, pin_count: b.pin_count ?? null, section_count: b.section_count ?? null };
   }
 
+  // Returns { sections, error }. It used to swallow every failure as an empty list,
+  // so a rate limit or a logged-out session read as "this board has no sections".
   async function fetchSections(board, surface) {
     try {
       const env = await resourceGet("BoardSectionsResource", { board_id: board.id, redux_normalize_feed: true }, surface);
-      return (env.results || []).map((s) => ({ id: s.id, title: s.title, slug: s.slug, pin_count: s.pin_count ?? null }));
-    } catch {
-      return [];
+      return {
+        sections: (env.results || []).map((s) => ({ id: s.id, title: s.title, slug: s.slug, pin_count: s.pin_count ?? null })),
+        error: null,
+      };
+    } catch (e) {
+      return { sections: [], error: e.message || String(e) };
     }
   }
 
@@ -241,7 +281,11 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
         try {
           if (surface.kind === "board" || surface.kind === "section") {
             out.board = await fetchBoard(surface);
-            out.sections = await fetchSections(out.board, surface);
+            const sec = await fetchSections(out.board, surface);
+            out.sections = sec.sections;
+            // A section fetch that failed is reported, but must not mask a board we
+            // did resolve — the harvest works without the section list.
+            if (sec.error && !out.error) out.error = sec.error;
           }
         } catch (e) {
           out.error = e.message || String(e);

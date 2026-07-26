@@ -18,6 +18,7 @@ import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import IconBtn from "@/components/ui/IconBtn";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label — a whole word, never an ellipsis. Values are unchanged.
@@ -27,17 +28,6 @@ const SORT_OPTS = [
   { value: "comments", label: "Comentários", short: "Coment." },
   { value: "shares", label: "Compartilhamentos", short: "Compart." },
 ];
-
-function IconBtn({ children, ...props }) {
-  return (
-    <button
-      {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
 
 // Facebook Reels Sort — reads the reels-tab grid (DOM tiles + initial embedded
 // JSON, via the FB reels-capture content script), sorts it in-panel as a 2-col

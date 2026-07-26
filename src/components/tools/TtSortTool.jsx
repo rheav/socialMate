@@ -28,6 +28,7 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import IconBtn from "@/components/ui/IconBtn";
 import {
   sortRecords,
   recordToCard,
@@ -54,17 +55,6 @@ const SORT_OPTS = [
 ];
 
 // Small icon button overlaid on a card thumbnail.
-function IconBtn({ children, ...props }) {
-  return (
-    <button
-      {...props}
-      className="grid size-6 place-items-center rounded-md bg-black/55 text-white transition-colors hover:bg-black/80 disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
-}
-
 // TikTok Sort + Download. Reads the passive fetch capture (via the TikTok content
 // bridge, FBW_TT_LIST), sorts it in-panel as a 2-col grid of 9:16 cards with a
 // right-side stat rail, and downloads media/thumbnail via FBW_DL_MEDIA. TikTok

@@ -8,6 +8,7 @@ import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
+import IconBtn from "@/components/ui/IconBtn";
 
 const MAX_PAGES = 40; // ~1000 pins per run — surfaced in the UI, never a silent cap.
 // `short` is what the trigger shows once the row is too narrow for the full
@@ -282,10 +283,10 @@ export default function PinBoardTool() {
           const Badge = card.mediaType === "video" ? Film : card.mediaType === "idea" ? Layers : ImageIcon;
           return (
             <div key={card.id} className="group relative aspect-[3/4] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
-              <button
+              <IconBtn
                 onClick={() => downloadRecord(rec)}
                 disabled={st === "downloading"}
-                className="absolute left-1 top-1 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
+                className="absolute left-1 top-1 z-10"
                 title={statusTitle(
                   rec.items.length > 1 ? `Baixar ${rec.items.length} arquivos` : "Baixar",
                   st,
@@ -293,11 +294,11 @@ export default function PinBoardTool() {
                 )}
               >
                 <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
-              </button>
-              <button
+              </IconBtn>
+              <IconBtn
                 onClick={() => save(rec)}
                 disabled={stSave === "downloading"}
-                className="absolute left-1 top-8 z-10 grid size-6 place-items-center rounded-md bg-black/65 text-white hover:bg-black/80 disabled:opacity-50"
+                className="absolute left-1 top-8 z-10"
                 title={statusTitle(
                   savedIds[rec.id] ? "Salvo — toque para remover" : "Salvar na biblioteca",
                   stSave,
@@ -314,7 +315,7 @@ export default function PinBoardTool() {
                         : "")
                   }
                 />
-              </button>
+              </IconBtn>
               {card.thumb ? (
                 <img src={card.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
               ) : null}

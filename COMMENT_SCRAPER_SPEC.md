@@ -1,3 +1,11 @@
+> **STATUS: SHIPPED.** The scraper landed in 0.65.0 as
+> `src/content/fb/comments-scrape.js`. This document is kept for its verified-live
+> DOM facts, which are still accurate. Two details have since changed:
+> `commentIdFromHref` was superseded by `commentRefs()` and deleted, and the
+> `socialmate-comments/` folder was replaced by the unified
+> `Downloads/social-mate/facebook/comentarios/` tree owned by `src/lib/downloadPath.js`.
+> The unchecked task list below is historical.
+
 # Facebook Comment Scraper — Spec + Implementation Plan
 
 Scrape the **comment thread of a single open Facebook reel/post** into a JSON file,
@@ -16,7 +24,7 @@ for mining hooks / objections / sentiment from the audience's own words.
 | Reactions | **Total count only** (no per-type breakdown) |
 | Capture method | **DOM-only** (no JSON.parse hook in v1) |
 
-> Status: **approved, building.** No further confirmation gates (user waived them).
+> Status: **SHIPPED (0.65.0) — kept for the verified-live DOM facts.** No further confirmation gates (user waived them).
 
 ---
 

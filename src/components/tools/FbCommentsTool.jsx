@@ -40,6 +40,14 @@ function jsonDownload(path, obj) {
   setTimeout(() => URL.revokeObjectURL(url), 8000);
 }
 
+// Row key for the virtualizer. The fallback mirrors the shape the scraper uses to
+// dedupe (dedupeKey in content/fb/comments-scrape.js), so a comment with no
+// comment_id — figurinhas and pre-permalink records have none — still gets a key
+// that is unique inside the stored list. It must NOT be the array index: with a
+// search or a filter active the list shifts, so index keys land on a different
+// comment and react-virtual replays the wrong measured height.
+const rowKey = (c) => c.comment_id || `${c.author?.id || "?"}|${String(c.text || "").slice(0, 40)}`;
+
 // One comment row (top-level or reply).
 function CommentRow({ c }) {
   const prof = c.author?.url || null;
@@ -150,7 +158,7 @@ export default function FbCommentsTool() {
     getScrollElement: () => parentRef.current,
     estimateSize: () => 66,
     overscan: 10,
-    getItemKey: (i) => rows[i].comment_id || i,
+    getItemKey: (i) => rowKey(rows[i]),
   });
 
   const copyAll = async () => {
