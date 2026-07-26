@@ -19,6 +19,7 @@ import {
   X,
   Pin,
   RotateCw,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
@@ -125,6 +126,28 @@ export default function TtSortTool() {
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
   }, [send, listFromTab]);
+
+  // FBW_TT_CLEAR is platform-global: it empties the capture behind every TikTok
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
 
   const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
@@ -266,10 +289,16 @@ export default function TtSortTool() {
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
         />
         <ToolIconButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — descarta outras superfícies, recolhe esta"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar limpeza" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários, Stories e Playlists"
+              : "Atualizar — limpa TODA a captura do TikTok (Ordenar, Comentários, Stories e Playlists) e recolhe esta superfície"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
         <ActionButton
           icon={Download}

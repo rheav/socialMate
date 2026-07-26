@@ -7,6 +7,7 @@ import {
   Images,
   Image as ImageIcon,
   RotateCw,
+  Trash2,
   Link2,
   Square,
 } from "lucide-react";
@@ -47,6 +48,28 @@ export default function IgStoriesTool() {
     await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
   }, [send, listFromTab]);
+
+  // FBW_IG_CLEAR is platform-global: it empties the capture behind every Instagram
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
 
   async function downloadItem(item) {
     const id = item.pk;
@@ -158,11 +181,16 @@ export default function IgStoriesTool() {
           {groups.length} perfil(is) capturado(s)
         </span>
         <ActionButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — limpar stories capturados"
-          variant="outline"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar?" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar e de Stories"
+              : "Atualizar — limpa TODA a captura do Instagram (Ordenar e Stories), não só os stories"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
       </ToolBar>
       {groups.map(({ owner, reels: ownerReels }) => (

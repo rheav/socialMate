@@ -4,8 +4,6 @@ Derived from a full read of every file in `src/`, kept current through v0.68.0. 
 top-level doc: the de-facto architecture record was smeared across CHANGELOG
 entries and seven design docs under `docs/superpowers/specs/`.
 
-Companion: `docs/IMPROVEMENT-BACKLOG.md` (prioritised defects and cleanups).
-
 ---
 
 ## 1. Shape of the thing

@@ -6,6 +6,10 @@ ours — everything runs locally in your browser and writes to your own disk.
 
 The panel's UI is in Brazilian Portuguese. The code, comments and docs are English.
 
+The repo directory `social-warmer/fb-warmer` is historical — the extension was
+Facebook-only, then `socialWarmer` until it was renamed in 0.34.0; the shipped name is
+**socialMate** (manifest, panel, and the `~/Downloads/social-mate/` tree).
+
 Two halves share the codebase:
 
 1. **The warm engine** (`src/content.js`) — an autonomous, human-paced browse-and-engage
@@ -131,7 +135,6 @@ src/
     ...                   download paths, session math, zip writer, tab resolution
 docs/
   ARCHITECTURE.md         how it all fits together
-  IMPROVEMENT-BACKLOG.md  known defects and cleanups, prioritised
 ```
 
 Stack: CRXJS + Vite 8, React 19, Tailwind 4, plain JavaScript (no TypeScript),

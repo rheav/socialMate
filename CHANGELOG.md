@@ -1250,6 +1250,47 @@ from naming.
 
 ---
 
+## [0.9.0 – 0.33.x] — between 2026-06-07 and 2026-07-02 · GAP, NOT A RELEASE ENTRY
+
+> **This window was never logged.** Twenty-five versions shipped between `0.8.2` and
+> `0.34.0` — a three-platform warmer picked up the whole research half of the product
+> (capture, downloads, local transcription, Library) and the shell that holds it — and
+> no per-version history survives to reconstruct. The list below is deliberately
+> **undated and unattributed**: it is only what provably
+> landed somewhere in here, read off artifacts still in the tree and off later entries
+> that already treat these features as present. Nothing here was inferred from
+> plausibility. Do not cite this section as a release record; for the current picture
+> read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+### Landed in this window
+- **The media pipeline.** The `chrome.webRequest` registry of fbcdn DASH tracks, the
+  offscreen document, local Whisper transcription and the ffmpeg audio+video mux behind
+  Download. Design spec dated 2026-06-08 (the day after `0.8.2`):
+  `docs/superpowers/specs/2026-06-08-fb-video-transcription-download-design.md`. Every
+  later entry that touches it (`0.38.0`, `0.41.0`–`0.44.0`, `0.48.0`) only fixes or
+  trims something already built.
+- **Instagram passive capture and its tools.** The MAIN-world `JSON.parse` hook plus the
+  isolated bridge/overlay, with **Sort + Download** and **Stories / Highlights** on top.
+  Specs `2026-06-30-swiss-knife-shell-ig-sort-design.md` and
+  `2026-07-01-ig-stories-highlights-download-design.md`; `0.39.0` cites the IG overlay as
+  the pattern to copy, and `0.40.0` only *moves* both tools into the new workspace.
+- **The swiss-knife shell.** `App.jsx` went from one ~810-line monolith with a flat
+  five-tab bottom nav (Warm · History · Transcripts · Saved · Download) to
+  Home → platform hub → tool with per-tool panel components. The 2026-06-30 spec records
+  that before-state as **v0.33.0**, i.e. at the very end of this window.
+- **The Library** (Transcripts / Saved / History) and the profile **reel-thumbnail bulk
+  download**. `0.34.0` renames the latter's download folder, `0.39.1` *restores* it and
+  `0.41.0` *removes* the History tab — all three presuppose it.
+- **MiniLM niche-relevance gating** of warm targets, including the Whisper-for-relevance
+  path. Described as current in the 2026-06-30 spec, then dismantled in `0.37.0` /
+  `0.38.0`.
+
+### Also happened in this window
+- **Facebook Reels mode (C) was dropped** at some point in here — `0.35.0` is titled
+  "restored". When and why is not recorded.
+
+---
+
 ## [0.8.2] — 2026-06-07
 
 ### Fixed

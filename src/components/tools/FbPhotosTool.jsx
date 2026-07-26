@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square, RotateCw, FileArchive } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
-import { resolvePlatformTab } from "@/lib/tabs";
+import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
+import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import {
   summarize,
@@ -52,8 +53,7 @@ function tileTitle(rec) {
 
 export default function FbPhotosTool() {
   const [ctx, setCtx] = useState(null);
-  const [noTab, setNoTab] = useState(false);
-  const tabId = useRef(null);
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("facebook");
 
   const [records, setRecords] = useState([]);
   const [state, setState] = useState({ scraping: false, phase: "idle", scrolls: 0, hitCap: false, capReason: null, error: null, owner: null, caps: null });
@@ -63,18 +63,6 @@ export default function FbPhotosTool() {
   // recreated (same pattern as PinBoardTool).
   const recordsRef = useRef([]);
   const stateRef = useRef(state);
-
-  const send = useCallback(async (msg) => {
-    if (tabId.current == null) tabId.current = await resolvePlatformTab("facebook");
-    if (tabId.current == null) { setNoTab(true); return null; }
-    setNoTab(false);
-    try {
-      return await chrome.tabs.sendMessage(tabId.current, msg);
-    } catch {
-      tabId.current = null;
-      return null;
-    }
-  }, []);
 
   const loadContext = useCallback(async () => {
     const res = await send({ type: "FBW_FBPHOTOS_CONTEXT" });
@@ -95,6 +83,9 @@ export default function FbPhotosTool() {
     const ns = {
       scraping: !!res.scraping,
       phase: res.phase || "idle",
+      // A stopped run and one that never started both end at phase "idle"; this is
+      // the only thing that tells them apart.
+      cancelled: !!res.cancelled,
       scrolls: res.scrolls || 0,
       hitCap: !!res.hitCap,
       capReason: res.capReason || null,
@@ -111,6 +102,7 @@ export default function FbPhotosTool() {
     if (
       sameLen && sameResolved &&
       prev.scraping === ns.scraping && prev.phase === ns.phase && prev.scrolls === ns.scrolls &&
+      prev.cancelled === ns.cancelled &&
       prev.hitCap === ns.hitCap && prev.capReason === ns.capReason &&
       prev.error === ns.error && prev.owner === ns.owner
     )
@@ -125,19 +117,21 @@ export default function FbPhotosTool() {
     return startPolling(pullState, 1000);
   }, [pullState]);
 
+  // userAction on all three: these are clicks, so a dead link is reported at
+  // once instead of after three silent poll misses.
   const scrape = useCallback(async () => {
     setZip({ running: false, done: 0, total: 0, bytes: 0, note: null, error: null });
-    await send({ type: "FBW_FBPHOTOS_SCRAPE" });
+    await send({ type: "FBW_FBPHOTOS_SCRAPE" }, { userAction: true, action: "coletar as fotos" });
     pullState();
   }, [send, pullState]);
 
   const stop = useCallback(async () => {
-    await send({ type: "FBW_FBPHOTOS_STOP" });
+    await send({ type: "FBW_FBPHOTOS_STOP" }, { userAction: true, action: "parar a coleta" });
     pullState();
   }, [send, pullState]);
 
   const clear = useCallback(async () => {
-    await send({ type: "FBW_FBPHOTOS_CLEAR" });
+    await send({ type: "FBW_FBPHOTOS_CLEAR" }, { userAction: true, action: "limpar as fotos" });
     recordsRef.current = [];
     setRecords([]);
     setZip({ running: false, done: 0, total: 0, bytes: 0, note: null, error: null });
@@ -217,17 +211,33 @@ export default function FbPhotosTool() {
     }
   }
 
-  if (noTab)
+  // One banner for every link failure, rendered in every branch below so the
+  // explanation (and its fix) can never be hidden by an empty state — this is
+  // the panel that used to sit on "Lendo a página…" forever when the capture
+  // was not live in the tab.
+  const banner = (
+    <ContentLinkBanner
+      link={link}
+      platformName="Facebook"
+      fixing={fixing}
+      onRevive={revive}
+      onOpenTab={openTab}
+    />
+  );
+
+  if (noTab) return banner;
+
+  if (!ctx)
     return (
-      <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-        Abra o Facebook em uma aba (com login feito) e reabra este painel.
+      <div className="space-y-2">
+        {banner}
+        <p className="py-8 text-center text-sm text-muted-foreground">Lendo a página…</p>
       </div>
     );
 
-  if (!ctx) return <p className="py-8 text-center text-sm text-muted-foreground">Lendo a página…</p>;
-
   return (
     <div className="space-y-2">
+      {banner}
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="text-[13px] font-medium">{owner || "Perfil do Facebook"}</div>
         <div className="text-[11px] text-muted-foreground">
@@ -295,9 +305,11 @@ export default function FbPhotosTool() {
           ? state.phase === "resolving"
             ? " · resolvendo o que faltou"
             : ` · rolando a grade (${state.scrolls})`
-          : state.phase === "done"
-            ? " · concluído"
-            : ""}
+          : state.cancelled
+            ? " · coleta interrompida"
+            : state.phase === "done"
+              ? " · concluído"
+              : ""}
         {state.hitCap && state.caps ? ` · ${capMessage(state.capReason, state.caps)}` : ""}
       </div>
 

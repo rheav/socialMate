@@ -832,6 +832,55 @@ function jsonDataUrl(obj) {
   return "data:application/json;base64," + bytesToBase64(bytes);
 }
 
+// ---- image downloads ------------------------------------------------------
+// Images used to go out as a base64 data: URL too, which for a photo means the
+// bytes, the binary string and the base64 string resident at once — ~3x the file,
+// every time. The offscreen document HAS URL.createObjectURL, so it fetches and
+// hands back a blob: URL (see fetchToBlobUrl there) and only the bytes exist.
+//
+// TikTok keeps the in-worker path on purpose: its CDN 403s a request without the
+// Referer that the declarativeNetRequest session rule injects, and we could not
+// establish that the rule applies to a fetch issued by our own offscreen document.
+// A miss there is a silent 403, and TikTok images here are thumbnails, so the
+// memory win would be nothing.
+
+// downloadId -> blob: URL to release once the item stops being in_progress.
+// chrome.downloads.download resolves when the item is CREATED, so revoking then
+// would be racing the bytes; and leaving it to the offscreen idle release means a
+// 100-photo save holds all 100 blobs at once.
+const blobUrlByDownloadId = new Map();
+
+chrome.downloads.onChanged.addListener((delta) => {
+  if (!delta.state || delta.state.current === "in_progress") return;
+  const blobUrl = blobUrlByDownloadId.get(delta.id);
+  if (!blobUrl) return;
+  blobUrlByDownloadId.delete(delta.id);
+  callOffscreen({ action: "revokeBlobUrl", blobUrl }).catch(() => {});
+});
+
+/** Returns false when the offscreen route produced no download — the caller then
+ *  falls back to the data: URL path rather than losing the file. */
+async function downloadImageViaOffscreen(msg, filename) {
+  if (isTiktokCdn(msg.url) || isTiktokCdn(msg.fallbackUrl)) return false;
+  try {
+    await ensureOffscreen();
+    const res = await callOffscreen({
+      action: "fetchToBlobUrl",
+      url: msg.url,
+      fallbackUrl: msg.fallbackUrl,
+    });
+    if (!res?.success || !res.blobUrl) return false;
+    const id = await chrome.downloads.download({ url: res.blobUrl, filename });
+    blobUrlByDownloadId.set(id, res.blobUrl);
+    return true;
+  } catch {
+    // Whatever failed (no offscreen document, a dead CDN link, a bad filename) the
+    // fallback re-runs it here and reports the real error. The blob, if one was
+    // minted, is covered by the offscreen document's own revocation timers.
+    return false;
+  }
+}
+
 
 // ---- message router (content + panel) ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -843,6 +892,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // the WASM heaps (Whisper ~180 MB + MiniLM + ffmpeg) are actually returned to the
     // OS; WASM memory only shrinks by being discarded. Next job re-creates it.
     case "FBW_OFFSCREEN_IDLE": {
+      // REFUSE while a download is still reading a blob: URL the offscreen document
+      // owns. The idle timer arms as soon as fetchToBlobUrl RETURNS, which is before
+      // chrome.downloads has finished writing — and closing the document revokes the
+      // blob out from under an in-flight write. Reachable with "ask where to save
+      // each file" on: leave the dialog open past the 45s idle window and the file
+      // fails with an ok:true already sent. The offscreen re-arms its own timer, so
+      // declining here just defers the release.
+      if (blobUrlByDownloadId.size > 0) return false;
       (async () => {
         try {
           if (await chrome.offscreen.hasDocument?.()) await chrome.offscreen.closeDocument();
@@ -998,8 +1055,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true; // async
     }
-    // panel → bg: download IG media. video = direct URL; image = fetch in the SW
-    // (host perms bypass page CORS) → base64 data URL. Carousels arrive one msg/child.
+    // panel → bg: download IG media. video = direct URL; image = fetched with our
+    // host permissions (bypasses page CORS) and saved from a blob: URL minted in
+    // the offscreen document, TikTok excepted. Carousels arrive one msg/child.
     case "FBW_DL_MEDIA": {
       (async () => {
         try {
@@ -1008,6 +1066,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const filename = resolveDownloadPath(msg, `media-${Date.now()}`);
           if (msg.kind === "video") {
             await chrome.downloads.download({ url: msg.url, filename });
+            sendResponse({ ok: true });
+            return;
+          }
+          if (await downloadImageViaOffscreen(msg, filename)) {
             sendResponse({ ok: true });
             return;
           }

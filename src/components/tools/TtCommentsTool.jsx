@@ -10,6 +10,7 @@ import {
   Download,
   CornerDownRight,
   RotateCw,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
@@ -101,6 +102,28 @@ export default function TtCommentsTool() {
     pull();
   }, [send, pull]);
 
+  // FBW_TT_CLEAR is platform-global: it empties the capture behind every TikTok
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
+
   useEffect(() => {
     return startPolling(pull, 2500); // skips ticks while the panel is hidden
   }, [pull]);
@@ -184,10 +207,16 @@ export default function TtCommentsTool() {
           })}
         />
         <ToolIconButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — descarta outros vídeos, segue o que você está vendo"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar limpeza" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários, Stories e Playlists"
+              : "Atualizar — limpa TODA a captura do TikTok (Ordenar, Comentários, Stories e Playlists) e volta a seguir o vídeo que você está vendo"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
       </ToolBar>
 

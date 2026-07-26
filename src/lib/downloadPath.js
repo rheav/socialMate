@@ -22,6 +22,11 @@
 // lib/platforms.jsx, plus the media kinds), so nothing else in the codebase changes.
 // ---------------------------------------------------------------------------
 
+// The name-part scrubber lives in shared/ because the content scripts need it too
+// and cannot import. Re-exported here so every existing caller is unchanged.
+import { sanitizeFilenamePart } from "./shared/filenames.js";
+export { sanitizeFilenamePart };
+
 export const DOWNLOAD_ROOT = "social-mate";
 
 // Only real platforms live here. There used to be a SESSIONS pseudo-platform
@@ -132,6 +137,3 @@ export function kindFromExt(ext) {
 // fbPhotos / fbReels / igMedia / ttMedia / pinMedia; those now re-export this one so
 // there is a single definition. Caps at 40 chars because it is only ever applied to a
 // PART of a name (an owner/author), never to the whole file name.
-export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-}

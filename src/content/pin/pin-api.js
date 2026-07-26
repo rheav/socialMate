@@ -1,5 +1,8 @@
 import * as PIN from "../../lib/pinMedia.js"; // CRXJS bundles content-script imports
 import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
+// The other overlays inline these (an import would turn them into loaders); this
+// script already imports, so it takes them the normal way — same code either way.
+import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shared/overlayUi.js";
 
 // Pinterest capture — the ONLY active-fetch platform in this extension.
 //
@@ -351,15 +354,6 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
   // ============================================================
   const MAX_TILES_PER_PASS = 48; // hard cap — Pinterest's grid mutates constantly
 
-  const PIN_SVG = {
-    dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
-    save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
-    ok: '<polyline points="20 6 9 17 4 12"/>',
-    err: '<line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/>',
-  };
-  const pinIcon = (name, size = 15) =>
-    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${PIN_SVG[name]}</svg>`;
-
   let overlayOn = true;
   let ovlStyleAdded = false;
   let ovlTimer = null;
@@ -428,17 +422,9 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
     return rec;
   }
 
-  function setBtnState(btn, state) {
-    btn.classList.remove("busy", "ok", "err");
-    if (state === "busy") { btn.classList.add("busy"); btn.innerHTML = pinIcon(btn.dataset.kind); }
-    else if (state === "ok") { btn.classList.add("ok"); btn.innerHTML = pinIcon("ok"); }
-    else if (state === "err") { btn.classList.add("err"); btn.innerHTML = pinIcon("err"); }
-    else btn.innerHTML = pinIcon(btn.dataset.kind);
-  }
-
   async function runDownload(id, btn) {
     if (btn.classList.contains("busy")) return;
-    setBtnState(btn, "busy");
+    setOverlayBtnState(btn, "busy");
     try {
       const rec = await recordFor(id);
       const multi = rec.items.length > 1;
@@ -461,11 +447,9 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
         });
         if (!res || res.ok === false) throw new Error(res?.error || "download falhou");
       }
-      setBtnState(btn, "ok");
+      flashOverlayBtn(btn, "ok");
     } catch {
-      setBtnState(btn, "err");
-    } finally {
-      setTimeout(() => { if (btn.isConnected) setBtnState(btn, "idle"); }, 2500);
+      flashOverlayBtn(btn, "err");
     }
   }
 
@@ -475,7 +459,7 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
   // shared Library.
   async function runSave(id, btn) {
     if (btn.classList.contains("busy")) return;
-    setBtnState(btn, "busy");
+    setOverlayBtnState(btn, "busy");
     try {
       const rec = await recordFor(id);
       // The background owns and serializes this write (one shape, one writer).
@@ -495,11 +479,9 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
       if (!entry) throw new Error("pin sem id");
       const saveRes = await chrome.runtime.sendMessage({ type: "FBW_SAVED_TOGGLE", entry });
       if (!saveRes || saveRes.ok === false) throw new Error(saveRes?.error || "falha ao salvar");
-      setBtnState(btn, "ok");
+      flashOverlayBtn(btn, "ok");
     } catch {
-      setBtnState(btn, "err");
-    } finally {
-      setTimeout(() => { if (btn.isConnected) setBtnState(btn, "idle"); }, 2500);
+      flashOverlayBtn(btn, "err");
     }
   }
 
@@ -509,7 +491,7 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
     b.className = "sw-pinbtn";
     b.dataset.kind = kind;
     b.title = title;
-    b.innerHTML = pinIcon(kind);
+    b.innerHTML = overlayIcon(kind);
     // Only ever suppress the click ON THIS BUTTON — never a blanket capture that
     // could swallow clicks elsewhere on the tile.
     b.addEventListener("click", (ev) => {

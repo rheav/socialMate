@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { Download, Bookmark, RotateCw, ListVideo, ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { Download, Bookmark, RotateCw, Trash2, ListVideo, ChevronDown, ChevronRight, Eye } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
@@ -43,6 +43,28 @@ export default function TtCollectionsTool() {
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     pull();
   }, [send, pull]);
+
+  // FBW_TT_CLEAR is platform-global: it empties the capture behind every TikTok
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
 
   // Per-action status. The key is namespaced per action: a failed SAVE used to
   // share the record's key and so painted the video-download icon red.
@@ -137,11 +159,16 @@ export default function TtCollectionsTool() {
           {lists.length} coleção(ões) capturada(s)
         </span>
         <ActionButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — limpar coleções capturadas"
-          variant="outline"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar?" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários, Stories e Playlists"
+              : "Atualizar — limpa TODA a captura do TikTok (Ordenar, Comentários, Stories e Playlists), não só as coleções"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
       </ToolBar>
 

@@ -38,9 +38,16 @@ const TARGETS = {
     "src/lib/shared/counts.js",
     "src/lib/shared/igSurface.js",
     "src/lib/shared/savedEntry.js",
+    "src/lib/shared/filenames.js",
+    "src/lib/shared/igFormat.js",
+    "src/lib/shared/overlayUi.js",
   ],
   "src/content/ig/main-world.js": ["src/lib/shared/igSurface.js"],
-  "src/content/tt/tt-relay.js": ["src/lib/shared/counts.js", "src/lib/shared/savedEntry.js"],
+  "src/content/tt/tt-relay.js": [
+    "src/lib/shared/counts.js",
+    "src/lib/shared/savedEntry.js",
+    "src/lib/shared/overlayUi.js",
+  ],
 };
 
 const BEGIN = (mod) => `// <<< inline:${mod}`;

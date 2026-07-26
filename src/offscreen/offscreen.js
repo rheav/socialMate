@@ -290,6 +290,38 @@ async function muxDownload(videoUrl, audioUrl, videoId) {
   return { blobUrl, filename: `fb-${videoId}.mp4` };
 }
 
+// Same trick for a plain media fetch. The SW used to buffer a saved photo as a
+// base64 data: URL — the bytes, the binary string and the base64 string all
+// resident at once, roughly 3x the file, per photo — because it has no
+// URL.createObjectURL. Doing the fetch here costs one copy. Bookkeeping is
+// muxDownload's: tracked in liveBlobUrls, revoked by the idle release, with the
+// 5-minute timer as the backstop. fallbackUrl mirrors the worker path this
+// replaces (a second candidate for a CDN link that 403s).
+// A blob URL handed to chrome.downloads stays PINNED until that download reports it
+// is finished. Without the pin, the 45s idle release revokes every live blob — and it
+// does so BEFORE telling the worker it is going idle, so no service-worker-side guard
+// can protect a write that is still in flight. Reachable with "ask where to save each
+// file" enabled: leave the dialog open past the idle window and the file dies.
+const pinnedBlobUrls = new Set();
+
+function unpinBlobUrl(blobUrl) {
+  pinnedBlobUrls.delete(blobUrl);
+  if (liveBlobUrls.delete(blobUrl)) URL.revokeObjectURL(blobUrl);
+}
+
+async function fetchToBlobUrl(url, fallbackUrl) {
+  let r = await fetch(url).catch(() => null);
+  if ((!r || !r.ok) && fallbackUrl) r = await fetch(fallbackUrl).catch(() => null);
+  if (!r || !r.ok) throw new Error("fetch failed " + (r ? r.status : "network"));
+  const blobUrl = URL.createObjectURL(await r.blob());
+  liveBlobUrls.add(blobUrl);
+  pinnedBlobUrls.add(blobUrl);
+  // Backstop: a download that never reports back (worker torn down mid-write) must
+  // not pin the runtimes forever.
+  setTimeout(() => unpinBlobUrl(blobUrl), 5 * 60 * 1000);
+  return { blobUrl };
+}
+
 // ---- idle release ----------------------------------------------------------
 // Whisper (~76 MB model), MiniLM (~23 MB) and ffmpeg (31 MB wasm, heap grown to the
 // largest video ever muxed) were previously loaded once and held for the whole
@@ -308,6 +340,8 @@ let idleTimer = null;
 
 function releaseRuntimes() {
   if (inFlight > 0) return;
+  // Defer while a download still holds one of our blob URLs — releasing revokes it.
+  if (pinnedBlobUrls.size > 0) return scheduleIdleRelease();
   try { txWorker?.terminate(); } catch { /* ignore */ }
   try { relWorker?.terminate(); } catch { /* ignore */ }
   try { ffmpeg?.terminate?.(); } catch { /* ignore */ }
@@ -387,6 +421,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.action === "muxDownload") {
     job(sendResponse, () => muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId));
+    return true;
+  }
+  if (msg.action === "fetchToBlobUrl") {
+    job(sendResponse, () => fetchToBlobUrl(msg.url, msg.fallbackUrl));
+    return true;
+  }
+  // The SW asks for this once its download has left in_progress, so a bulk photo
+  // save doesn't pile every image up here until the idle release. Deliberately not
+  // a job(): it is bookkeeping for a job that already finished, and restarting the
+  // idle timer would keep the runtimes resident for nothing.
+  if (msg.action === "revokeBlobUrl") {
+    unpinBlobUrl(msg.blobUrl);
+    sendResponse({ success: true });
     return true;
   }
 

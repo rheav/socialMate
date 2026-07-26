@@ -20,6 +20,7 @@ import {
   Check,
   X,
   RotateCw,
+  Trash2,
   Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -127,6 +128,28 @@ export default function IgSortTool() {
     await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
   }, [send, listFromTab]);
+
+  // FBW_IG_CLEAR is platform-global: it empties the capture behind every Instagram
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
 
   const scoped = showAll ? records : filterBySurface(records, surface);
   const sorted = sortRecords(scoped, sortKey, sortDir);
@@ -325,10 +348,16 @@ export default function IgSortTool() {
           onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
         />
         <ToolIconButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — descarta outras superfícies, recolhe esta"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar limpeza" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar e de Stories"
+              : "Atualizar — limpa TODA a captura do Instagram (Ordenar e Stories) e recolhe esta superfície"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
         <ActionButton
           icon={bulk ? Square : Download}

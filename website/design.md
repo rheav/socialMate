@@ -1,9 +1,15 @@
-# socialWarmer — Landing Page Design System
+# socialMate — Landing Page Design System
 
-Design language for the socialWarmer marketing site. Ported from the Mail
+Design language for the socialMate marketing site. Ported from the Mail
 Warmer Astro landing (soft analog atmosphere, pure-CSS "html gif" feature
-loops), re-skinned to socialWarmer's **blue→cyan** identity gradient with
+loops), re-skinned to socialMate's **blue→cyan** identity gradient with
 **ember-orange** warmth accents pulled from the extension UI.
+
+> **The name is socialMate.** That is what the manifest ships, what the panel
+> says, and what `~/Downloads/social-mate/` is already named; `socialWarmer` was
+> the name until 0.34.0. The Astro source under `website/src/` still carries the
+> old wordmark in copy, page titles and the `socialwarmer.app` site URL — a
+> pending cleanup, not a second brand.
 
 > **Core idea inherited:** nothing on this page is a video. Every product
 > demo is a *real CSS state machine* looping live — feeds scroll, videos

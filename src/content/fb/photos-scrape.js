@@ -38,6 +38,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwFbPhotosInit) {
     if (e.source === window && e.data && e.data.__fbwPhTakeover && e.data.__fbwPhTakeover !== GEN && !disabled) {
       disabled = true;
       cancelFlag = true;
+      wakeSleepers();
     }
   });
   window.postMessage({ __fbwPhTakeover: GEN }, "*");
@@ -166,7 +167,21 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
 }
 // >>> inline:end
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Cancellation has to land INSIDE the wait. The harvest spends nearly all of
+  // its life parked in one of these, so with a plain timer the panel kept
+  // reporting a live run for up to SCROLL_STEP_MS after Stop was pressed.
+  const sleepers = new Set();
+  function sleep(ms) {
+    if (cancelFlag) return Promise.resolve();
+    return new Promise((resolve) => {
+      const wake = () => { clearTimeout(timer); sleepers.delete(wake); resolve(); };
+      const timer = setTimeout(wake, ms);
+      sleepers.add(wake);
+    });
+  }
+  function wakeSleepers() {
+    for (const wake of Array.from(sleepers)) wake();
+  }
 
   // ============================================================
   // live state (read by FBW_FBPHOTOS_STATE)
@@ -180,6 +195,10 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
   let scraping = false;
   let cancelFlag = false;
   let phase = "idle";    // idle | scrolling | resolving | done
+  // A stopped run ends on "idle" like a run that never happened, so the panel is
+  // told which of the two it is looking at by a flag instead of by a phase string
+  // it does not know how to render.
+  let cancelled = false;
   let scrolls = 0;
   let lastError = null;
   let hitCap = false;    // a cap stopped the run while work remained
@@ -286,10 +305,23 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
       const href = a.getAttribute("href") || "";
       const fbid = fbidFromHref(href);
       if (!fbid || seen.has(fbid)) continue;
-      const r = a.getBoundingClientRect();
-      if (r.width < TILE_MIN_PX || r.height < TILE_MIN_PX) continue;
       const img = a.querySelector("img");
       const src = img && (img.currentSrc || img.src);
+      // Size gate WITHOUT forcing layout: a decoded <img> already carries its
+      // intrinsic size, so hundreds of tiles cost zero reflows. This used to be
+      // getBoundingClientRect() on every fbid anchor, i.e. a full layout flush
+      // every 1400 ms for the whole scroll harvest. offsetWidth is consulted only
+      // when the anchor has no decoded image yet — a not-yet-loaded tile must not
+      // be mistaken for page chrome — which is a handful of anchors, not the grid.
+      // `offsetParent === null` is display:none (or fixed) and costs no layout — it
+      // keeps this gate from ACCEPTING what the old rect check rejected: a hidden
+      // anchor wrapping an already-decoded full-size image.
+      const big =
+        img &&
+        a.offsetParent !== null &&
+        img.naturalWidth >= TILE_MIN_PX &&
+        img.naturalHeight >= TILE_MIN_PX;
+      if (!big && (a.offsetWidth < TILE_MIN_PX || a.offsetHeight < TILE_MIN_PX)) continue;
       seen.add(fbid);
       out.push({ fbid, set: setFromHref(href), thumb: src && !/^data:/.test(src) ? src : null });
     }
@@ -369,6 +401,7 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
 
     scraping = true;
     cancelFlag = false;
+    cancelled = false;
     hitCap = false;
     capReason = null;
     lastError = null;
@@ -379,7 +412,12 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
       ingestTiles();
       await scrollGrid(gen);
       if (!cancelFlag && gen === generation) await resolveGaps(gen);
-      phase = cancelFlag ? "idle" : "done";
+      // A superseded generation (Clear, or a newer run) owns the state now, so a
+      // run that lost the race must not write its ending over it.
+      if (gen === generation) {
+        cancelled = cancelFlag;
+        phase = cancelFlag ? "idle" : "done";
+      }
     } catch (e) {
       lastError = e.message || String(e);
       phase = "idle";
@@ -415,6 +453,7 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
         records: Array.from(store.values()),
         scraping,
         phase,
+        cancelled,
         scrolls,
         captured: capById.size,
         hitCap,
@@ -429,6 +468,7 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
 
     if (msg?.type === "FBW_FBPHOTOS_STOP") {
       cancelFlag = true;
+      wakeSleepers();
       sendResponse({ ok: true });
       return;
     }
@@ -437,6 +477,8 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
       resetStore();
       generation++;
       cancelFlag = true;
+      wakeSleepers();
+      cancelled = false;
       scraping = false;
       phase = "idle";
       scrolls = 0;

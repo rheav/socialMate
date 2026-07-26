@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { requireOk } from "./bg.js";
 
 // Per-item action status for the tool panes.
@@ -16,20 +16,70 @@ import { requireOk } from "./bg.js";
 // Deliberately not a download-specific hook: panes drive saves and exports
 // through it too, and `run` takes any async function so a multi-request action
 // (carousel, "download all") is one status.
+
+// How long a terminal status stays on screen. They fade on their own because a
+// grid that keeps every past outcome coloured stops describing anything current;
+// "error" lingers far longer than "done" since its tooltip carries a reason the
+// user still has to read. "downloading" is absent on purpose — it is not
+// terminal, it ends when the action ends.
+const EXPIRE_MS = { done: 2500, error: 12000 };
+
 export function useItemStatus() {
   const [items, setItems] = useState({});
+  const timers = useRef({});
+  const alive = useRef(true);
 
-  const set = useCallback((key, status, error = null) => {
-    setItems((m) => ({ ...m, [key]: { status, error } }));
-  }, []);
-
-  const clear = useCallback((key) => {
+  const drop = useCallback((key) => {
+    if (!alive.current) return;
     setItems((m) => {
       if (!(key in m)) return m;
       const next = { ...m };
       delete next[key];
       return next;
     });
+  }, []);
+
+  const cancelExpiry = useCallback((key) => {
+    const t = timers.current[key];
+    if (t === undefined) return;
+    clearTimeout(t);
+    delete timers.current[key];
+  }, []);
+
+  const set = useCallback(
+    (key, status, error = null) => {
+      if (!alive.current) return;
+      // A new status supersedes the old one, expiry included: without this a
+      // re-run's "downloading" would still be wiped by the previous "done".
+      cancelExpiry(key);
+      setItems((m) => ({ ...m, [key]: { status, error } }));
+      const ms = EXPIRE_MS[status];
+      if (ms === undefined) return;
+      timers.current[key] = setTimeout(() => {
+        delete timers.current[key];
+        drop(key);
+      }, ms);
+    },
+    [cancelExpiry, drop],
+  );
+
+  const clear = useCallback(
+    (key) => {
+      cancelExpiry(key);
+      drop(key);
+    },
+    [cancelExpiry, drop],
+  );
+
+  useEffect(() => {
+    // Re-armed here, not just at init: StrictMode's mount/unmount/remount would
+    // otherwise leave the hook permanently dead after the first cleanup.
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      for (const t of Object.values(timers.current)) clearTimeout(t);
+      timers.current = {};
+    };
   }, []);
 
   // Run an async action, tracking busy → done | error with the real message.

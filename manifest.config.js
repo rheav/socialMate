@@ -6,8 +6,8 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "0.70.0",
-  version_name: "0.70.0 — correções de escopo no Instagram, limites do Pinterest com backoff, confirmação nas ações destrutivas, modo escuro no painel de opções e um só parser de contagens",
+  version: "0.71.0",
+  version_name: "0.71.0 — grade de fotos sem reflow, download de imagem sem inchar a memória, overlays com um só conjunto de ícones e estado, e limpeza com confirmação",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

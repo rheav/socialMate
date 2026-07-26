@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { Download, FileText, Loader2, Bookmark, RotateCw, Eye, Heart } from "lucide-react";
+import { Download, FileText, Loader2, Bookmark, RotateCw, Trash2, Eye, Heart } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
@@ -60,6 +60,28 @@ export default function TtStoriesTool() {
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     pull();
   }, [send, pull]);
+
+  // FBW_TT_CLEAR is platform-global: it empties the capture behind every TikTok
+  // pane, not just this one. So Atualizar arms on the first tap and only clears on
+  // the second — the same two-step the Library's "limpar tudo" uses.
+  const [clearArmed, setClearArmed] = useState(false);
+  const clearBtnRef = useRef(null);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    // Capture phase, so a handler that stops propagation can't leave it armed.
+    const disarm = (e) => { if (!clearBtnRef.current?.contains(e.target)) setClearArmed(false); };
+    document.addEventListener("pointerdown", disarm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", disarm, true);
+    };
+  }, [clearArmed]);
+  const onClearTap = () => {
+    if (!clearArmed) { setClearArmed(true); return; }
+    setClearArmed(false);
+    refresh();
+  };
 
   // Per-item action status. One download per story item, so the record's primary
   // key is the only one needed — and a failure keeps its reason for the tooltip.
@@ -146,11 +168,16 @@ export default function TtStoriesTool() {
           {owners.length} criador(es) capturado(s)
         </span>
         <ActionButton
-          icon={RotateCw}
-          label="Atualizar"
-          hint="Atualizar — limpar stories capturados"
-          variant="outline"
-          onClick={refresh}
+          ref={clearBtnRef}
+          icon={clearArmed ? Trash2 : RotateCw}
+          label={clearArmed ? "Confirmar?" : "Atualizar"}
+          hint={
+            clearArmed
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários, Stories e Playlists"
+              : "Atualizar — limpa TODA a captura do TikTok (Ordenar, Comentários, Stories e Playlists), não só os stories"
+          }
+          variant={clearArmed ? "destructive" : "outline"}
+          onClick={onClearTap}
         />
       </ToolBar>
 
