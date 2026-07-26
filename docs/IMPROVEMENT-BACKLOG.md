@@ -11,6 +11,71 @@ come from the subsystem read and are high-confidence but unverified line-by-line
 
 ---
 
+---
+
+## Done in 0.70.0 — the P0/P1 sweep and most of P2
+
+**P0, all closed.** IG records now carry the surface they were CAPTURED on (items
+7-8: a replay after Clear relabelled other profiles' posts as the current one, and
+`igMedia` stored the raw record where `byId` stored the coalesced one). The Facebook
+photos and Pinterest stores both had a null-key guard that skipped the reset, so two
+profiles could merge into one ZIP (item 9); the join tables are cleared now too. A
+second Pinterest Harvest press silently restarted from page 1 (item 10). Pausing with
+no run poisoned the next one (item 11). Items 12-13 dissolved: those handlers had zero
+senders, so they were deleted rather than guarded, along with `fbPageInfo`,
+`collectReelThumbs`, `run`, `forcePlayOnly` and `ensurePlaying`.
+
+**P1, all closed.** `ensureOffscreen` no longer treats a real failure as "already
+exists" (16). The transcription timeout now actually aborts the worker (17) — and
+must NOT touch `inFlight`, which would drive it negative and block the idle release
+forever. `muxDownload` checks `r.ok`, so an expired signed URL says so instead of
+feeding an HTML error page to ffmpeg (18). Worker config failures are no longer
+dropped (19). `FBW_DL_JSON` is awaited (20). `storeComments` rethrows (21).
+`reels-capture.js` gained the generation takeover it never had, plus a concurrency
+guard, a rejection handler and a stop message (22). The video loop feeds the
+soft-block detector (23) — a soft-blocked reels session used to keep clicking into
+the void for its whole duration. `logHistory` reports every counter (24). `poll.js`
+was rewritten and is finally testable and tested (27).
+
+**P2, most of it.** Perf: `detectStop` cached, `persist` debounced, per-store poll
+versions (and the panes now actually USE the `{unchanged}` protocol — they never sent
+`since`, so it was dead code), `buildDoc`'s O(n²) orphan pass, a node budget on the
+reels JSON walk, the FB photos sweep gated on surface, the Pinterest store capped,
+the IG story ticker made navigation-driven. Duplication: one `IconBtn` (five copies,
+already drifted), one base64 encoder, one TikTok-CDN test, and — the big one — one
+`parseCount` where there had been SEVEN, with its separator rule generalised and
+pinned by tests. UX: destructive confirms, bulk-download progress and cancel, an
+error boundary, dark mode and validation in OptionsDropdown, cross-window theme sync,
+a fail-closed window filter, stable virtualizer keys, platform-correct export names.
+Locale: the FB counts scraper read nothing on a pt-BR UI. Pinterest: retry with
+backoff, and a 403 now says "log in" instead of "HTTP 403". Hygiene: dropped the
+redundant `activeTab` permission, marked both stale specs, rewrote the README.
+
+Tests went 324 → 362 across 19 → 21 files.
+
+### Still open
+
+- **Item 43 (partial)** — `ttMedia.parseCount`'s pt-BR bug is fixed, but
+  `isCommentArticle` still matches only `/coment|comment/i` while `COMMENT_PREFIX`
+  claims de/fr/it support, and recovery errors are pt-BR where transcription errors
+  are English.
+- **Items 33, 36, 50** — layout thrash from per-tile `getBoundingClientRect`, the
+  SW's base64 image buffering (~3× the file in memory), and `FbPhotosTool`'s
+  hand-rolled tab binding with no revive banner.
+- **Item 41** — the four page overlays still reimplement the same button machinery;
+  `ig/bridge.js` keeps its own `erOf`/`dateFromPkOvl`/`sanit`/`igName`, so the IG
+  snowflake epoch is still written twice. Each is now one `gen-inline` target entry.
+- **Items 44, 47, 49** — `busy` statuses are still permanent, the platform-global
+  Clear is still unexplained in the UI, and `FBW_FBPHOTOS_STOP` still lags.
+- **Item 59** — still zero coverage on the content scripts themselves. A jsdom
+  Vitest project over captured HTML fixtures is the unlock.
+- **Item 62** — NOT DONE ON PURPOSE. `social-warmer-v0.33.0.zip` (96 MB),
+  `social-slim.zip` and `dist-slim/` are **untracked**, so deleting them is not
+  recoverable through git. `fb-mass-downloader/` and `bulk-download-videos-fb/` ARE
+  tracked (and the latter is third-party compiled code). Needs a human decision.
+- **Items 63, 64** — the four-way name split (socialMate / socialWarmer /
+  social-mate / social-warmer) and the 25-version CHANGELOG hole.
+
 ## Done in 0.69.0
 
 - **Item 14 — the mirroring problem is structurally solved.** `src/lib/shared/`
