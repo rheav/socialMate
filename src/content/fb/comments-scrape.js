@@ -447,8 +447,19 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwCommentsInit) {
       const doc = await harvest();
       if (!contextAlive()) return; // reloaded/updated mid-scrape → nothing to persist
       await storeComments(doc);
-      const filename = `socialmate-comments/fb-${doc.post_id || "post"}-${stamp()}.json`;
-      chrome.runtime.sendMessage({ type: "FBW_DL_JSON", filename, data: doc }).catch(() => {});
+      // Was a hardcoded "socialmate-comments/…" folder here, which bypassed the lib
+      // and drifted from it. This script is import-free on purpose (see header), so
+      // it sends the bare name + where it belongs and the background builds the path
+      // with lib/downloadPath.js — one owner for folders, no second copy here.
+      chrome.runtime
+        .sendMessage({
+          type: "FBW_DL_JSON",
+          filename: `fb-${doc.post_id || "post"}-${stamp()}.json`,
+          platform: "facebook",
+          folder: "comments",
+          data: doc,
+        })
+        .catch(() => {});
       progress("ok", cancelFlag ? `Parado · ${doc.count} salvos` : `✓ ${doc.count} comentários`);
     } catch (err) {
       progress("busy", "Falhou — tentar de novo");

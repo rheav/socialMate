@@ -6,6 +6,7 @@
 // assemble the JSON export envelope.
 
 import { parseCount } from "./fbReels.js";
+import { downloadPath } from "./downloadPath.js";
 
 // "22 reações, veja quem reagiu a isso" / "22 reactions" / "1,2 mil reações" → number.
 // No reactions element → 0.
@@ -72,8 +73,10 @@ function stamp(d = new Date()) {
   return d.toISOString().replace(/[:.]/g, "-").slice(0, 19);
 }
 
+// Both routes to a comments export — the content script's auto-save and the panel's
+// "baixar JSON" button — call this, so they can never disagree about where it lands.
 export function filenameFor(postId) {
-  return `socialmate-comments/fb-${postId || "post"}-${stamp()}.json`;
+  return downloadPath("facebook", "comments", `fb-${postId || "post"}-${stamp()}.json`);
 }
 
 // Assemble the export envelope. Records arrive already ordered (top-level then its

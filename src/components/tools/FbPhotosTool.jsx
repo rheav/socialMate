@@ -10,7 +10,7 @@ import {
   UNRESOLVED_ENTRY,
   capMessage,
   zipNotes,
-  filenameFor,
+  baseNameFor,
   extFromUrl,
   zipFilename,
   fmtBytes,
@@ -171,7 +171,10 @@ export default function FbPhotosTool() {
           const res = await fetch(rec.url);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = new Uint8Array(await res.arrayBuffer());
-          builder.add(filenameFor({ ...rec, owner }, extFromUrl(rec.url, "image")), data);
+          // baseNameFor, not filenameFor: this is the ZIP ENTRY name. Using the
+          // download PATH here would make every extracted archive rebuild a
+          // social-mate/facebook/fotos/ tree inside the folder you unzip into.
+          builder.add(baseNameFor({ ...rec, owner }, extFromUrl(rec.url, "image")), data);
           bytes += data.length;
         } catch {
           failed++;

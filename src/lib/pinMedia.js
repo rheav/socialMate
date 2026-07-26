@@ -9,6 +9,8 @@
 //   1. x-pinterest-pws-handler is MANDATORY and must match the route.
 //   2. GET must NOT carry x-csrftoken; POST MUST.
 
+import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+
 export const PWS_HANDLERS = {
   home: "www/index.js",
   user: "www/[username].js",
@@ -301,13 +303,18 @@ export function recordToCard(rec) {
 // ---------------------------------------------------------------------------
 // Filenames + formatting
 // ---------------------------------------------------------------------------
-export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-}
+// One definition, in downloadPath.js — this used to be a byte-identical copy.
+export { sanitizeFilenamePart };
 
-export function filenameFor(rec, ext, idx) {
+export function baseNameFor(rec, ext, idx) {
   const base = `pin-${sanitizeFilenamePart(rec.username) || "pinterest"}-${rec.id || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+}
+
+// A pin is an image OR a video (and a carousel can mix them), so the sub-folder
+// comes from the resolved extension of THIS item, not from the record.
+export function filenameFor(rec, ext, idx) {
+  return downloadPath("pinterest", kindFromExt(ext), baseNameFor(rec, ext, idx));
 }
 
 export function extFromUrl(url, kind) {

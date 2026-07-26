@@ -51,8 +51,12 @@ describe("filenames", () => {
     expect(sanitizeFilenamePart('a/b:c*?"<>|d')).toBe("a_b_c_d");
   });
   it("builds base and indexed names", () => {
-    expect(filenameFor({ username: "ivy", code: "X1" }, "mp4")).toBe("ig-ivy-X1.mp4");
-    expect(filenameFor({ username: "ivy", code: "X1" }, "jpg", 2)).toBe("ig-ivy-X1_2.jpg");
+    expect(filenameFor({ username: "ivy", code: "X1" }, "mp4")).toBe(
+      "social-mate/instagram/videos/ig-ivy-X1.mp4",
+    );
+    expect(filenameFor({ username: "ivy", code: "X1" }, "jpg", 2)).toBe(
+      "social-mate/instagram/imagens/ig-ivy-X1_2.jpg",
+    );
   });
   it("derives extension", () => {
     expect(extFromUrl("https://x/y.mp4?a=1", "video")).toBe("mp4");

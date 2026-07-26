@@ -1,5 +1,7 @@
 // Pure, DOM-free helpers for the IG Sort tool (panel side). Unit-tested.
 
+import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+
 // ER weights — matches IG Sorter's defaults (comments & reposts each count 4×,
 // likes 1×). Tweak to reweight. Mirrored in the DOM overlay
 // (OVL.erLike/erComment/erRepost at the top of src/content/ig/bridge.js).
@@ -100,13 +102,25 @@ export function recordToCard(rec) {
   };
 }
 
-export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-}
+// One definition, in downloadPath.js — this used to be a byte-identical copy.
+export { sanitizeFilenamePart };
 
-export function filenameFor(rec, ext, idx) {
+// Bare file name, no folder. Kept separate from the path so the cover-only button
+// can rename it (-thumb) and file it under miniaturas instead of with the media.
+export function baseNameFor(rec, ext, idx) {
   const base = `ig-${sanitizeFilenamePart(rec.username)}-${rec.code || rec.pk || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+}
+
+// A post can be a photo or a video, so the sub-folder follows the actual media.
+export function filenameFor(rec, ext, idx) {
+  return downloadPath("instagram", kindFromExt(ext), baseNameFor(rec, ext, idx));
+}
+
+// "Baixar miniatura": the same name with a -thumb suffix, under miniaturas.
+export function thumbFilenameFor(rec, ext) {
+  const name = baseNameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
+  return downloadPath("instagram", "thumb", name);
 }
 
 export function extFromUrl(url, kind) {

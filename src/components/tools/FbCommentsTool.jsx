@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { fmtCount } from "@/lib/fbReels";
+import { downloadPath } from "@/lib/downloadPath";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label. Values are unchanged.
@@ -27,12 +28,15 @@ const CKEY = "fbw_comments"; // archive: { post_id -> envelope }, ≤8 posts
 const LKEY = "fbw_comments_live"; // single post currently streaming
 const hasStorage = () => typeof chrome !== "undefined" && !!chrome?.storage?.local;
 
-function jsonDownload(name, obj) {
+// This used to click a synthetic <a download="…">, which cannot put a file in a
+// sub-folder: Chrome flattens the whole path into the name and drops it in the
+// Downloads ROOT (verified — "a/b/c.json" saved as "a_b_c.json"). So it goes through
+// chrome.downloads like every other export, which does honour the folder. The panel
+// is a normal extension page, so it can mint the blob URL itself — no data: round
+// trip through the service worker.
+function jsonDownload(path, obj) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
+  chrome.downloads.download({ url, filename: path, saveAs: false, conflictAction: "uniquify" });
   setTimeout(() => URL.revokeObjectURL(url), 8000);
 }
 
@@ -265,7 +269,12 @@ export default function FbCommentsTool() {
           hint="Exportar a conversa como JSON"
           variant="outline"
           className="h-8 basis-0 grow"
-          onClick={() => jsonDownload(`fb-comments-${active.post_id}.json`, active)}
+          onClick={() =>
+            jsonDownload(
+              downloadPath("facebook", "comments", `fb-comments-${active.post_id}.json`),
+              active,
+            )
+          }
         />
         <ToolIconButton
           icon={Trash2}

@@ -82,7 +82,7 @@ describe("buildExport / exportFilename", () => {
     expect(ex.comments.map((x) => x.cid)).toEqual(["1", "r1", "r2", "2"]);
   });
   it("filename includes aweme id", () => {
-    expect(exportFilename("999")).toMatch(/^socialmate-comments\/tt-999-/);
+    expect(exportFilename("999")).toMatch(/^social-mate\/tiktok\/comentarios\/tt-999-/);
     expect(exportFilename(null)).toMatch(/tt-video-/);
   });
 });

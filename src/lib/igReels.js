@@ -5,6 +5,7 @@
 // anywhere in this feature.
 
 import { sanitizeFilenamePart } from "./igMedia.js";
+import { downloadPath, kindFromExt } from "./downloadPath.js";
 
 // A reel = one highlight or one live-story tray. Highlights carry a title;
 // live stories don't → label them "Stories".
@@ -56,11 +57,13 @@ export function storyToCard(item) {
   };
 }
 
-// Download filename for a story media (indexed for carousel children).
+// Download path for a story media (indexed for carousel children). A story item is
+// a photo OR a video, so the sub-folder follows the resolved extension.
 export function storyFilename(item, ext, idx) {
   const owner = sanitizeFilenamePart(item.owner_username || item.username || "unknown");
   const base = `ig-story-${owner}-${item.pk || item.id || Date.now()}`;
-  return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+  const name = idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+  return downloadPath("instagram", kindFromExt(ext), name);
 }
 
 // Group reels by owner → [{ owner, reels:[...] }]; owners A→Z, each owner's

@@ -29,6 +29,7 @@ import {
   sortRecords,
   recordToCard,
   filenameFor,
+  thumbFilenameFor,
   extFromUrl,
   fmtCount,
   filterBySurface,
@@ -151,8 +152,8 @@ export default function TtSortTool() {
     setStatus(rec.id, "downloading");
     try {
       const ext = extFromUrl(url, "image");
-      const filename = filenameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
-      await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename });
+      // Covers go to miniaturas, not in with the videos.
+      await bg({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) });
       setStatus(rec.id, "done");
     } catch {
       setStatus(rec.id, "error");

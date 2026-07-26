@@ -5,6 +5,7 @@
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
+import { downloadPath, underDownloadRoot, SESSIONS } from "./lib/downloadPath.js";
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
@@ -570,6 +571,25 @@ async function runTranscription(videoId, tabId, meta = {}) {
   }
 }
 
+// ---- where downloads land -------------------------------------------------
+// The service worker is the only context that actually calls chrome.downloads for
+// media/JSON, so it — not the sender — decides the folder. Two shapes arrive:
+//
+//   • Panels and pin-api.js CAN import lib/downloadPath.js, so they send a finished
+//     path. It is passed through underDownloadRoot(), which returns an already
+//     rooted path byte-identical and re-roots anything else.
+//   • The Facebook / Instagram / TikTok content scripts are import-free on purpose
+//     (an ES import makes CRXJS emit a dynamic-import loader, which those origins'
+//     CSP can kill — that would break all capture). They send a BARE file name plus
+//     `platform` and, when the folder isn't just the media kind, `folder`.
+//
+// Either way it is impossible for a caller to land a file in the Downloads root.
+function resolveDownloadPath(msg, fallbackName) {
+  const name = msg.filename || fallbackName;
+  if (msg.platform) return downloadPath(msg.platform, msg.folder || msg.kind || null, name);
+  return underDownloadRoot(name);
+}
+
 async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, durationHint, primedAt) {
   // A direct progressive MP4 (Instagram, or a Facebook reel/video whose
   // progressive_url we read from the page JSON) → download it as-is, no mux.
@@ -577,7 +597,14 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, dura
     try {
       await chrome.downloads.download({
         url: mediaUrl,
-        filename: mediaName || `ig-${videoId || Date.now()}.mp4`,
+        // mediaName arrives already rooted — the FBW_DOWNLOAD handler ran it through
+        // downloadPath before calling us. underDownloadRoot is the belt-and-braces
+        // guard so this stays safe if a future caller passes a raw name. The no-name
+        // fallback is the Instagram case: the IG bridge is the only sender that omits
+        // a name, and it always hands us a progressive MP4.
+        filename: underDownloadRoot(
+          mediaName || downloadPath("instagram", "video", `ig-${videoId || Date.now()}.mp4`),
+        ),
       });
       notifyTab(tabId, { type: "FBW_DOWNLOAD_RESULT", videoId, success: true });
     } catch (e) {
@@ -615,7 +642,10 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, dura
     // base64 round-trip. Hand it straight to chrome.downloads.
     await chrome.downloads.download({
       url: res.blobUrl,
-      filename: res.filename || `fb-${id}.mp4`,
+      // The offscreen doc returns a BARE name — it muxes bytes, it doesn't decide
+      // where files live. A DASH mux is always a Facebook video, so the folder is
+      // known here.
+      filename: downloadPath("facebook", "video", res.filename || `fb-${id}.mp4`),
     });
     notifyTab(tabId, {
       type: "FBW_DOWNLOAD_RESULT",
@@ -655,7 +685,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 });
 
 // ---- run logs ----
-// A finished run lands in ~/Downloads/socialmate-runs/ as one JSON file: config +
+// A finished run lands in ~/Downloads/social-mate/sessoes/ as one JSON file: config +
 // counters + the full structured event stream. That's the artifact you hand back
 // for analysis ("here's last night's run, what's tuning badly?").
 //
@@ -679,7 +709,7 @@ async function writeRunLogFile(doc) {
     const outcome = String(doc.outcome || "run").split(":")[0].trim();
     await chrome.downloads.download({
       url: jsonDataUrl(doc),
-      filename: `socialmate-runs/run-${stamp}-${outcome}.json`,
+      filename: downloadPath(SESSIONS, null, `run-${stamp}-${outcome}.json`),
       saveAs: false,
       conflictAction: "uniquify",
     });
@@ -767,7 +797,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sender.tab?.id,
         msg.mediaUrl,
         msg.feedSurface ? null : msg.candidates,
-        msg.mediaName,
+        // The FB rail sends a bare "fb-<id>.mp4"; the IG bridge sends no name at all
+        // (its progressive MP4 is always Instagram). The folder is decided here, not
+        // by the content script — neither of them can import downloadPath.
+        msg.mediaName ? downloadPath(msg.platform || "facebook", "video", msg.mediaName) : null,
         msg.durationHint,
         msg.primedAt,
       );
@@ -796,7 +829,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         chrome.downloads.download({
           url: jsonDataUrl(msg.data),
-          filename: msg.filename || `socialmate-comments/export-${Date.now()}.json`,
+          filename: resolveDownloadPath(msg, `export-${Date.now()}.json`),
           saveAs: false,
           conflictAction: "uniquify",
         });
@@ -836,8 +869,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           // TikTok media (video or thumbnail) needs the Referer header injected.
           if (/tiktok|tiktokcdn|tiktokv|muscdn|ibytedtos/.test(msg.url || "")) await ensureTiktokReferer();
+          const filename = resolveDownloadPath(msg, `media-${Date.now()}`);
           if (msg.kind === "video") {
-            await chrome.downloads.download({ url: msg.url, filename: msg.filename });
+            await chrome.downloads.download({ url: msg.url, filename });
             sendResponse({ ok: true });
             return;
           }
@@ -853,7 +887,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
           const type = res.headers.get("content-type") || "image/jpeg";
           const dataUrl = `data:${type};base64,${btoa(bin)}`;
-          await chrome.downloads.download({ url: dataUrl, filename: msg.filename });
+          await chrome.downloads.download({ url: dataUrl, filename });
           sendResponse({ ok: true });
         } catch (e) {
           sendResponse({ ok: false, error: e.message });

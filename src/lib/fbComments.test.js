@@ -85,8 +85,10 @@ describe("buildExport", () => {
 });
 
 describe("filenameFor", () => {
-  it("builds a socialmate-comments path with the post id", () => {
-    expect(filenameFor("123")).toMatch(/^socialmate-comments\/fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/);
+  it("files the export under social-mate/facebook/comentarios with the post id", () => {
+    expect(filenameFor("123")).toMatch(
+      /^social-mate\/facebook\/comentarios\/fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/,
+    );
     expect(filenameFor(null)).toMatch(/fb-post-/);
   });
 });

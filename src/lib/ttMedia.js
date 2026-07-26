@@ -6,6 +6,8 @@
 // comments, shares AND saves are all present on the list — so the ER weight set is
 // richer than IG's.
 
+import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
+
 // ER weights: like 1×, comment & share 4×, save (collect) 2×. Tunable.
 export const ER_WEIGHTS = { like: 1, comment: 4, share: 4, save: 2 };
 
@@ -111,13 +113,26 @@ export function recordToCard(rec) {
   };
 }
 
-export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-}
+// One definition, in downloadPath.js — this used to be a byte-identical copy.
+export { sanitizeFilenamePart };
 
-export function filenameFor(rec, ext, idx) {
+// Bare file name, no folder. Kept separate from the path so the cover-only button
+// can rename it (-thumb) and file it under miniaturas instead of with the media.
+export function baseNameFor(rec, ext, idx) {
   const base = `tt-${sanitizeFilenamePart(rec.username || rec.nickname)}-${rec.id || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
+}
+
+// TikTok downloads are videos, but the cover is fetched through the same namer —
+// so the sub-folder follows the actual media, not the platform default.
+export function filenameFor(rec, ext, idx) {
+  return downloadPath("tiktok", kindFromExt(ext), baseNameFor(rec, ext, idx));
+}
+
+// "Baixar miniatura": the same name with a -thumb suffix, under miniaturas.
+export function thumbFilenameFor(rec, ext) {
+  const name = baseNameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
+  return downloadPath("tiktok", "thumb", name);
 }
 
 export function extFromUrl(url, kind) {

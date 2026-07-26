@@ -445,19 +445,19 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         const vid = ch.media_type === "video" && ch.video;
         const url = vid ? ch.video : ch.image;
         if (!url) continue;
-        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: vid ? "video" : "image", url, filename: igName(rec, igExt(url, vid ? "video" : "image"), i) });
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: vid ? "video" : "image", url, filename: igName(rec, igExt(url, vid ? "video" : "image"), i) });
       }
     } else if (rec.video) {
-      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "video", url: rec.video, filename: igName(rec, igExt(rec.video, "video")) });
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "video", url: rec.video, filename: igName(rec, igExt(rec.video, "video")) });
     } else if (rec.image) {
-      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: rec.image, filename: igName(rec, igExt(rec.image, "image")) });
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "image", url: rec.image, filename: igName(rec, igExt(rec.image, "image")) });
     }
   }
   function ovlThumb(rec) {
     const url = rec.image || rec.thumb;
     if (!url) return;
     const ext = igExt(url, "image");
-    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: igName(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext) });
+    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "image", folder: "thumb", url, filename: igName(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext) });
   }
   // Toggle: first tap saves to the shared Library, second removes.
   async function ovlSave(rec) {
@@ -596,12 +596,12 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
         const vid = ch.media_type === "video" && ch.video;
         const url = vid ? ch.video : ch.image;
         if (!url) continue;
-        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: vid ? "video" : "image", url, filename: storyName(item, igExt(url, vid ? "video" : "image"), i) });
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: vid ? "video" : "image", url, filename: storyName(item, igExt(url, vid ? "video" : "image"), i) });
       }
     } else if (item.video) {
-      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "video", url: item.video, filename: storyName(item, igExt(item.video, "video")) });
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "video", url: item.video, filename: storyName(item, igExt(item.video, "video")) });
     } else if (item.image) {
-      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: item.image, filename: storyName(item, igExt(item.image, "image")) });
+      chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "image", url: item.image, filename: storyName(item, igExt(item.image, "image")) });
     }
   }
   // Transcribe a story/highlight item: hand the background the captured direct
@@ -678,7 +678,7 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
       if (cur && cur.item) { dlStoryItem(cur.item); flash(b); return; }
       const media = activeStoryMedia(); // fallback: photo story with a real src
       if (media && media.tagName === "IMG" && /^https/.test(media.src)) {
-        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url: media.src, filename: `ig-story-${Date.now()}.jpg` });
+        chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "instagram", kind: "image", url: media.src, filename: `ig-story-${Date.now()}.jpg` });
         flash(b);
       }
     }));

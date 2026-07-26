@@ -257,6 +257,9 @@ async function muxDownload(videoUrl, audioUrl, videoId) {
   const blobUrl = URL.createObjectURL(new Blob([out], { type: "video/mp4" }));
   liveBlobUrls.add(blobUrl);
   setTimeout(() => { URL.revokeObjectURL(blobUrl); liveBlobUrls.delete(blobUrl); }, 5 * 60 * 1000);
+  // A BARE file name on purpose: this document muxes bytes, it does not decide
+  // where downloads live. background.js files it under social-mate/ via
+  // downloadPath() — one owner for paths, no second convention here.
   return { blobUrl, filename: `fb-${videoId}.mp4` };
 }
 

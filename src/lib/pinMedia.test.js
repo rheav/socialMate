@@ -420,8 +420,14 @@ describe("filenames", () => {
 
   it("builds pin-<user>-<id>.<ext> and suffixes multi-asset pins", () => {
     const rec = pinToRecord(IMAGE_PIN, "s");
-    expect(filenameFor(rec, "png")).toBe("pin-marianam7536-819655200979225688.png");
-    expect(filenameFor(rec, "mp4", 2)).toBe("pin-marianam7536-819655200979225688_2.mp4");
+    // A pin is an image OR a video, so the same record files under different
+    // sub-folders depending on the media actually being saved.
+    expect(filenameFor(rec, "png")).toBe(
+      "social-mate/pinterest/imagens/pin-marianam7536-819655200979225688.png",
+    );
+    expect(filenameFor(rec, "mp4", 2)).toBe(
+      "social-mate/pinterest/videos/pin-marianam7536-819655200979225688_2.mp4",
+    );
   });
 
   it("reads the real extension off the URL — orig can be png while the thumb is jpg", () => {

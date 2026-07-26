@@ -1,4 +1,5 @@
 // Pure, DOM-free helpers for the FB Reels Sort tool (panel side). Unit-tested.
+
 //
 // Facebook's reels-tab grid is thinner than Instagram's: it paginates OFF the
 // main thread (a JSON.parse hook captures nothing — verified live), so the only
@@ -10,6 +11,7 @@
 
 import { fmtCount } from "./igMedia.js";
 export { fmtCount };
+import { downloadPath, sanitizeFilenamePart } from "./downloadPath.js";
 
 // Localized abbreviated-count multipliers. FB renders tile view counts
 // abbreviated with a locale word/suffix: pt-br "mil"/"mi", en "K"/"M", plus a
@@ -95,10 +97,11 @@ export function recordToCard(rec) {
   };
 }
 
-export function sanitizeFilenamePart(s) {
-  return String(s || "").replace(/[\\/:*?"<>|]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
-}
+// One definition, in downloadPath.js — this used to be a byte-identical copy.
+export { sanitizeFilenamePart };
 
+// The Reels Sort tool only ever downloads the reel's COVER image, so this always
+// files under miniaturas.
 export function filenameFor(owner, id) {
-  return `fb-${sanitizeFilenamePart(owner) || "reel"}-${id || Date.now()}.jpg`;
+  return downloadPath("facebook", "thumb", `fb-${sanitizeFilenamePart(owner) || "reel"}-${id || Date.now()}.jpg`);
 }

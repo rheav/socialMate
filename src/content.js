@@ -371,7 +371,7 @@ import {
   }
 
   // Hand a finished run to the background worker, which owns chrome.downloads and
-  // writes it to ~/Downloads/socialmate-runs/. Clears the in-flight buffer after.
+  // writes it to ~/Downloads/social-mate/sessoes/. Clears the in-flight buffer after.
   function writeRunLog(outcome) {
     const doc = {
       schema: 1,

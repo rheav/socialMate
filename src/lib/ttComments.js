@@ -5,6 +5,8 @@
 // (reply_id); top-level comments don't. These helpers order a thread (top-level,
 // each followed by its replies), sort, and map to display rows.
 
+import { downloadPath } from "./downloadPath.js";
+
 // Order a flat comment list as top-level comments each immediately followed by
 // their replies (by capture order within each group). Orphan replies (parent not
 // present) fall back to the tail so nothing is dropped.
@@ -103,5 +105,5 @@ function stamp(d = new Date()) {
 }
 
 export function exportFilename(awemeId) {
-  return `socialmate-comments/tt-${awemeId || "video"}-${stamp()}.json`;
+  return downloadPath("tiktok", "comments", `tt-${awemeId || "video"}-${stamp()}.json`);
 }

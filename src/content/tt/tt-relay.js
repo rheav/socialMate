@@ -364,7 +364,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     // Always the highest-quality rendition available.
     const url = rec.hd_url || rec.download_url || rec.video;
     if (!url) return false;
-    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "video", url, filename: ttName(rec, ext(url, "video")) });
+    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "tiktok", kind: "video", url, filename: ttName(rec, ext(url, "video")) });
     return true;
   }
   function ttTranscribe(rec) {

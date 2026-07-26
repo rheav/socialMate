@@ -961,7 +961,9 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     const unit = findPostUnit(img) || img.closest('[role="article"]') || img;
     const author = grabAuthor(unit);
     const name = `fb-${sanitFb(author?.name) || "photo"}-${Date.now()}.jpg`;
-    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", kind: "image", url, filename: name }).catch(() => {});
+    // Bare name + platform: this script is import-free (FB CSP), so the background
+    // builds the social-mate/facebook/fotos/ path with lib/downloadPath.js.
+    chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", url, filename: name }).catch(() => {});
   }
 
   const KIND_ICON = { transcribe: "tx", download: "dl", comment: "cm" };
@@ -1315,8 +1317,12 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
       let done = 0;
       for (const [id, url] of seen) {
         chrome.runtime.sendMessage({
-          type: "FBW_DL_MEDIA", kind: "image", url,
-          filename: `socialMate-thumbs/${author}/reel_${id}.jpg`,
+          type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", folder: "thumb", url,
+          // Was a hardcoded "socialMate-thumbs/" folder (note the stray capital M).
+          // The per-author sub-folder is kept — a whole page's covers in one place is
+          // the point of this button — it just lives inside miniaturas now, and
+          // downloadPath sanitises the author segment.
+          filename: `${author}/reel_${id}.jpg`,
         }).catch(() => {});
         span.textContent = `Baixando ${++done}/${seen.size}`;
       }

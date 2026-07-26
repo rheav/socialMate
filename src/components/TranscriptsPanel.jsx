@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "lucide-react";
+import { downloadPath } from "@/lib/downloadPath";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
@@ -16,12 +17,18 @@ function srt(chunks) {
     .map((c, i) => `${i + 1}\n${t(c.timestamp?.[0] || 0)} --> ${t(c.timestamp?.[1] || (c.timestamp?.[0] || 0) + 2)}\n${(c.text || "").trim()}\n`)
     .join("\n");
 }
-function dl(name, text) {
+// Transcript export. Was a synthetic <a download="…">, which always lands in the
+// Downloads ROOT — Chrome flattens any path in that attribute into the file name
+// (verified). chrome.downloads honours the folder, and the panel is a normal
+// extension page so it can mint the blob URL itself.
+function dl(platform, name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
+  chrome.downloads.download({
+    url,
+    filename: downloadPath(platform || "facebook", "transcript", name),
+    saveAs: false,
+    conflictAction: "uniquify",
+  });
   // Free the blob once the download has been handed off.
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
@@ -198,9 +205,9 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             )}
             <div className="mt-auto flex flex-wrap gap-x-2 gap-y-0.5 pt-1 text-[11px]">
               <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
-              <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.txt`, it.text)}>.txt</button>
+              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `fb-${it.videoId}.txt`, it.text)}>.txt</button>
               {it.chunks?.length ? (
-                <button className="text-primary hover:underline" onClick={() => dl(`fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
+                <button className="text-primary hover:underline" onClick={() => dl(it.platform, `fb-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
               ) : null}
             </div>
           </>
