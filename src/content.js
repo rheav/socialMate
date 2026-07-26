@@ -2386,65 +2386,6 @@ import {
   // ---------- reel-thumbnail harvest (profile reels_tab) ----------
   // Thumbs are plain <img> tags inside a[href*="/reel/"] grid cards; the grid
   // lazy-loads on scroll, so scroll to the bottom until no new reels appear.
-  async function collectReelThumbs() {
-    const found = new Map();
-    const harvest = () => {
-      for (const a of document.querySelectorAll('a[href*="/reel/"]')) {
-        const m = (a.getAttribute("href") || "").match(/\/reel\/(\d+)/);
-        const img = a.querySelector("img");
-        if (m && img && img.src) found.set(m[1], img.src);
-      }
-    };
-    harvest();
-    let stable = 0;
-    for (let i = 0; i < 40 && stable < 3; i++) {
-      const before = found.size;
-      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-      await sleep(1500);
-      harvest();
-      stable = found.size === before ? stable + 1 : 0;
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    return Array.from(found, ([id, url]) => ({ id, url }));
-  }
-
-  // Profile-header info so the panel can show WHAT is being downloaded.
-  // The page avatar is the svg whose aria-label equals the page name; the FIRST
-  // svg image in the DOM is the logged-in user's own nav avatar ("Your profile").
-  function fbPageInfo() {
-    const name =
-      (document.querySelector("h1")?.textContent || "").trim() ||
-      document.title;
-    const links = Array.from(document.querySelectorAll("a"));
-    const txt = (a) => (a.textContent || "").trim();
-    const followers =
-      txt(
-        links.find((a) => /\bfollowers\b/i.test(txt(a)) && /\d/.test(txt(a))) ||
-          {},
-      ) || null;
-    const following =
-      txt(
-        links.find((a) => /\bfollowing\b/i.test(txt(a)) && /\d/.test(txt(a))) ||
-          {},
-      ) || null;
-    const svgs = Array.from(
-      document.querySelectorAll('svg[role="img"][aria-label]'),
-    ).filter((s) => s.querySelector("image"));
-    const bySize = (a, b) => (b.clientWidth || 0) - (a.clientWidth || 0);
-    const svg =
-      svgs.find((s) => (s.getAttribute("aria-label") || "").trim() === name) ||
-      svgs
-        .filter(
-          (s) => !/your profile/i.test(s.getAttribute("aria-label") || ""),
-        )
-        .sort(bySize)[0];
-    const im = svg && svg.querySelector("image");
-    const avatar = im
-      ? im.getAttribute("xlink:href") || im.getAttribute("href")
-      : null;
-    return { name, followers, following, avatar, url: location.href };
-  }
-
   function tick() {
     // Heartbeat runs even while paused — keeps savedAt fresh so the panel's
     // stale-session reconciler never misreads a long pause as an abandoned run.
@@ -2565,6 +2506,10 @@ import {
     persist();
   }
   function togglePause() {
+    // No run in flight → nothing to pause. Without this the flag was persisted
+    // anyway and the resume path honours `isPaused`, so a later run could come
+    // back pre-paused with no way for the user to tell why.
+    if (!S.isRunning) return;
     S.isPaused = !S.isPaused;
     logLine(S.isPaused ? "⏸ pausado" : "▶️ retomado");
     persist();
@@ -2593,20 +2538,6 @@ import {
         return true;
       case "FBW_STATUS":
         sendResponse(snapshot());
-        return true;
-      case "FBW_PAGE_INFO":
-        try {
-          sendResponse({ ok: true, info: fbPageInfo() });
-        } catch (e) {
-          sendResponse({ ok: false, error: String(e?.message || e) });
-        }
-        return true;
-      case "FBW_COLLECT_REEL_THUMBS":
-        collectReelThumbs()
-          .then((thumbs) => sendResponse({ ok: true, thumbs }))
-          .catch((e) =>
-            sendResponse({ ok: false, error: String(e?.message || e) }),
-          );
         return true;
       default:
         return false;

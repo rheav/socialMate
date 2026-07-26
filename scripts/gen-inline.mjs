@@ -34,7 +34,12 @@ const TARGETS = {
   ],
   "src/content/fb/reels-capture.js": ["src/lib/shared/counts.js"],
   "src/content/fb/photos-scrape.js": ["src/lib/shared/fbPhotoIds.js"],
-  "src/content/ig/bridge.js": ["src/lib/shared/counts.js", "src/lib/shared/savedEntry.js"],
+  "src/content/ig/bridge.js": [
+    "src/lib/shared/counts.js",
+    "src/lib/shared/igSurface.js",
+    "src/lib/shared/savedEntry.js",
+  ],
+  "src/content/ig/main-world.js": ["src/lib/shared/igSurface.js"],
   "src/content/tt/tt-relay.js": ["src/lib/shared/counts.js", "src/lib/shared/savedEntry.js"],
 };
 

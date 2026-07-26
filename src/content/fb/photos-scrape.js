@@ -205,6 +205,15 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
   const capById = new Map();   // GraphQL node id (== fbid) -> captured row
   const capByStem = new Map(); // fbcdn filename stem -> captured row
 
+  // Clear everything keyed to one profile. capById/capByStem are the join tables
+  // for captured GraphQL rows — they used to survive a profile switch AND a Clear,
+  // leaving up to 800 stale rows joinable onto the next profile's tiles.
+  function resetStore() {
+    store = new Map();
+    capById.clear();
+    capByStem.clear();
+  }
+
   function rememberCaptured(rows) {
     let added = 0;
     for (const r of rows || []) {
@@ -350,8 +359,12 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
     const gen = ++generation;
     const key = ownerKeyFromUrl(location.href);
     // A different profile than the one in the store means the panel is looking at
-    // new data; keep nothing from the old one.
-    if (surfaceKey && surfaceKey !== key) store = new Map();
+    // new data; keep nothing from the old one. The guard used to require BOTH keys
+    // to be non-null, so when ownerKeyFromUrl returned null for either side the
+    // store was never cleared and two profiles' photos merged into one ZIP named
+    // after whichever owner resolved second. Compare with `!=` on the raw values
+    // and reset whenever they differ at all — including null → "someone".
+    if (surfaceKey !== key) resetStore();
     surfaceKey = key;
 
     scraping = true;
@@ -421,7 +434,7 @@ function harvestCap({ photos = 0, scrolls = 0, growing = false } = {}, caps = HA
     }
 
     if (msg?.type === "FBW_FBPHOTOS_CLEAR") {
-      store = new Map();
+      resetStore();
       generation++;
       cancelFlag = true;
       scraping = false;

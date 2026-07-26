@@ -536,38 +536,7 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
     };
   }
 
-  async function forcePlayOnly(videoEl) {
-    document.querySelectorAll("video").forEach((v) => {
-      if (v !== videoEl)
-        try {
-          v.pause();
-        } catch {}
-    });
-    try {
-      videoEl.play();
-    } catch {}
-    videoEl.scrollIntoView({ block: "center" });
-    await new Promise((r) => setTimeout(r, 1600));
-  }
-
-  // Capture/download/transcription now runs entirely from the on-page buttons
-  // (below) and the warmer's auto-capture — the old side-panel "Current video"
-  // card was removed, so there is no consumer for a per-frame fbw_current publish.
-  // We therefore do NOT scrape/encode the in-view video on an interval or on
-  // scroll (grabThumb is a canvas readback — expensive to run every second). The
-  // background still relays FBW_RUN_* if anything asks; kept as a cheap no-cost path.
-
-  // ---- run a job on request (relayed by the background); acts on the in-view video ----
-  async function run(kind) {
-    const v = pickActiveVideo();
-    if (!v) return;
-    await forcePlayOnly(v);
-    const msg = await videoJobMessage(kind, v);
-    chrome.runtime.sendMessage(msg).catch(() => {});
-  }
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg?.type === "FBW_RUN_TRANSCRIBE") run("transcribe");
-    if (msg?.type === "FBW_RUN_DOWNLOAD") run("download");
     // Background job results → flip the matching on-page button to ✓/✗.
     if (msg?.type === "FBW_TRANSCRIBE_RESULT") resolvePending?.("transcribe", !!msg.success);
     if (msg?.type === "FBW_DOWNLOAD_RESULT") resolvePending?.("download", !!msg.success);
@@ -681,11 +650,6 @@ if (location.hostname.endsWith("facebook.com") && !window.__fbwTranscribeInit) {
   // Nudge THIS video to (re)fetch its fbcdn tracks so the background can resolve
   // them, WITHOUT disrupting playback: only play it if it's paused, and never
   // pause the neighbours (pausing the on-screen reel was the visible glitch).
-  function ensurePlaying(video) {
-    if (video && video.paused) {
-      try { video.play(); } catch {}
-    }
-  }
   // The video a button acts on. On reel surfaces FB swaps <video> nodes and
   // preloads neighbours, so the node captured at decoration time can be the wrong
   // one — resolve the active reel at click time instead. Feed/video-post posts

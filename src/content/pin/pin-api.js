@@ -124,7 +124,7 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
     // this, B's pins get folded straight into A's still-live store, and since
     // surfaceKey is about to be set to B's key below, the 5s poll never even notices
     // a change afterwards. Clear here too, keyed off the same surfaceKey the poll uses.
-    if (surfaceKey && surfaceKey !== surface.key) store = new Map();
+    if (surfaceKey !== surface.key) store = new Map();
 
     // Resume support ("Harvest again for more"): only pick up from lastBookmark when
     // this press is for the SAME surface as the run that stopped on the page cap.
@@ -243,7 +243,16 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
     }
 
     if (msg?.type === "FBW_PIN_HARVEST") {
-      harvest(Math.max(1, Math.min(40, msg.maxPages || 40)));
+      // Refuse a concurrent press. The resume cursor lives in three shared
+      // mutables (hitCap / lastBookmark / lastSurfaceKey) which the in-flight run
+      // has ALREADY reset, so a second press read hitCap:false and silently
+      // restarted from page 1 — losing the cursor and the cumulative `pages`.
+      if (harvesting) {
+        sendResponse({ started: false, reason: "já coletando" });
+        return;
+      }
+      const n = Number(msg.maxPages);
+      harvest(Number.isInteger(n) && n > 0 ? Math.min(40, n) : 40);
       sendResponse({ started: true });
       return;
     }
