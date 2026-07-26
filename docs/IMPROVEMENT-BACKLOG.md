@@ -69,10 +69,12 @@ Tests went 324 → 362 across 19 → 21 files.
   Clear is still unexplained in the UI, and `FBW_FBPHOTOS_STOP` still lags.
 - **Item 59** — still zero coverage on the content scripts themselves. A jsdom
   Vitest project over captured HTML fixtures is the unlock.
-- **Item 62** — NOT DONE ON PURPOSE. `social-warmer-v0.33.0.zip` (96 MB),
-  `social-slim.zip` and `dist-slim/` are **untracked**, so deleting them is not
-  recoverable through git. `fb-mass-downloader/` and `bulk-download-videos-fb/` ARE
-  tracked (and the latter is third-party compiled code). Needs a human decision.
+- ~~**Item 62**~~ — DONE. `social-warmer-v0.33.0.zip` (96 MB), `social-slim.zip`
+  and `dist-slim/` went to the system Trash (they were untracked, so `rm` would not
+  have been undoable); `fb-mass-downloader/` and `bulk-download-videos-fb/` were
+  `git rm`'d and remain in history. Note two dated design docs under
+  `docs/superpowers/specs/` still say those reference extensions are "already
+  in-repo" — historical statements from June, left as archive.
 - **Items 63, 64** — the four-way name split (socialMate / socialWarmer /
   social-mate / social-warmer) and the 25-version CHANGELOG hole.
 

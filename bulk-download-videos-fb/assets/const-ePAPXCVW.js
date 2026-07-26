@@ -1,1 +1,0 @@
-const o=["https://www.facebook.com/*","https://web.facebook.com/*","https://*.esuit.dev/*"],e="ESUIT | Bulk Videos Downloader for Facebook™",t="bulk-videos-downloader-for-facebook";export{e,o as h,t as p};
