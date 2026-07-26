@@ -18,6 +18,63 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.67.0] — 2026-07-25
+
+Tradução completa para pt-BR, Facebook ganha download em massa de fotos, e todos os
+downloads passam a viver numa única pasta.
+
+### Adicionado
+- **Extensão 100% em português do Brasil.** Painel, ferramentas, botões injetados nas
+  páginas e as mensagens do log de execução. O idioma do painel é independente do
+  idioma da página: o dicionário `L` de `aria-label`s do Facebook/Instagram
+  (`curtir`, `seguir`, `salvar`…) **não** foi traduzido — ele casa com o idioma do
+  site, não com o nosso. Traduzi-lo quebraria o warmer.
+- **Facebook: baixar todas as fotos de um perfil como ZIP** (aba `Fotos`). A grade é
+  paginada por rolagem e cada foto sai em resolução cheia.
+- **Pinterest: botões de baixar/salvar direto na página**, nos tiles e no closeup —
+  paridade com Facebook, Instagram e TikTok, que já tinham.
+- **Tooltips nos controles que viram só ícone** em painel estreito, inclusive na
+  navegação de ferramentas.
+
+### Alterado
+- **Layout responsivo**: nada mais é cortado na largura mínima do painel. Abaixo de
+  ~340px os botões colapsam para só ícone. Os rótulos em português são mais longos
+  que os originais em inglês, que é parte de por que passou a cortar.
+- **Todos os downloads agora vivem em `Downloads/social-mate/`**, organizados por
+  plataforma e tipo (`facebook/fotos`, `instagram/videos`, `sessoes`…). Antes havia
+  quatro pastas diferentes — uma delas com maiúscula trocada — e a maior parte da
+  mídia caía solta na raiz do Downloads. Um único `src/lib/downloadPath.js` passa a
+  ser dono de todo caminho, para não divergir de novo.
+- **Fotos do Facebook: a URL cheia vem do GraphQL**, não de abrir cada foto. A mesma
+  resposta que monta a grade traz `image.uri` (o recorte quadrado que o tile pinta) e
+  `viewer_image.uri` (a foto inteira). Antes a extensão percorria o visualizador foto
+  a foto: **57s → 9s**, e a aba do usuário não é mais navegada.
+
+### Corrigido
+- **Pinterest, Idea Pins**: a resolução cheia vinha vazia porque esses pins usam
+  `images.originals` (plural) e não `images.orig` — 29% de uma pasta baixava em 736px
+  sem avisar.
+- **Pinterest, pastas com acento**: `ingl%C3%AAs` era enviado percent-encoded e a API
+  devolvia 404. Toda pasta com acento era inutilizável.
+- **Pinterest, teto de páginas**: "coletar de novo" não avançava — nenhum cursor era
+  guardado, então a coleta refazia a página 1. Uma pasta de 6689 pins parava em 870.
+- **O botão `Iniciar` podia ficar morto sem explicação.** Ele era desabilitado por um
+  ping respondido por `transcription/inject.js`, enquanto quem executa o start é o
+  `content.js` — a trava usava evidência que nunca disse nada sobre o motor que ela
+  travava. O painel também engolia o `{ok:false, error}` que o próprio motor devolvia.
+- **Links de autor quebrados na Biblioteca**: `author.url` absoluto recebia um domínio
+  prefixado, gerando URL aninhada. Conserta também registros do TikTok já salvos.
+- **`NAV_PLATFORMS` travava plataformas novas**: qualquer plataforma recém-registrada
+  era silenciosamente inalcançável no painel.
+
+### Notas
+- Um hook MAIN-world no `XMLHttpRequest` passa a rodar em toda página do facebook.com
+  (filtrado por `indexOf("viewer_image")` antes de qualquer parse). É a origem mais
+  movimentada que a extensão toca — primeiro lugar a investigar se algo estranhar.
+- Sem cobertura de execução real: os ramos `inject`/`reload` do `reviveTab` e os tetos
+  de coleta de fotos. Ambos têm teste unitário; o Chrome se auto-cura antes do
+  primeiro, e o perfil de teste é pequeno demais para o segundo.
+
 ## [0.66.0] — 2026-07-25
 
 - **New platform: Pinterest.** Fourth platform in the switcher, with a single `Board` tool.
