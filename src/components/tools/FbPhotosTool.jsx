@@ -122,7 +122,6 @@ export default function FbPhotosTool() {
   }, [send]);
 
   useEffect(() => {
-    pullState();
     return startPolling(pullState, 1000);
   }, [pullState]);
 

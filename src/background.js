@@ -497,8 +497,24 @@ async function ensureOffscreen() {
   try {
     await offscreenCreating;
   } catch (e) {
-    // "Only a single offscreen document" => already exists, treat as ready
-    offscreenReady = true;
+    // Only ONE failure means "it's already there": the single-document error, which
+    // we race against ourselves. Anything else is a real failure, and swallowing it
+    // as ready left offscreenReady=true on a broken state — every later
+    // callOffscreen then failed with "no receiver" until the worker restarted.
+    const msg = String(e?.message || e);
+    const single = /single offscreen document|only one offscreen/i.test(msg);
+    let exists = single;
+    if (!exists) {
+      // Belt and braces: ask, in case the message wording changes.
+      try {
+        exists = !!(await chrome.offscreen.hasDocument?.());
+      } catch {
+        exists = false;
+      }
+    }
+    offscreenReady = exists;
+    offscreenCreating = null;
+    if (!exists) throw new Error("não foi possível abrir o documento offscreen: " + msg);
   } finally {
     offscreenCreating = null;
   }
@@ -622,19 +638,30 @@ async function runTranscription(videoId, tabId, meta = {}) {
   });
   try {
     await ensureOffscreen();
+    // The race only decides what WE report. Losing it used to leave Whisper
+    // running: the zombie job kept a CPU core busy, its late reply was dropped, and
+    // `inFlight` stayed above zero so the offscreen document could not idle-release
+    // for minutes. Now the timeout also tells the offscreen to abort, which
+    // terminates and respawns its worker.
+    let timer = null;
     const res = await Promise.race([
       callOffscreen({
         action: "transcribeFromAudioUrl",
         videoId: id,
         audioUrl,
       }),
-      new Promise((_, rej) =>
-        setTimeout(
-          () => rej(new Error("Transcription timed out (3 min) — try again")),
+      new Promise((_, rej) => {
+        timer = setTimeout(
+          () => rej(new Error("transcrição expirou (3 min) — tente de novo")),
           180000,
-        ),
-      ),
-    ]);
+        );
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    }).catch(async (e) => {
+      await callOffscreen({ action: "abortTranscription" }).catch(() => {});
+      throw e;
+    });
     if (!res?.success) throw new Error(res?.error || "Transcription failed");
     const saved = await putTranscript(id, {
       status: "done",
@@ -910,18 +937,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // The SW has no URL.createObjectURL, so route through jsonDataUrl
     // (TextEncoder → base64 data URL, emoji-safe).
     case "FBW_DL_JSON": {
-      try {
-        chrome.downloads.download({
-          url: jsonDataUrl(msg.data),
-          filename: resolveDownloadPath(msg, `export-${Date.now()}.json`),
-          saveAs: false,
-          conflictAction: "uniquify",
-        });
-        sendResponse({ ok: true });
-      } catch (e) {
-        sendResponse({ ok: false, error: e.message });
-      }
-      return false;
+      // The download must be AWAITED. Un-awaited, a bad filename or data URL
+      // rejected unobserved and the sender still got {ok:true} — the exact reason a
+      // failed comment export looked like a successful one.
+      (async () => {
+        try {
+          await chrome.downloads.download({
+            url: jsonDataUrl(msg.data),
+            filename: resolveDownloadPath(msg, `export-${Date.now()}.json`),
+            saveAs: false,
+            conflictAction: "uniquify",
+          });
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e?.message || e) });
+        }
+      })();
+      return true; // async responder
     }
     // content → bg → offscreen: niche-relevance (+ spam) cosine for a post.
     // Fails open (score 1, spam 0) so a model hiccup never blocks the warmer.

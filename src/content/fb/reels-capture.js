@@ -8,11 +8,35 @@
 // all. The tool serves this as a sortable list to the side panel; no on-page UI.
 //
 // Import-free (like ig/bridge.js): FB's CSP can break a CRXJS module loader, so
-// this stays a direct content script. parseCount mirrors src/lib/fbReels.js
-// (which is the unit-tested source of truth).
+// this stays a direct content script. The pure helpers are INLINED from
+// src/lib/shared/ at build time by `npm run gen:inline` — edit the source there,
+// never the generated region below.
 
 if (location.hostname.endsWith("facebook.com") && !window.__fbwFbReelsInit) {
   window.__fbwFbReelsInit = true;
+
+  // ---- generation takeover. An extension reload re-injects into a FRESH isolated
+  // world while this one keeps running (only its chrome.* dies), so the init guard
+  // above cannot stop the old copy — its in-flight harvest would keep scrolling the
+  // grid against the new one. Newer generation announces; older stands down. Same
+  // pattern as comments-scrape.js / photos-scrape.js.
+  const GEN = Date.now() + ":" + Math.random();
+  let disabled = false;
+  let harvesting = false;   // one scroll loop at a time
+  let cancelFlag = false;   // FBW_FB_REELS_STOP / takeover
+  window.addEventListener("message", (e) => {
+    if (
+      e.source === window &&
+      e.data &&
+      e.data.__fbwReelsTakeover &&
+      e.data.__fbwReelsTakeover !== GEN &&
+      !disabled
+    ) {
+      disabled = true;
+      cancelFlag = true;
+    }
+  });
+  window.postMessage({ __fbwReelsTakeover: GEN }, "*");
 
   // pure helpers — GENERATED from src/lib/shared/ (see that dir's README; this
   // script cannot import). Run `npm run gen:inline` after editing the source.
@@ -201,29 +225,66 @@ function fmtCount(n) {
     // FB appends the next batch after a network round-trip, which lags a short
     // poll — so wait generously per step and require several consecutive
     // no-growth reads before calling it done (a single slow batch mustn't end it).
-    let stable = 0, prev = -1;
-    for (let i = 0; i < 80 && stable < 5; i++) {
-      window.scrollTo({ top: document.body.scrollHeight });
-      await new Promise((r) => setTimeout(r, 1400));
-      const n = document.querySelectorAll('a[href*="/reel/"]').length;
-      stable = n === prev ? stable + 1 : 0;
-      prev = n;
+    harvesting = true;
+    cancelFlag = false;
+    // Restore where the user actually was, instead of dumping them at the top of
+    // the profile (the photos harvester already did this).
+    const startY = window.scrollY;
+    try {
+      let stable = 0, prev = -1;
+      for (let i = 0; i < 80 && stable < 5 && !cancelFlag && !disabled; i++) {
+        window.scrollTo({ top: document.body.scrollHeight });
+        await new Promise((r) => setTimeout(r, 1400));
+        const n = document.querySelectorAll('a[href*="/reel/"]').length;
+        stable = n === prev ? stable + 1 : 0;
+        prev = n;
+      }
+      window.scrollTo({ top: startY });
+      await new Promise((r) => setTimeout(r, 400));
+      return collect();
+    } finally {
+      harvesting = false;
     }
-    window.scrollTo({ top: 0 });
-    await new Promise((r) => setTimeout(r, 400));
-    return collect();
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (disabled) return;
     if (msg?.type === "FBW_FB_REELS_LIST") {
-      sendResponse({ records: collect(), owner: ownerName(), onReelsTab: isReelsTab() });
+      sendResponse({
+        records: collect(),
+        owner: ownerName(),
+        onReelsTab: isReelsTab(),
+        harvesting,
+      });
       return; // sync
     }
     if (msg?.type === "FBW_FB_REELS_HARVEST") {
-      harvest().then((records) =>
-        sendResponse({ records, owner: ownerName(), onReelsTab: isReelsTab() }),
+      // Two presses used to drive two concurrent ~112s scroll loops over the same
+      // grid, fighting each other for the scroll position.
+      if (harvesting) {
+        sendResponse({ records: collect(), owner: ownerName(), onReelsTab: isReelsTab(), harvesting: true });
+        return; // sync
+      }
+      harvest().then(
+        (records) =>
+          sendResponse({ records, owner: ownerName(), onReelsTab: isReelsTab(), harvesting: false }),
+        // Without a rejection handler a throw inside harvest() left the port open
+        // until it timed out, sticking the panel's "harvesting" flag on.
+        (e) =>
+          sendResponse({
+            records: collect(),
+            owner: ownerName(),
+            onReelsTab: isReelsTab(),
+            harvesting: false,
+            error: String(e?.message || e),
+          }),
       );
       return true; // async
+    }
+    if (msg?.type === "FBW_FB_REELS_STOP") {
+      cancelFlag = true;
+      sendResponse({ ok: true });
+      return; // sync
     }
   });
 }

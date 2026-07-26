@@ -478,6 +478,17 @@ import {
     persist();
   }
 
+  // A click that lands but doesn't register is Facebook's classic soft-block tell.
+  // The posts loop has always halted on three in a row; the video loop (FB reels,
+  // IG, TikTok) never even counted them, so a soft-blocked reels session kept
+  // clicking into the void for its whole duration.
+  function noteSoftFail() {
+    S.softFailStreak++;
+    logLine(`· reação não registrou (${S.softFailStreak}/${SOFT_FAIL_LIMIT})`);
+    if (S.softFailStreak >= SOFT_FAIL_LIMIT)
+      halt("possível bloqueio brando — as reações não estão registrando");
+  }
+
   function note(found) {
     if (found) S.missStreak = 0;
     else {
@@ -1228,6 +1239,12 @@ import {
           liked: S.liked,
           loved: S.loved,
           skipped: S.skipped,
+          // These four were missing, so the History tab under-reported next to the
+          // summary card written from the same run.
+          saved: S.saved,
+          followed: S.followed,
+          commented: S.commented,
+          reactionCounts: { ...S.reactionCounts },
           outcome,
         });
         chrome.storage.local.set({ [HISTORY_KEY]: hist.slice(-50) });
@@ -2107,10 +2124,11 @@ import {
             if (got === "love") S.loved++;
             S.reactionCounts[got] = (S.reactionCounts[got] || 0) + 1;
             S.consecLikes++;
+            S.softFailStreak = 0;
             logLine(
               `${FB_REACTIONS[got].emoji} reagiu ${reactionPT(got)} no ${nounPT(A.noun)}${got !== want ? ` (não achou ${reactionPT(want)})` : ""}`,
             );
-          }
+          } else noteSoftFail();
         } else {
           const btn = A.likeBtn(c);
           if (btn) {
@@ -2120,8 +2138,9 @@ import {
             if (ok) {
               S.liked++;
               S.consecLikes++;
+              S.softFailStreak = 0;
               logLine(`❤️ curtiu o ${nounPT(A.noun)}`);
-            }
+            } else noteSoftFail();
           }
         }
       }

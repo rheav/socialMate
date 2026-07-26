@@ -80,7 +80,6 @@ export default function FbReelsTool() {
   }, [send, apply]);
 
   useEffect(() => {
-    listFromTab();
     return startPolling(listFromTab, 3000); // skips ticks while the panel is hidden
   }, [listFromTab]);
 

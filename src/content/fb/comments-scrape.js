@@ -425,7 +425,13 @@ function dedupeKey(rec) {
       if (!force && (Date.now() - lastFlush < 1400 || map.size === lastSize)) return;
       lastFlush = Date.now();
       lastSize = map.size;
-      await storeComments(buildDoc(map, post_url, post_id, harvest._sortMode, true));
+      // A failed STREAMING flush must not kill the harvest — the final write is the
+      // one that matters, and it is not swallowed (see storeComments).
+      try {
+        await storeComments(buildDoc(map, post_url, post_id, harvest._sortMode, true));
+      } catch (e) {
+        console.warn("[fbw] flush parcial falhou", e);
+      }
     };
 
     // 1) click "Ver mais comentários" until the count stops growing and the
@@ -510,14 +516,22 @@ function dedupeKey(rec) {
       }
       const r = await chrome.storage.local.get("fbw_comments");
       const map = r.fbw_comments || {};
-      map[doc.post_id || "post_" + Date.now()] = doc;
+      // Keying an unparseable post by Date.now() created a fresh archive entry on
+      // every run, evicting real posts from the 8-slot cap. One stable bucket.
+      map[doc.post_id || "post_sem_id"] = doc;
       const kept = Object.fromEntries(
         Object.entries(map)
           .sort((a, b) => (Date.parse(b[1].scraped_at) || 0) - (Date.parse(a[1].scraped_at) || 0))
           .slice(0, 8),
       );
       await chrome.storage.local.set({ fbw_comments: kept, fbw_comments_live: null });
-    } catch {}
+    } catch (e) {
+      // A bare catch here made a storage-quota failure on a 2000-comment thread
+      // look exactly like success: the button went green and the run was gone.
+      // Rethrow so runScrape's handler reports it (and keeps the JSON export from
+      // claiming a save that never happened).
+      throw new Error("não foi possível salvar os comentários: " + String(e?.message || e));
+    }
   }
   // Fired by the rail's comment button (transcription/inject.js). Second fire
   // while running = cancel.

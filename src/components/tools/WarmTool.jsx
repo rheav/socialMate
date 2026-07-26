@@ -142,23 +142,29 @@ export default function WarmTool({ platform }) {
       !chrome?.storage?.local
     )
       return;
-    chrome.storage.local.set({
-      swOptions: {
-        pacing,
-        thresholds,
-        autoCapture,
-        duration,
-        maxItems,
-        quickMode,
-        reactions,
-        comment: {
-          enabled: comment.enabled,
-          chance: comment.chance,
-          onlyFullyWatched: comment.onlyFullyWatched,
-          phrases: comment.phrases.map((p) => p.text),
+    // Debounced: the deps include every text field, so this used to fire a full
+    // storage write on EVERY keystroke — each character of a comment phrase, each
+    // digit of the duration.
+    const t = setTimeout(() => {
+      chrome.storage.local.set({
+        swOptions: {
+          pacing,
+          thresholds,
+          autoCapture,
+          duration,
+          maxItems,
+          quickMode,
+          reactions,
+          comment: {
+            enabled: comment.enabled,
+            chance: comment.chance,
+            onlyFullyWatched: comment.onlyFullyWatched,
+            phrases: comment.phrases.map((p) => p.text),
+          },
         },
-      },
-    });
+      });
+    }, 300);
+    return () => clearTimeout(t);
   }, [pacing, thresholds, autoCapture, duration, maxItems, quickMode, reactions, comment]);
 
   const [status, setStatus] = useState(null);
@@ -237,9 +243,14 @@ export default function WarmTool({ platform }) {
     setRunError(null);
   }, [platform]);
 
+  const running = !!status?.isRunning;
+
   useEffect(() => {
-    poll();
-    const stopPoll = startPolling(poll, 1000); // skips ticks while the panel is hidden
+    // 1s while a run is live (the log and counters animate); back off to 4s when
+    // idle — an idle panel was waking the content script every second for a status
+    // object that never changed. startPolling fires immediately, so switching
+    // cadence still refreshes at once.
+    const stopPoll = startPolling(poll, running ? 1000 : 4000);
     const onClosed = (closedId) => {
       if (closedId === tabId.current) tabId.current = null;
     };
@@ -249,13 +260,12 @@ export default function WarmTool({ platform }) {
       stopPoll();
       if (hasTabs) chrome.tabs.onRemoved.removeListener(onClosed);
     };
-  }, [poll]);
+  }, [poll, running]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [status?.log]);
 
-  const running = !!status?.isRunning;
   const paused = !!status?.isPaused;
   const halted = !!status?.haltReason;
 
@@ -295,7 +305,11 @@ export default function WarmTool({ platform }) {
       // FB warmer is like-only (panel hides Save/Follow there) — force the
       // hidden defaults off so reels runs don't save/follow every card.
       ...(platform === "facebook" ? { save: false, follow: false } : {}),
-      englishOnly,
+      // Gated exactly like the toggle that sets it (facebook + mode A). It was
+      // being sent for every platform with its hidden default of `true`, so if the
+      // IG/TT engines ever honour it users would get a silent English-only filter
+      // they cannot see or turn off.
+      englishOnly: platform === "facebook" && mode === "A" ? englishOnly : false,
       quickMode,
       personality,
       // Reaction mix only applies to the Facebook engine; ensure Like is on if

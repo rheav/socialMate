@@ -47,7 +47,6 @@ export default function IgStoriesTool() {
   }, [send]);
 
   useEffect(() => {
-    listFromTab();
     return startPolling(listFromTab, 2500); // skips ticks while the panel is hidden
   }, [listFromTab]);
 

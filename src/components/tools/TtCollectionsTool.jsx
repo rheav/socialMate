@@ -25,7 +25,6 @@ export default function TtCollectionsTool() {
   }, [send]);
 
   useEffect(() => {
-    pull();
     return startPolling(pull, 2500); // skips ticks while the panel is hidden
   }, [pull]);
 

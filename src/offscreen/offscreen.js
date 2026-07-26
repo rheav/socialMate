@@ -23,8 +23,16 @@ function getTxWorker() {
     const resolve = txPending.get(id);
     if (resolve) { txPending.delete(id); resolve(rest); }
   };
+  // Register a resolver for the config reply. Without one a {ok:false} config
+  // (a bad model path, a missing wasm) was dropped on the floor and the first real
+  // job failed later with an unrelated pipeline error.
+  const cfgId = ++txMsgId;
+  txPending.set(cfgId, (res) => {
+    if (res && res.ok === false)
+      console.error("[fbw] offscreen: worker de transcrição não configurou:", res.error);
+  });
   txWorker.postMessage({
-    id: ++txMsgId,
+    id: cfgId,
     type: "config",
     paths: {
       models: chrome.runtime.getURL("models/"),
@@ -135,8 +143,16 @@ function getRelWorker() {
     const resolve = relPending.get(id);
     if (resolve) { relPending.delete(id); resolve(rest); }
   };
+  // Register a resolver for the config reply. Without one a {ok:false} config
+  // (a bad model path, a missing wasm) was dropped on the floor and the first real
+  // job failed later with an unrelated pipeline error.
+  const cfgId = ++txMsgId;
+  relPending.set(cfgId, (res) => {
+    if (res && res.ok === false)
+      console.error("[fbw] offscreen: worker de relevância não configurou:", res.error);
+  });
   relWorker.postMessage({
-    id: ++txMsgId,
+    id: cfgId,
     type: "config",
     paths: {
       models: chrome.runtime.getURL("models/"),
@@ -230,9 +246,20 @@ async function getFfmpeg() {
 }
 
 async function muxDownload(videoUrl, audioUrl, videoId) {
+  // fbcdn track URLs are signed and expire. Unchecked, a 403 fed an HTML error
+  // page into ffmpeg, which then produced either a garbage MP4 or an error that
+  // said nothing about the real cause.
+  const grab = async (url, what) => {
+    const r = await fetch(url);
+    if (!r.ok)
+      throw new Error(
+        `faixa de ${what} indisponível (HTTP ${r.status}) — o link do fbcdn expirou, recarregue a página`,
+      );
+    return r.arrayBuffer();
+  };
   const [vBuf, aBuf] = await Promise.all([
-    fetch(videoUrl).then((r) => r.arrayBuffer()),
-    fetch(audioUrl).then((r) => r.arrayBuffer()),
+    grab(videoUrl, "vídeo"),
+    grab(audioUrl, "áudio"),
   ]);
   const fm = await getFfmpeg();
   await fm.writeFile("v.mp4", new Uint8Array(vBuf));
@@ -337,6 +364,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // The background sends this when its 3-minute race times out. Terminating the
+  // worker is the only way to stop Whisper mid-inference; the next job lazily
+  // spawns a fresh one. Without it the zombie job kept a core busy and held
+  // inFlight above zero, blocking the idle release for minutes.
+  if (msg.action === "abortTranscription") {
+    try {
+      if (txWorker) {
+        txWorker.terminate();
+        txWorker = null;
+        for (const [id, resolve] of txPending)
+          resolve({ ok: false, error: "transcrição cancelada" });
+        txPending.clear();
+      }
+    } catch {}
+    // Do NOT touch inFlight here. Settling the pending resolvers above lets the
+    // aborted job's own job() wrapper run its finally and decrement exactly once —
+    // zeroing it would drive the counter negative, and `inFlight === 0` would then
+    // never be true again, blocking the idle release forever.
+    sendResponse({ success: true });
+    return true;
+  }
   if (msg.action === "muxDownload") {
     job(sendResponse, () => muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId));
     return true;

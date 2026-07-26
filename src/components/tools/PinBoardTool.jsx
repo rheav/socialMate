@@ -81,7 +81,6 @@ export default function PinBoardTool() {
   useEffect(() => {
     // Harvest is a live, possibly long-running job — poll every second, but
     // via startPolling so a hidden panel doesn't keep waking the content script.
-    pullState();
     return startPolling(pullState, 1000);
   }, [pullState]);
 
