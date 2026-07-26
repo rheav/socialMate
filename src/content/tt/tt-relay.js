@@ -47,7 +47,12 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
   // Bumped on every ingest. The panel sends its last seen value and we answer
   // { unchanged: true } when nothing moved, instead of structured-cloning the whole
   // store across processes every 2.5s.
-  let storeVersion = 0;
+  // One counter per store. A single shared counter meant a video ingest — which
+  // happens constantly while the FYP streams — invalidated the comments, stories and
+  // lists polls as well, so each of those re-serialised its whole payload every
+  // 2.5s even though nothing in it had changed.
+  const ver = { videos: 0, comments: 0, stories: 0, lists: 0 };
+  const bump = (k) => { ver[k] += 1; };
   // Local mirror of the saved-post ids, kept in sync by one storage.onChanged
   // listener. The overlay used to chrome.storage.local.get("fbw_saved") on EVERY
   // 1s tick, deserializing the entire saved map (base64 thumbs included) into the
@@ -66,6 +71,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     const owner = r.reel_owner || r.username || "unknown";
     let S = stories.get(owner);
     if (!S) { S = new Map(); stories.set(owner, S); }
+    bump("stories");
     const prev = S.get(r.id) || {};
     for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
     S.set(r.id, prev);
@@ -75,12 +81,14 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
   function ingestListMeta(r) {
     let L = lists.get(r.list_id);
     if (!L) { L = { meta: {}, items: new Map() }; lists.set(r.list_id, L); }
+    bump("lists");
     for (const k in r) if (r[k] != null) L.meta[k] = r[k];
     cap(lists, 60);
   }
   function ingestListVideo(r) {
     let L = lists.get(r.list_id);
     if (!L) { L = { meta: { list_id: r.list_id }, items: new Map() }; lists.set(r.list_id, L); }
+    bump("lists");
     L.items.set(r.id, r);
     cap(L.items, 300);
     cap(lists, 60); // this path creates entries too, so it must cap as well
@@ -137,6 +145,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     lastCommentAweme = r.aweme_id;
     let C = comments.get(r.aweme_id);
     if (!C) { C = { aweme_id: r.aweme_id, items: new Map() }; comments.set(r.aweme_id, C); }
+    bump("comments");
     const prev = C.items.get(r.cid) || {};
     for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
     C.items.set(r.cid, prev);
@@ -161,7 +170,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       if (r.list_id) ingestListVideo(prev); // playlist/collection membership
     }
     while (byId.size > 500) byId.delete(byId.keys().next().value);
-    storeVersion += 1; // lets the panel poll short-circuit when nothing changed
+    bump("videos"); // lets the panel poll short-circuit when nothing changed
     scheduleOverlay();
   };
   window.addEventListener("message", onRelay);
@@ -190,32 +199,40 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
     // ingested since, answer with a tiny {unchanged} instead of structured-cloning
     // the whole store across processes.
     if (msg?.type === "FBW_TT_LIST") {
-      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
-      sendResponse({ records: Array.from(byId.values()), surface: surfaceKey(), current: currentAwemeId(), version: storeVersion });
+      if (msg.since === ver.videos) {
+        // surface/current are cheap and CHANGE without a new capture (SPA nav,
+        // scrolling the feed), so they ship even when the store has not moved.
+        sendResponse({ unchanged: true, version: ver.videos, surface: surfaceKey(), current: currentAwemeId() });
+        return;
+      }
+      sendResponse({ records: Array.from(byId.values()), surface: surfaceKey(), current: currentAwemeId(), version: ver.videos });
       return;
     }
     if (msg?.type === "FBW_TT_COMMENTS") {
-      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
+      if (msg.since === ver.comments) {
+        sendResponse({ unchanged: true, version: ver.comments, current: lastCommentAweme || currentAwemeId() });
+        return;
+      }
       const videos = [];
       for (const C of comments.values()) {
         videos.push({ aweme_id: C.aweme_id, meta: byId.get(C.aweme_id) || null, comments: Array.from(C.items.values()) });
       }
       // `current` = the video the user is viewing → the panel auto-selects it.
-      sendResponse({ videos, current: lastCommentAweme || currentAwemeId(), version: storeVersion });
+      sendResponse({ videos, current: lastCommentAweme || currentAwemeId(), version: ver.comments });
       return;
     }
     if (msg?.type === "FBW_TT_STORIES") {
-      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
+      if (msg.since === ver.stories) { sendResponse({ unchanged: true, version: ver.stories }); return; }
       const out = [];
       for (const [owner, S] of stories) out.push({ owner, items: Array.from(S.values()) });
-      sendResponse({ owners: out, version: storeVersion });
+      sendResponse({ owners: out, version: ver.stories });
       return;
     }
     if (msg?.type === "FBW_TT_LISTS") {
-      if (msg.since === storeVersion) { sendResponse({ unchanged: true, version: storeVersion }); return; }
+      if (msg.since === ver.lists) { sendResponse({ unchanged: true, version: ver.lists }); return; }
       const out = [];
       for (const [, L] of lists) out.push({ ...L.meta, items: Array.from(L.items.values()) });
-      sendResponse({ lists: out, version: storeVersion });
+      sendResponse({ lists: out, version: ver.lists });
       return;
     }
     if (msg?.type === "FBW_TT_CLEAR") {
@@ -224,7 +241,7 @@ if (location.hostname.endsWith("tiktok.com") && !window.__fbwTtInit) {
       stories.clear();
       lists.clear();
       lastCommentAweme = null;
-      storeVersion += 1;
+      bump("videos"); bump("comments"); bump("stories"); bump("lists");
       requestReplay(); // re-pull the current surface so the panel isn't left empty
       sendResponse?.({ ok: true });
       return;

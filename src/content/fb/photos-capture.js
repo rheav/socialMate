@@ -134,6 +134,24 @@
   // The server-rendered first page. Scanned nodes are remembered so a repeat
   // sweep (SPA navigation injects more blocks) never re-parses the same 60 KB.
   const swept = new WeakSet();
+  // The eager sweeps run on every facebook.com page load, so gate them on the
+  // photos surface — elsewhere they were an indexOf over megabytes of hydration
+  // blobs (and a JSON.parse of any that mentioned viewer_image) for nothing. The
+  // replay path (__fbwFbPhReq, sent only when the panel asks) sweeps regardless, so
+  // a surface this check misjudges still resolves on demand.
+  function onPhotosSurface() {
+    try {
+      const u = new URL(location.href);
+      if (/(^|&)sk=photos/.test(u.search.slice(1))) return true;
+      return /\/photos(_[a-z]+)?\/?$/.test(u.pathname) || /\/photo(\.php)?\/?$/.test(u.pathname);
+    } catch (_) {
+      return true; // never skip because a URL failed to parse
+    }
+  }
+  function sweepIfPhotos() {
+    if (onPhotosSurface()) sweepInline();
+  }
+
   function sweepInline() {
     let nodes;
     try {
@@ -210,7 +228,7 @@
 
   // At document_start the document is empty; sweep once it has content.
   if (document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", sweepInline, { once: true });
-  else sweepInline();
-  window.addEventListener("load", sweepInline, { once: true });
+    document.addEventListener("DOMContentLoaded", sweepIfPhotos, { once: true });
+  else sweepIfPhotos();
+  window.addEventListener("load", sweepIfPhotos, { once: true });
 })();

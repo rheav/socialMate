@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Download, Bookmark, RotateCw, ListVideo, ChevronDown, ChevronRight, Eye } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
@@ -18,9 +18,16 @@ export default function TtCollectionsTool() {
   const [lists, setLists] = useState([]);
   const [open, setOpen] = useState({});
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
+  // The bridge answers {unchanged:true} when its store hasn't moved since the
+  // version we last saw, which makes an idle poll near-free — it otherwise
+  // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
+  // what Atualizar wants after a clear.
+  const sinceRef = useRef(null);
 
   const pull = useCallback(async () => {
-    const res = await send({ type: "FBW_TT_LISTS" });
+    const res = await send({ type: "FBW_TT_LISTS", since: sinceRef.current });
+    if (!res || res.unchanged) return;
+    sinceRef.current = res.version ?? sinceRef.current;
     if (res && Array.isArray(res.lists)) setLists(res.lists);
   }, [send]);
 
@@ -29,6 +36,7 @@ export default function TtCollectionsTool() {
   }, [pull]);
 
   const refresh = useCallback(async () => {
+    sinceRef.current = null;
     setLists([]);
     // userAction: the user pressed Atualizar and is owed an answer either way.
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });

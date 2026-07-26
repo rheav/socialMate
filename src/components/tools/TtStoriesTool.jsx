@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Download, FileText, Loader2, Bookmark, RotateCw, Eye, Heart } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
@@ -29,6 +29,11 @@ export default function TtStoriesTool() {
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
+  // The bridge answers {unchanged:true} when its store hasn't moved since the
+  // version we last saw, which makes an idle poll near-free — it otherwise
+  // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
+  // what Atualizar wants after a clear.
+  const sinceRef = useRef(null);
 
   useEffect(() => {
     if (!chrome?.storage?.local) return;
@@ -48,7 +53,9 @@ export default function TtStoriesTool() {
   }, []);
 
   const pull = useCallback(async () => {
-    const res = await send({ type: "FBW_TT_STORIES" });
+    const res = await send({ type: "FBW_TT_STORIES", since: sinceRef.current });
+    if (!res || res.unchanged) return;
+    sinceRef.current = res.version ?? sinceRef.current;
     if (res && Array.isArray(res.owners)) setOwners(res.owners.filter((o) => o.items && o.items.length));
   }, [send]);
 
@@ -57,6 +64,7 @@ export default function TtStoriesTool() {
   }, [pull]);
 
   const refresh = useCallback(async () => {
+    sinceRef.current = null;
     setOwners([]);
     // userAction: the user pressed Atualizar and is owed an answer either way.
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });

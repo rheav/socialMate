@@ -18,6 +18,14 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
   const APP_VERSION_FALLBACK = "d97c852"; // observed 2026-07-25; stale values still work
 
   let store = new Map();     // pin id -> record
+  // Every other store in the extension is capped; this one was not, so a
+  // multi-thousand-pin board held all of it (item URL lists included) for the tab's
+  // lifetime. 4000 is comfortably above the 40-page × 25 harvest ceiling, so a
+  // single run is never truncated — this only bounds many runs in one tab.
+  const STORE_CAP = 4000;
+  function capStore() {
+    while (store.size > STORE_CAP) store.delete(store.keys().next().value);
+  }
   let surfaceKey = null;
   let harvesting = false;
   let pages = 0;
@@ -111,6 +119,7 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
       if (!rec.items.length) continue;                  // nothing downloadable
       store.set(rec.id, rec);
     }
+    capStore();
   }
 
   async function harvest(maxPages) {

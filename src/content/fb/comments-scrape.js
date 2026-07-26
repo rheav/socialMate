@@ -384,12 +384,21 @@ function dedupeKey(rec) {
       (repliesByParent.get(k) || repliesByParent.set(k, []).get(k)).push(r);
     }
     const ordered = [];
+    const placed = new Set(); // O(1) membership — `ordered.includes` made the
+    // orphan pass below O(n²), and buildDoc runs on every throttled flush, so a
+    // 2000-comment thread paid it a few hundred times per scrape.
     for (const t of tops) {
       ordered.push(t);
+      placed.add(t);
       const kids = repliesByParent.get(t.comment_id);
-      if (kids) ordered.push(...kids);
+      if (kids)
+        for (const k of kids) {
+          ordered.push(k);
+          placed.add(k);
+        }
     }
-    for (const r of recs) if (r.is_reply && !ordered.includes(r)) ordered.push(r);
+    // Replies whose parent never appeared (paginated away) still have to ship.
+    for (const r of recs) if (r.is_reply && !placed.has(r)) ordered.push(r);
     return {
       post_url, post_id,
       scraped_at: new Date().toISOString(),

@@ -169,8 +169,13 @@ function fmtCount(n) {
     if (t.indexOf("total_comment_count") < 0) { embeddedCache.set(node, out); return out; }
     let data;
     try { data = JSON.parse(t); } catch { embeddedCache.set(node, out); return out; }
+    // Node budget as well as a depth cap: a depth limit alone does not bound a wide
+    // blob, and one pathological payload could block the main thread. Mirrors
+    // NODE_BUDGET in photos-capture.js.
+    let budget = 60000;
     (function walk(o, depth) {
       if (!o || typeof o !== "object" || depth > 32) return;
+      if (--budget < 0) return;
       if (Array.isArray(o)) { for (const v of o) walk(v, depth + 1); return; }
       if (o.feedback && o.url) {
         const rid = (String(o.url).match(/\/reel\/(\d+)/) || [])[1];

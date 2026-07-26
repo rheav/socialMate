@@ -48,14 +48,35 @@ export default function TtCommentsTool() {
   const [copied, setCopied] = useState(false);
   const [exportErr, setExportErr] = useState(false);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
+  // The bridge answers {unchanged:true} when its store hasn't moved since the
+  // version we last saw, which makes an idle poll near-free — it otherwise
+  // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
+  // what Atualizar wants after a clear.
+  const sinceRef = useRef(null);
   // Follow the currently-open TikTok video until the user manually picks one.
   const follow = useRef(true);
+  // Mirror of the last list so the {unchanged} poll path can still answer "does
+  // this video have comments?" without the payload.
+  const videosRef = useRef([]);
+  const hasComments = (id) => !!id && videosRef.current.some((v) => v.aweme_id === id);
 
   const pull = useCallback(async () => {
-    const res = await send({ type: "FBW_TT_COMMENTS" });
+    const res = await send({ type: "FBW_TT_COMMENTS", since: sinceRef.current });
+    if (!res) return;
+    // `current` (the video being watched) changes without new comments and drives
+    // the auto-follow, so it is honoured even when the store hasn't moved. The
+    // guard still has to be "does this video actually have comments", which the
+    // short-circuit reply doesn't carry — hence the ref mirror of the last list.
+    if (res.unchanged) {
+      if (follow.current && res.current && hasComments(res.current))
+        setActiveId(res.current);
+      return;
+    }
+    sinceRef.current = res.version ?? sinceRef.current;
     if (res && Array.isArray(res.videos)) {
       // Keep only videos that actually have comments; newest capture first.
       const withComments = res.videos.filter((v) => v.comments && v.comments.length);
+      videosRef.current = withComments;
       setVideos(withComments);
       const has = (id) => id && withComments.some((v) => v.aweme_id === id);
       setActiveId((cur) => {
@@ -71,6 +92,8 @@ export default function TtCommentsTool() {
 
   const refresh = useCallback(async () => {
     follow.current = true;
+    sinceRef.current = null;
+    videosRef.current = [];
     setVideos([]);
     setActiveId(null);
     // userAction: the user pressed Atualizar and is owed an answer either way.

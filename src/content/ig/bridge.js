@@ -22,6 +22,8 @@ if (location.hostname.endsWith("instagram.com") && !window.__fbwIgInit) {
     if (e.data.__fbwIgTakeover === GEN || disabled) return;
     disabled = true;
     clearInterval(storyInterval);
+    clearInterval(storyPathWatcher);
+    window.removeEventListener("popstate", syncStoryTicker);
     clearTimeout(ovlTimer);
     ovlObserver.disconnect();
     window.removeEventListener("message", onIgRelay);
@@ -942,7 +944,30 @@ function buildSavedEntry({
       txBtn.style.display = isVideo ? "" : "none";
     }
   }
-  const storyInterval = setInterval(maintainStoryDl, 800);
+  // The story stack only exists inside /stories/. This interval used to tick on
+  // EVERY Instagram tab forever; now it only runs while the viewer is actually open,
+  // started/stopped by an SPA-navigation watcher. (IG is a pushState app, so the
+  // watcher itself is a cheap 1s path check rather than a DOM observer.)
+  let storyInterval = null;
+  function syncStoryTicker() {
+    const open = location.pathname.startsWith("/stories/");
+    if (open && !storyInterval) {
+      storyInterval = setInterval(maintainStoryDl, 800);
+      maintainStoryDl();
+    } else if (!open && storyInterval) {
+      clearInterval(storyInterval);
+      storyInterval = null;
+      document.getElementById("sw-stdl")?.remove();
+    }
+  }
+  let lastStoryPath = location.pathname;
+  const storyPathWatcher = setInterval(() => {
+    if (location.pathname === lastStoryPath) return;
+    lastStoryPath = location.pathname;
+    syncStoryTicker();
+  }, 1000);
+  window.addEventListener("popstate", syncStoryTicker);
+  syncStoryTicker();
   window.addEventListener("resize", maintainStoryDl, { passive: true });
 
 }

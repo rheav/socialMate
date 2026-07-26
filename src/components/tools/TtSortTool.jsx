@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import {
   Download,
   Bookmark,
@@ -76,6 +76,11 @@ export default function TtSortTool() {
   const [sortKey, setSortKey] = useState("default");
   const [sortDir, setSortDir] = useState("desc");
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
+  // The bridge answers {unchanged:true} when its store hasn't moved since the
+  // version we last saw, which makes an idle poll near-free — it otherwise
+  // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
+  // what Atualizar wants after a clear.
+  const sinceRef = useRef(null);
 
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
@@ -103,7 +108,14 @@ export default function TtSortTool() {
   }, []);
 
   const listFromTab = useCallback(async () => {
-    const res = await send({ type: "FBW_TT_LIST" });
+    const res = await send({ type: "FBW_TT_LIST", since: sinceRef.current });
+    if (!res) return;
+    // Surface first: it changes on an SPA navigation with no new capture, and it
+    // drives the scoping filter — skipping it on an unchanged store would keep the
+    // grid filtered to the profile you just left.
+    if (res.surface !== undefined) setSurface(res.surface);
+    if (res.unchanged) return;
+    sinceRef.current = res.version ?? sinceRef.current;
     if (res && Array.isArray(res.records)) {
       setRecords(res.records);
       setSurface(res.surface || null);
@@ -117,6 +129,7 @@ export default function TtSortTool() {
   // Drop everything captured so far (other profiles/surfaces) and re-pull the
   // current one — so switching context doesn't leave stale videos in the grid.
   const refresh = useCallback(async () => {
+    sinceRef.current = null;
     setRecords([]);
     // userAction: the user pressed Atualizar and is owed an answer either way.
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });

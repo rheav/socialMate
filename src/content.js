@@ -200,7 +200,21 @@ import {
     S.log.push(entry);
     if (S.log.length > LOG_CAP) S.log.shift();
     console.log("[SW]", msg);
-    persist();
+    persistSoon();
+  }
+
+  // Debounced persist. Every log line used to write the whole session object —
+  // sometimes several times per item — on top of the 30s heartbeat. The panel polls
+  // a snapshot from memory, so the write never needed to be synchronous; what
+  // matters is that the state is on disk before a navigation, and the explicit
+  // persist() calls at the run's decision points still guarantee that.
+  let persistTimer = null;
+  function persistSoon() {
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persist();
+    }, 400);
   }
 
   // ---- live progress log line ----
@@ -419,7 +433,20 @@ import {
   // ============================================================
   // safety / stop conditions (generic + per-platform)
   // ============================================================
-  function detectStop() {
+  // detectStop serialises the whole document's innerText and runs a dozen regexes
+  // over it. On Facebook's DOM that is the most expensive thing in the loop, and it
+  // used to run once per 1s tick AND once per loop iteration — with every call site
+  // evaluating it TWICE in a row. Cache the verdict briefly: a login wall or a
+  // checkpoint does not appear and vanish inside 2s, so reading faster buys nothing.
+  const STOP_CACHE_MS = 2000;
+  let stopCache = { at: 0, reason: null };
+  function detectStopCached() {
+    const now = Date.now();
+    if (now - stopCache.at < STOP_CACHE_MS) return stopCache.reason;
+    stopCache = { at: now, reason: detectStopUncached() };
+    return stopCache.reason;
+  }
+  function detectStopUncached() {
     const url = location.href.toLowerCase();
     const body = (document.body?.innerText || "").toLowerCase();
     if (
@@ -1706,7 +1733,10 @@ import {
         await waitWhilePaused();
         await maybeBreak();
         if (!S.isRunning) break;
-        if (detectStop()) return halt(detectStop());
+        {
+          const stop = detectStopCached();
+          if (stop) return halt(stop);
+        }
 
         const p = fbPickPost();
         if (!p) {
@@ -2232,7 +2262,10 @@ import {
         await waitWhilePaused();
         await maybeBreak();
         if (!S.isRunning) break;
-        if (detectStop()) return halt(detectStop());
+        {
+          const stop = detectStopCached();
+          if (stop) return halt(stop);
+        }
 
         const c = A.getContainer();
         if (!c) {
@@ -2410,8 +2443,9 @@ import {
     // stale-session reconciler never misreads a long pause as an abandoned run.
     if (S.isRunning && Date.now() - S.lastPersistAt > 30000) persist();
     if (!S.isRunning || S.isPaused) return;
-    if (detectStop()) {
-      halt(detectStop());
+    const stopReason = detectStopCached();
+    if (stopReason) {
+      halt(stopReason);
       return;
     }
     if (S.willEndAt && Date.now() >= S.willEndAt) {
