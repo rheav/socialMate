@@ -6,6 +6,9 @@
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
 import { downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
+import { mergeMeta } from "./lib/shared/metaMerge.js";
+import { serialQueue } from "./lib/serialQueue.js";
+import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
@@ -250,15 +253,7 @@ function capSavedStore(map) {
 
 // Serialize the read-modify-write. Every toggle queues behind the previous one, so
 // concurrent saves from different tabs/worlds can't clobber each other.
-let savedChain = Promise.resolve();
-function queueSavedWrite(fn) {
-  const next = savedChain.then(fn, fn);
-  savedChain = next.then(
-    () => {},
-    () => {},
-  );
-  return next;
-}
+const queueSavedWrite = serialQueue();
 
 // Toggle one entry: present → remove, absent → insert. Returns whether the item
 // is saved AFTER the call, so a caller can paint the bookmark from the truth
@@ -469,24 +464,62 @@ async function getTranscripts() {
   return r[TRANSCRIPTS_KEY] || {};
 }
 const TRANSCRIPTS_CAP = 20;
-async function putTranscript(videoId, patch) {
-  const all = await getTranscripts();
-  all[videoId] = {
-    ...(all[videoId] || {}),
-    ...patch,
-    videoId,
-    updatedAt: Date.now(),
-  };
-  // Rolling history: keep the newest TRANSCRIPTS_CAP records. Thumbs make each
-  // record 10-20KB, and the Library reads the whole map on every change.
-  const ids = Object.keys(all);
-  if (ids.length > TRANSCRIPTS_CAP) {
-    ids.sort((a, b) => (all[b].updatedAt || 0) - (all[a].updatedAt || 0));
-    for (const id of ids.slice(TRANSCRIPTS_CAP)) delete all[id];
-  }
-  await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
-  return all[videoId];
+// Every transcript write queues behind the previous one. The store is one MAP
+// with four writers — the job runner, the metadata backfill, the page's instant
+// "running" card and the Library's delete — each doing get → mutate → set. Two of
+// those in flight and the slower read wins, dropping the other write: a finished
+// transcript overwritten by a running card, a delete resurrecting a record. The
+// saved store was fixed this way first; the queue is shared now (lib/serialQueue).
+const queueTranscriptWrite = serialQueue();
+
+function putTranscript(videoId, patch, opts = {}) {
+  return queueTranscriptWrite(async () => {
+    const all = await getTranscripts();
+    // mergeMeta, not a spread: a later write that scraped nothing must not erase
+    // metadata an earlier one captured (a reel filed with `counts: null` beside a
+    // good author and caption is exactly that bug). `error` is state, not scraped
+    // metadata — a running record has to be able to clear a previous failure.
+    // `opts.clear` extends that list for a writer that KNOWS a stored value no
+    // longer describes the record (the caption path and `language`).
+    all[videoId] = {
+      ...mergeMeta(all[videoId] || {}, patch, { clear: ["error", ...(opts.clear || [])] }),
+      videoId,
+      updatedAt: Date.now(),
+    };
+    // Rolling history: keep the newest TRANSCRIPTS_CAP records. Thumbs make each
+    // record 10-20KB, and the Library reads the whole map on every change.
+    const ids = Object.keys(all);
+    if (ids.length > TRANSCRIPTS_CAP) {
+      ids.sort((a, b) => (all[b].updatedAt || 0) - (all[a].updatedAt || 0));
+      for (const id of ids.slice(TRANSCRIPTS_CAP)) delete all[id];
+    }
+    await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
+    return all[videoId];
+  });
 }
+
+// The Library's per-item delete and "limpar tudo". Both used to run in the panel
+// as its own get → mutate → set (clear-all as a blind `set({}: {})`), racing every
+// write above — a job finishing mid-clear put its record straight back.
+function removeTranscripts(ids) {
+  return queueTranscriptWrite(async () => {
+    if (ids && ids.all) {
+      await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: {} });
+      return -1;
+    }
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+    const all = await getTranscripts();
+    let removed = 0;
+    for (const id of list)
+      if (all[id]) {
+        delete all[id];
+        removed++;
+      }
+    if (removed) await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
+    return removed;
+  });
+}
+export { putTranscript, removeTranscripts }; // test seam — see background.transcripts.test.js
 
 // ---- offscreen document lifecycle ----
 let offscreenReady = false;
@@ -539,6 +572,15 @@ function callOffscreen(message) {
   return chrome.runtime.sendMessage({ ...message, target: "offscreen" });
 }
 
+export function offscreenTranscribeMessage(videoId, audioUrl, language) {
+  return {
+    action: "transcribeFromAudioUrl",
+    videoId,
+    audioUrl,
+    language: whisperTranscriptLanguage(language),
+  };
+}
+
 // ---- job runners ----
 // Parse a WebVTT caption file → { text, chunks:[{timestamp:[start,end], text}] }.
 // Mirrors the Whisper chunk shape so the Library's SRT/txt export just works.
@@ -568,24 +610,35 @@ function parseWebVtt(raw) {
 }
 
 async function runTranscription(videoId, tabId, meta = {}) {
+  const language = normalizeTranscriptLanguage(meta.language);
   // Caption-first: if the platform already ships an ASR/subtitle track (TikTok
   // `subtitleInfos`), download and parse it instead of running Whisper — far
   // faster/cheaper. Whisper stays the fallback when no caption URL is present.
   if (meta.captionUrl) {
     const id = videoId;
     const { thumb, counts, author, caption, platform, sourceUrl } = meta;
+    // NOT the user's BR/EN pick: Whisper never runs on this path, so the text is
+    // whatever language TikTok wrote its own subtitle track in. null when the track
+    // is neither of ours — and cleared rather than inherited, so an earlier Whisper
+    // run's language can't end up labelling someone else's caption file.
+    const captionLang = captionTrackLanguage(meta.captionLang);
     await putTranscript(id, {
       status: "running", error: null, source: "caption",
+      language: captionLang,
       ...(thumb ? { thumb } : {}), ...(counts ? { counts } : {}), ...(author ? { author } : {}),
       ...(caption ? { caption } : {}), ...(platform ? { platform } : {}), ...(sourceUrl ? { sourceUrl } : {}),
-    });
+    }, { clear: ["language"] });
     try {
       if (isTiktokCdn(meta.captionUrl)) await ensureTiktokReferer();
       const r = await fetch(meta.captionUrl);
       if (!r.ok) throw new Error("caption fetch failed " + r.status);
       const { text, chunks } = parseWebVtt(await r.text());
       if (!text) throw new Error("empty caption");
-      const saved = await putTranscript(id, { status: "done", source: "caption", text, chunks });
+      const saved = await putTranscript(
+        id,
+        { status: "done", source: "caption", language: captionLang, text, chunks },
+        { clear: ["language"] },
+      );
       notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: true, text: saved.text, chunks: saved.chunks });
       return;
     } catch (e) {
@@ -643,6 +696,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
   await putTranscript(id, {
     status: "running",
     error: null,
+    language,
     ...(thumb ? { thumb } : {}),
     ...(counts ? { counts } : {}),
     ...(author ? { author } : {}),
@@ -659,11 +713,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     // terminates and respawns its worker.
     let timer = null;
     const res = await Promise.race([
-      callOffscreen({
-        action: "transcribeFromAudioUrl",
-        videoId: id,
-        audioUrl,
-      }),
+      callOffscreen(offscreenTranscribeMessage(id, audioUrl, language)),
       new Promise((_, rej) => {
         timer = setTimeout(
           () => rej(new Error("transcrição expirou (3 min) — tente de novo")),
@@ -679,6 +729,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     if (!res?.success) throw new Error(res?.error || "Transcription failed");
     const saved = await putTranscript(id, {
       status: "done",
+      language,
       text: res.text,
       chunks: res.chunks || [],
     });
@@ -942,6 +993,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true; // async
     }
+    // The page's instant Library card, written the moment Transcribe is clicked.
+    // It used to be a get → mutate → set from the content script, i.e. a fourth
+    // racer on the transcript map; now it queues with every other write.
+    case "FBW_TRANSCRIPT_PUT": {
+      (async () => {
+        const all = await getTranscripts();
+        const prev = all[msg.videoId];
+        if (!msg.videoId || (prev && prev.status === "done")) return; // never clobber a finished one
+        await putTranscript(msg.videoId, { ...msg.record, status: msg.record?.status || "running" });
+      })();
+      return false;
+    }
+    // Library delete / "limpar tudo" (the panel used to write the map itself).
+    case "FBW_TRANSCRIPT_REMOVE": {
+      (async () => {
+        const n = await removeTranscripts(msg.all ? { all: true } : msg.ids);
+        sendResponse({ removed: n });
+      })();
+      return true; // async
+    }
+    // Late metadata from the page (counts hydrate after the job was requested).
+    // Patches an EXISTING record only — a patch must never mint a record under an
+    // id the transcription pipeline decided not to use — and fills gaps only.
+    case "FBW_META_PATCH": {
+      (async () => {
+        const all = await getTranscripts();
+        const prev = all[msg.videoId];
+        if (!prev || prev.counts) return; // already has them — a patch never overwrites
+        await putTranscript(msg.videoId, { counts: msg.counts || null });
+      })();
+      return false;
+    }
     case "FBW_TRANSCRIBE": {
       runTranscription(msg.videoId, sender.tab?.id, {
         thumb: msg.thumb,
@@ -950,9 +1033,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         caption: msg.caption,
         platform: msg.platform,
         sourceUrl: msg.sourceUrl,
+        language: msg.language,
         mediaUrl: msg.mediaUrl,
         captionUrl: msg.captionUrl, // caption-first (TikTok subtitleInfos webvtt)
         captionFormat: msg.captionFormat,
+        captionLang: msg.captionLang, // the TRACK's own language, not the user's pick
         // Feed post markup embeds NEIGHBOURING videos' ids — candidates from a
         // feed job are poison, refuse them even if a buggy/stale content
         // script sends some.

@@ -6,6 +6,8 @@
 // because *.fbcdn.net is in host_permissions, fetches here bypass CORS.
 
 import { get as idbGet, set as idbSet } from "idb-keyval";
+import { whisperTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
+import { txProgressPercent, whisperInferRatio } from "@/lib/transcriptionProgress.js";
 
 // Whisper runs in a dedicated module worker (transcribe.worker.js) so its heavy WASM
 // compute stays OFF the shared extension main thread — otherwise it freezes the side
@@ -20,6 +22,10 @@ function getTxWorker() {
   txWorker = new Worker(new URL("./transcribe.worker.js", import.meta.url), { type: "module" });
   txWorker.onmessage = (e) => {
     const { id, ...rest } = e.data || {};
+    // Progress is a STREAM on the same channel as the one-shot reply. It must not
+    // touch txPending: resolving there ends the job, and the caller would get a
+    // progress patch where the transcript should be.
+    if (rest.type === "progress") { reportWorkerProgress(rest); return; }
     const resolve = txPending.get(id);
     if (resolve) { txPending.delete(id); resolve(rest); }
   };
@@ -43,14 +49,60 @@ function getTxWorker() {
   return txWorker;
 }
 
-// language (optional) skips Whisper's auto-detect pass — used ONLY on the quick
-// relevance path. The full transcript passes no language (auto-detect = best quality).
+// Transformers.js does not auto-detect Whisper language in this version; omitting
+// it defaults multilingual Whisper to English. Always pass our persisted PT/EN
+// choice so Portuguese audio is not decoded as English.
+// ---- progress reporting ----
+// Advisory only. Nothing here may throw into a job, and nothing here writes to
+// storage: the transcript store is one map behind a serialized queue, and a
+// per-token write would rewrite it (thumbs and all) dozens of times a second. The
+// side panel listens for these messages and keeps them in component state, so a
+// closed panel simply misses them — the record still lands either way.
+let txJobVideoId = null;
+let txLastSentAt = 0;
+let txLastPct = -1;
+const TX_PROGRESS_MIN_MS = 150;
+
+function emitTxProgress(phase, ratio, { force = false } = {}) {
+  if (!txJobVideoId) return;
+  const pct = txProgressPercent(phase, ratio);
+  if (pct == null) return;
+  const now = Date.now();
+  if (!force && pct === txLastPct) return;
+  if (!force && now - txLastSentAt < TX_PROGRESS_MIN_MS) return;
+  txLastSentAt = now;
+  txLastPct = pct;
+  try {
+    chrome.runtime.sendMessage({ type: "FBW_TX_PROGRESS", videoId: txJobVideoId, phase, pct }).catch(() => {});
+  } catch {
+    /* no receiver (panel closed) — expected */
+  }
+}
+
+// Per-FILE byte counts from the model loader, summed into one ratio. Each file
+// restarts at zero, so the bar's own monotonic guard is what keeps this smooth.
+const txModelBytes = new Map();
+function reportWorkerProgress(p) {
+  try {
+    if (p.phase === "model") {
+      txModelBytes.set(p.file, { loaded: p.loaded || 0, total: p.total || 0 });
+      let loaded = 0, total = 0;
+      for (const v of txModelBytes.values()) { loaded += v.loaded; total += v.total; }
+      if (total > 0) emitTxProgress("model", loaded / total);
+      return;
+    }
+    if (p.phase === "infer") emitTxProgress("infer", whisperInferRatio(p.windows, p.done, p.within));
+  } catch {
+    /* a broken progress patch is not a broken transcription */
+  }
+}
+
 function workerTranscribe(audio, language) {
   const w = getTxWorker();
   const id = ++txMsgId;
   return new Promise((resolve) => {
     txPending.set(id, resolve);
-    w.postMessage({ id, type: "transcribe", audio, language }, [audio.buffer]); // transfer the PCM
+    w.postMessage({ id, type: "transcribe", audio, language: whisperTranscriptLanguage(language) }, [audio.buffer]); // transfer the PCM
   });
 }
 
@@ -58,7 +110,30 @@ function workerTranscribe(audio, language) {
  *  rendered length; maxBytes (quick path) fetches only a prefix via HTTP Range so
  *  a 12 s relevance transcript doesn't pull a whole multi-minute audio file. A
  *  truncated prefix that won't decode transparently falls back to the full file. */
-async function fetchAudioPCM(url, maxSeconds, maxBytes) {
+// Read a response body while reporting bytes. Falls straight back to arrayBuffer()
+// when the server declares no length (or the body isn't streamable) — a job with no
+// download bar is still a job.
+async function bodyWithProgress(res, onBytes) {
+  const total = Number(res.headers.get("content-length")) || 0;
+  if (!onBytes || !total || !res.body || typeof res.body.getReader !== "function")
+    return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const parts = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    loaded += value.length;
+    onBytes(loaded, total);
+  }
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out.buffer;
+}
+
+async function fetchAudioPCM(url, maxSeconds, maxBytes, onBytes) {
   let arrayBuffer;
   if (maxBytes) {
     const r = await fetch(url, { headers: { Range: `bytes=0-${maxBytes - 1}` } });
@@ -67,7 +142,7 @@ async function fetchAudioPCM(url, maxSeconds, maxBytes) {
   } else {
     const r = await fetch(url);
     if (!r.ok) throw new Error(`Fetch audio failed: ${r.status}`);
-    arrayBuffer = await r.arrayBuffer();
+    arrayBuffer = await bodyWithProgress(r, onBytes);
   }
   const ctx = new AudioContext();
   try {
@@ -120,11 +195,24 @@ function cleanChunks(result) {
   return { text: "", chunks: [] };
 }
 
-async function transcribeFromAudioUrl(audioUrl) {
-  const audio = await fetchAudioPCM(audioUrl); // decode on the offscreen main thread (brief)
-  const res = await workerTranscribe(audio);   // heavy inference on the worker thread
-  if (!res.ok) throw new Error(res.error || "Transcription failed");
-  return cleanChunks(res.result);
+async function transcribeFromAudioUrl(audioUrl, language, videoId) {
+  txJobVideoId = videoId || null;
+  txLastPct = -1;
+  txLastSentAt = 0;
+  txModelBytes.clear();
+  try {
+    emitTxProgress("fetch", 0, { force: true }); // the card gets a bar immediately
+    const audio = await fetchAudioPCM(audioUrl, undefined, undefined, (loaded, total) =>
+      emitTxProgress("fetch", loaded / total),
+    ); // decode on the offscreen main thread (brief)
+    emitTxProgress("decode", 1, { force: true }); // decodeAudioData has no progress of its own
+    const res = await workerTranscribe(audio, language); // heavy inference on the worker thread
+    if (!res.ok) throw new Error(res.error || "Transcription failed");
+    emitTxProgress("infer", 1, { force: true });
+    return cleanChunks(res.result);
+  } finally {
+    txJobVideoId = null;
+  }
 }
 
 // ============================================================================
@@ -386,7 +474,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== "offscreen") return false;
 
   if (msg.action === "transcribeFromAudioUrl") {
-    job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl));
+    job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl, msg.language, msg.videoId));
     return true;
   }
 

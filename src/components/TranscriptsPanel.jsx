@@ -3,6 +3,16 @@ import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "luci
 import { downloadPath } from "@/lib/downloadPath";
 import { fmtCount } from "@/lib/igMedia";
 import { sendBg } from "@/lib/bg";
+import {
+  recordedTranscriptLanguageShort,
+  readStoredTranscriptLanguage,
+  writeStoredTranscriptLanguage,
+  normalizeTranscriptLanguage,
+  TRANSCRIPT_LANGUAGE_KEY,
+} from "@/lib/transcriptionLanguage.js";
+import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
+import { removalFailed } from "@/lib/transcriptStore.js";
+import { advanceTxProgress } from "@/lib/transcriptionProgress.js";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
@@ -58,17 +68,13 @@ function useStore(key) {
   }, [key]);
   return items;
 }
-// Only for fbw_transcripts. Writes to fbw_saved go through the background
-// (FBW_SAVED_TOGGLE / _REMOVE), which serializes them — this pane and a page
-// overlay used to race each other with get→mutate→set.
-async function patchMap(key, id, value) {
-  if (!hasStorage()) return;
-  const r = await chrome.storage.local.get(key);
-  const map = r[key] || {};
-  if (value === null) delete map[id];
-  else map[id] = { ...value, updatedAt: Date.now() };
-  await chrome.storage.local.set({ [key]: map });
-}
+// Both stores are written by the background only (FBW_SAVED_TOGGLE / _REMOVE for
+// fbw_saved, FBW_TRANSCRIPT_REMOVE for fbw_transcripts), which serializes every
+// write. This pane used to delete straight out of the map with a get→mutate→set,
+// and "limpar tudo" wrote an empty map blind — both raced the running jobs, so a
+// transcript that landed mid-delete came straight back.
+const removeTranscript = (id) => sendBg({ type: "FBW_TRANSCRIPT_REMOVE", ids: [id] });
+const clearTranscripts = () => sendBg({ type: "FBW_TRANSCRIPT_REMOVE", all: true });
 
 // A transcript record doubles as a Library entry when the user stars it. It keeps
 // its own shape (it carries text/chunks); the background merges rather than
@@ -76,6 +82,26 @@ async function patchMap(key, id, value) {
 const toggleSavedEntry = (entry) =>
   sendBg({ type: "FBW_SAVED_TOGGLE", entry: { ...entry, updatedAt: Date.now() } });
 const removeSavedEntry = (ids) => sendBg({ type: "FBW_SAVED_REMOVE", ids });
+
+// Live progress for the jobs currently running, keyed by videoId.
+//
+// These arrive as runtime messages from the offscreen document and are held ONLY
+// here: writing them to storage would rewrite the whole transcript map (thumbnails
+// included, behind a serialized queue) many times per second. A panel that was shut
+// misses the stream and shows the plain "transcrevendo…" it always did.
+function useTxProgress() {
+  const [progress, setProgress] = useState({});
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.runtime?.onMessage) return;
+    const onMsg = (msg) => {
+      if (msg?.type !== "FBW_TX_PROGRESS" || !msg.videoId) return;
+      setProgress((p) => ({ ...p, [msg.videoId]: advanceTxProgress(p[msg.videoId], msg.pct) }));
+    };
+    chrome.runtime.onMessage.addListener(onMsg);
+    return () => chrome.runtime.onMessage.removeListener(onMsg);
+  }, []);
+  return progress;
+}
 
 function useFlag(key) {
   const [val, setVal] = useState(false);
@@ -88,6 +114,47 @@ function useFlag(key) {
     return () => chrome.storage.onChanged.removeListener(onChange);
   }, [key]);
   return val;
+}
+
+// The BR/EN choice, shown where every transcript lands.
+//
+// The page rails (Facebook, Instagram stories, TikTok) each carry this menu on
+// their own Transcribe button, but the PANEL's transcribe buttons — Instagram
+// reels, TikTok sort, TikTok stories — only ever read the stored value, with
+// nothing on screen saying what it was. Same key, same value, so a change here
+// and a change on a rail are the same change.
+function TxLanguageToggle() {
+  const [lang, setLang] = useState(null); // null until the stored value is read
+  useEffect(() => {
+    if (!hasStorage()) return;
+    readStoredTranscriptLanguage().then(setLang).catch(() => {});
+    const onChange = (c, area) => {
+      if (area === "local" && c[TRANSCRIPT_LANGUAGE_KEY])
+        setLang(normalizeTranscriptLanguage(c[TRANSCRIPT_LANGUAGE_KEY].newValue));
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
+  if (lang === null) return null;
+  return (
+    <div className="flex flex-none items-center gap-0.5 rounded-md border border-border p-0.5" title="Idioma das próximas transcrições">
+      {TX_LANG_OPTIONS.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => writeStoredTranscriptLanguage(o.value).then(setLang)}
+          aria-pressed={lang === o.value}
+          title={o.label}
+          className={
+            lang === o.value
+              ? "rounded-[4px] bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground"
+              : "rounded-[4px] px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+          }
+        >
+          {o.short}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function ReloadHint() {
@@ -107,7 +174,7 @@ function ReloadHint() {
 }
 
 // ---- grid tile: a big thumbnail on top, meta + transcript below ----
-function VideoCard({ it, saved, onToggleSave, onDelete }) {
+function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress }) {
   const [open, setOpen] = useState(false);
   // Counts are stored as raw numbers (schema 2) and formatted here. Records
   // written before that carry pre-formatted strings — pass those through.
@@ -215,6 +282,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
         )}
 
         {it.status === "error" && <p className="break-words text-[11px] text-destructive">{it.error}</p>}
+        {deleteError && <p className="break-words text-[11px] text-destructive">{deleteError}</p>}
 
         {it.text ? (
           <>
@@ -224,6 +292,14 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             >
               <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
               Transcrição
+              {/* Only when the job recorded one. Records made before 0.72 have no
+                  language and were decoded as English — labelling those "BR" is why
+                  an English transcript looked like it had come out in Portuguese. */}
+              {recordedTranscriptLanguageShort(it.language) && (
+                <span className="rounded-[4px] border border-border px-1 py-0.5 text-[9px] font-semibold text-muted-foreground">
+                  {recordedTranscriptLanguageShort(it.language)}
+                </span>
+              )}
             </button>
             {open && (
               <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 break-words whitespace-pre-wrap">
@@ -239,7 +315,27 @@ function VideoCard({ it, saved, onToggleSave, onDelete }) {
             </div>
           </>
         ) : it.status !== "error" ? (
-          <div className="text-[11px] text-muted-foreground">transcrevendo…</div>
+          // Real progress when the offscreen document is reporting it (model bytes,
+          // audio bytes, then one 30 s Whisper window at a time); the plain label
+          // when it isn't — a job started before this panel opened, or a caption
+          // transcript, which never runs Whisper at all.
+          <div className="mt-0.5">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>transcrevendo…</span>
+              {progress != null && <span className="tabular-nums">{progress}%</span>}
+            </div>
+            {progress != null && (
+              <div
+                className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
+              </div>
+            )}
+          </div>
         ) : null}
       </div>
     </div>
@@ -296,12 +392,39 @@ export default function TranscriptsPanel() {
   const items = useStore(TKEY);
   const saved = useStore(SKEY);
   const savedIds = new Set(saved.map((s) => s.videoId));
+  const progress = useTxProgress();
+  // A delete that removed nothing used to leave the card sitting there in silence —
+  // the same thing a button with no handler does. Say so on the card instead.
+  const [failed, setFailed] = useState({});
 
   const toggleSave = (it) => toggleSavedEntry(it);
+  const deleteOne = async (id) => {
+    const res = await removeTranscript(id);
+    if (!removalFailed(res)) return;
+    setFailed((f) => ({ ...f, [id]: res?.error || "não foi possível excluir — recarregue a extensão" }));
+  };
+  const clearAll = async () => {
+    const res = await clearTranscripts();
+    setFailed(removalFailed(res) ? { all: res?.error || "não foi possível limpar — recarregue a extensão" } : {});
+  };
 
   return (
     <div className="space-y-2.5">
       <ReloadHint />
+      {/* Always on screen, empty Library included — that is exactly when the next
+          transcription's language is about to matter. */}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-1">
+        <span className="text-xs font-medium text-foreground">
+          {items.length ? `${items.length} ${items.length === 1 ? "transcrição" : "transcrições"}` : "Idioma"}
+        </span>
+        <div className="flex flex-none items-center gap-2">
+          <TxLanguageToggle />
+          {items.length > 0 && (
+            <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground" onConfirm={clearAll}>limpar tudo</ClearAllButton>
+          )}
+        </div>
+      </div>
+      {failed.all && <p className="break-words text-[11px] text-destructive">{failed.all}</p>}
       {items.length === 0 ? (
         <p className="py-10 text-center text-xs text-muted-foreground leading-relaxed">
           Ainda não há transcrições.<br />
@@ -310,10 +433,6 @@ export default function TranscriptsPanel() {
         </p>
       ) : (
         <>
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-1">
-            <span className="text-xs font-medium text-foreground">{items.length} {items.length === 1 ? "transcrição" : "transcrições"}</span>
-            <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground" onConfirm={() => hasStorage() && chrome.storage.local.set({ [TKEY]: {} })}>limpar tudo</ClearAllButton>
-          </div>
           <Grid>
             {items.map((it) => (
               <VideoCard
@@ -321,7 +440,9 @@ export default function TranscriptsPanel() {
                 it={it}
                 saved={savedIds.has(it.videoId)}
                 onToggleSave={() => toggleSave(it)}
-                onDelete={() => patchMap(TKEY, it.videoId, null)}
+                onDelete={() => deleteOne(it.videoId)}
+                deleteError={failed[it.videoId]}
+                progress={it.text ? null : progress[it.videoId]}
               />
             ))}
           </Grid>

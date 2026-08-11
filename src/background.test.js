@@ -38,11 +38,11 @@ function chromeStub() {
   return node();
 }
 
-let reviveWith;
+let reviveWith, offscreenTranscribeMessage;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ reviveWith } = await import("./background.js"));
+  ({ reviveWith, offscreenTranscribeMessage } = await import("./background.js"));
 });
 
 // A recording set of steps. `ping` and `waitForPing` answer from scripted
@@ -134,5 +134,27 @@ describe("reviveWith — the recovery ladder", () => {
   it("tab id 0 is a real tab, not a missing one", async () => {
     const s = steps({ ping: [true] });
     expect(await reviveWith(s, 0)).toEqual({ ok: true, method: "alive" });
+  });
+});
+
+describe("offscreen transcription requests", () => {
+  it("carries the requested Whisper language to the offscreen document", () => {
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br")).toEqual({
+      action: "transcribeFromAudioUrl",
+      videoId: "123",
+      audioUrl: "https://cdn/audio.mp4",
+      language: "pt",
+    });
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "en")).toEqual({
+      action: "transcribeFromAudioUrl",
+      videoId: "123",
+      audioUrl: "https://cdn/audio.mp4",
+      language: "en",
+    });
+  });
+
+  it("defaults invalid or missing language to Portuguese", () => {
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "es").language).toBe("pt");
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4").language).toBe("pt");
   });
 });

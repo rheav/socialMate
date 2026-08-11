@@ -18,6 +18,144 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.74.1] — 2026-08-10
+
+### Corrigido
+- **Transcrever no feed pegava OUTRO post.** Reproduzido ao vivo em
+  `facebook.com/hashtag/soulmate`: o trilho sobre o vídeo de 7,9 s disparou o job do
+  vídeo de 35,1 s — metadados, áudio e transcrição do post errado.
+
+  Causa: os trilhos do feed são `position: fixed` e só acompanham o post por um
+  handler de scroll, e esse handler usava `requestAnimationFrame` **sem nunca
+  limpar a flag de fila**. `requestAnimationFrame` não roda em aba em segundo
+  plano — então um scroll com a aba escondida travava a flag em `true` para
+  sempre. Dali em diante os trilhos ficavam parados na TELA enquanto o feed rolava
+  por baixo, e o botão que aparecia ao lado do post B pertencia ao post A.
+
+  Duas correções: um `setTimeout` corre junto com o frame (a flag sempre limpa) e
+  voltar a ficar visível reposiciona na hora; e, no clique, a geometria decide —
+  um trilho flutuante que não está mais sobre o vídeo a que foi vinculado usa o
+  vídeo que está de fato embaixo dele, e se não houver nenhum o job falha em vez
+  de transcrever o post errado em silêncio (`src/lib/shared/railTarget.js`).
+
+---
+
+## [0.74.0] — 2026-08-10
+
+### Adicionado
+- **Barra de progresso real** na transcrição, no card da Biblioteca. Não é
+  estimativa: são bytes do modelo (`progress_callback`), bytes do áudio
+  (`content-length` + leitura em stream) e as janelas de 30 s do Whisper, contadas
+  pelo `WhisperTextStreamer` — o total de janelas é conhecido pelo PCM decodificado
+  antes da primeira rodar.
+- O progresso trafega em mensagens (`FBW_TX_PROGRESS`), **nunca em storage**: o
+  mapa de transcrições é único, enfileirado e cheio de miniaturas — escrevê-lo a
+  cada token derrubaria o painel. Painel fechado só perde a barra; o registro cai
+  igual.
+- Tudo isso é **consultivo**: o streamer é construído em `try/catch` próprio e cada
+  emissão é protegida. Uma versão do Transformers.js que pare de aceitar `streamer`
+  custa a barra, não a transcrição.
+
+### Corrigido
+- Falha de transcrição aparecia como **"Transcription failed"**, sem nada para
+  investigar: o worker reportava `err.message`, e o runtime ONNX lança erros com
+  mensagem vazia. Agora vai a primeira linha do stack (ou o nome do erro) quando
+  não há mensagem.
+
+---
+
+## [0.73.0] — 2026-08-10
+
+### Adicionado
+- Escolha de idioma **BR/EN** onde antes só o Facebook tinha: no botão Transcrever
+  dos **stories do Instagram**, no botão do **TikTok**, e um seletor no topo da aba
+  **Transcrições** que vale para os botões do painel (Instagram Reels, TikTok
+  Ordenar, TikTok Stories). Instagram e TikTok liam `fbw_transcript_language` mas
+  não tinham como escrevê-lo: o idioma era o que o Facebook tivesse deixado lá.
+- O controle é um só (`src/lib/shared/txLang.js`, embutido nos content scripts pelo
+  gerador). As três cópias manuais de `normTxLang`/`getTxLang` saíram.
+
+### Corrigido
+- Transcrição vinda de **legenda** (TikTok `subtitleInfos`) era rotulada com a
+  escolha BR/EN do usuário — mas o Whisper nunca roda nesse caminho: o texto está
+  no idioma em que a TikTok escreveu a própria legenda. Agora o registro leva o
+  idioma da faixa (`LanguageCodeName`), e quando ela é de um idioma que a
+  Biblioteca não rotula, fica **sem etiqueta** em vez de mentir.
+
+---
+
+## [0.72.1] — 2026-08-10
+
+### Corrigido
+- A Biblioteca marcava **BR** em transcrições feitas em inglês. A etiqueta usava o
+  padrão do produto (`br`) quando o registro não tinha idioma nenhum — e nenhuma
+  transcrição anterior à 0.72 tem: aquelas rodaram com o idioma **omitido**, que o
+  Transformers.js decodifica como inglês. Agora a etiqueta só aparece quando o job
+  realmente registrou um idioma. (Verificado ao vivo: escolher **English** grava
+  `language: "en"` e o Whisper devolve texto em inglês — o caminho já estava certo,
+  quem mentia era o rótulo.)
+- Excluir uma transcrição não dizia nada quando não excluía nada. O painel ignorava
+  a resposta do background, então uma remoção que apagou zero registros — ou um
+  service worker morto — ficava idêntica a uma que funcionou: o card continuava lá,
+  em silêncio, exatamente como um botão sem handler. Agora falha aparece no card
+  (e no "limpar tudo").
+
+---
+
+## [0.72.0] — 2026-08-02
+
+### Adicionado
+- Transcrição com escolha rápida de idioma **BR/EN** no botão do Facebook.
+- O idioma escolhido fica salvo em `fbw_transcript_language` e é reutilizado por
+  Facebook, Instagram e TikTok.
+
+### Corrigido
+- O valor de produto agora é `br`; valores legados `pt` ainda são aceitos, mas o
+  Whisper recebe o token correto `pt` internamente.
+
+---
+
+## [0.71.1] — 2026-08-01
+
+Um reel transcrito podia chegar à Biblioteca **sem curtidas, comentários e
+compartilhamentos** — e, uma vez sem, nunca mais os recuperava. A causa não era
+"sair do reel antes de terminar": os números eram lidos **uma única vez**, no
+instante do clique, e congelados na mensagem do job. Se aquele instante não desse
+certo, o registro ficava com `counts: null` para sempre.
+
+### Corrigido
+- **Os números são lidos pelo controle de comentário, não pelo de curtida.**
+  `Curtir` é o único rótulo que muda de estado: depois que a conta reage ele vira
+  `Amei` / `Remover Curtir`, e a busca ancorada nele não achava a linha de ações —
+  devolvia `null` para tudo. Verificado ao vivo no mesmo reel: com o rótulo
+  reagido, o código antigo lia `null` e o novo lê `462 mil / 6,2 mil / 28 mil`.
+- **A varredura passa a ler nós de texto**, não elementos-folha. O Facebook tem
+  variantes em que o número divide o `span` com um ícone; um `span` com filhos era
+  pulado e o número sumia.
+- **A captura espera a página assentar.** Medido ao vivo (amostragem por frame, três
+  trocas de reel): a URL muda ~150-175 ms **antes** do card montado trocar, e o id
+  vem da URL enquanto autor/legenda/números vêm do DOM — uma leitura nessa janela
+  arquiva o engajamento de um reel sob o id do outro. Agora duas leituras
+  consecutivas precisam concordar (`sameCapture`) antes de o job sair.
+- **Quando os números chegam tarde, o registro é remendado.** `FBW_META_PATCH`
+  tenta de novo em 400/1000/2200 ms enquanto a página ainda mostra aquele vídeo, e
+  só preenche o que falta.
+- **Nenhuma escrita rebaixa o registro.** `mergeMeta` trata `null` no patch como
+  "não vi", não como "apague" — era assim que re-transcrever um reel apagava os
+  números que já estavam salvos.
+- **O mapa de transcrições tem um escritor só.** Ele tinha quatro (job, remendo,
+  card instantâneo da página, excluir/limpar do painel), cada um com
+  get → mutate → set: duas escritas simultâneas e uma sumia. Tudo passa pelo
+  background, em fila (`lib/serialQueue.js`, agora compartilhada com `fbw_saved`).
+
+### Adicionado
+- `src/lib/shared/fbCounts.js`, `src/lib/shared/captureIdentity.js`,
+  `src/lib/shared/metaMerge.js`, `src/lib/serialQueue.js` — todos com testes
+  (`happy-dom` para os que leem DOM).
+- Mensagens `FBW_TRANSCRIPT_PUT`, `FBW_TRANSCRIPT_REMOVE`, `FBW_META_PATCH`.
+
+---
+
 ## [0.69.0] — 2026-07-26
 
 Os ajudantes que os content scripts copiavam à mão agora são embutidos pela build a

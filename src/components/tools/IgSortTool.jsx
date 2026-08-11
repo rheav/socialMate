@@ -33,6 +33,7 @@ import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
+import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
 import {
   sortRecords,
@@ -278,7 +279,7 @@ export default function IgSortTool() {
   // Transcribe a reel: hand the background the direct MP4 URL (captured via the
   // always-on full-stats fetch). It reuses the same Whisper pipeline as Facebook;
   // the result streams into fbw_transcripts → Library → Transcripts.
-  function transcribe(rec) {
+  async function transcribe(rec) {
     const id = rec.code || rec.pk;
     if (!rec.video) return;
     chrome.runtime.sendMessage({
@@ -286,6 +287,7 @@ export default function IgSortTool() {
       videoId: id,
       mediaUrl: rec.video,
       platform: "instagram",
+      language: await readStoredTranscriptLanguage(),
       caption: rec.caption || null,
       author: {
         name: rec.username || rec.full_name || "desconhecido",

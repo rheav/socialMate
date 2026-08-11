@@ -29,6 +29,7 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
 import {
   sortRecords,
@@ -220,15 +221,17 @@ export default function TtSortTool() {
     }
   }
 
-  function transcribe(rec) {
+  async function transcribe(rec) {
     if (!rec.video && !rec.subtitle) return;
     chrome.runtime.sendMessage({
       type: "FBW_TRANSCRIBE",
       videoId: rec.id,
       mediaUrl: rec.video,
       platform: "tiktok",
+      language: await readStoredTranscriptLanguage(),
       captionUrl: rec.subtitle?.url || null, // caption-first, skips Whisper
       captionFormat: rec.subtitle?.format || null,
+      captionLang: rec.subtitle?.lang || null, // the track's own language labels the record
       caption: rec.desc || null,
       author: {
         name: rec.username || rec.nickname || "desconhecido",

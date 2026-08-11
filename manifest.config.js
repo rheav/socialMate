@@ -6,8 +6,9 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "0.71.0",
-  version_name: "0.71.0 — grade de fotos sem reflow, download de imagem sem inchar a memória, overlays com um só conjunto de ícones e estado, e limpeza com confirmação",
+  version: "0.74.1",
+  version_name:
+    "0.74.1 — corrige o botão Transcrever do feed que transcrevia OUTRO post: o trilho flutuante congelava quando a aba ficava em segundo plano",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

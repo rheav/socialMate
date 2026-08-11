@@ -1,7 +1,7 @@
 {
   "name": "social-mate",
   "private": true,
-  "version": "0.71.0",
+  "version": "0.74.1",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
@@ -37,6 +37,7 @@
     "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.3.0",
     "@vitejs/plugin-react": "^6.0.2",
+    "happy-dom": "^20.11.1",
     "tailwindcss": "^4.3.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.9"
