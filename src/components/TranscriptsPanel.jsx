@@ -3,6 +3,9 @@ import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "luci
 import { downloadPath } from "@/lib/downloadPath";
 import { fmtCount } from "@/lib/igMedia";
 import { sendBg } from "@/lib/bg";
+import { chunkIndexAt, centerScrollTop } from "@/lib/playhead.js";
+import { fbCardLink } from "@/lib/shared/fbPermalink.js";
+import { usePlayhead } from "@/lib/usePlayhead.js";
 import {
   recordedTranscriptLanguageShort,
   readStoredTranscriptLanguage,
@@ -43,6 +46,13 @@ function dl(platform, name, text) {
   });
   // Free the blob once the download has been handed off.
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// "0:07" — the timestamp on each karaoke line, and what a click on it seeks to.
+function fmtClock(s) {
+  if (typeof s !== "number" || !Number.isFinite(s)) return "";
+  const x = Math.max(0, Math.floor(s));
+  return `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`;
 }
 
 // Same prefixes the media downloaders already stamp on their files (ig-, tt-, pin-),
@@ -174,7 +184,68 @@ function ReloadHint() {
 }
 
 // ---- grid tile: a big thumbnail on top, meta + transcript below ----
-function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress }) {
+// The transcript, line by line, following the video playing in the tab. The
+// active line is the one the playhead is inside (lib/playhead.js decides, with a
+// small lead); clicking any line seeks the page video to it.
+//
+// The scroll is deliberately NOT scrollIntoView: this list lives in a 176px box
+// inside the scrolling Library, and scrollIntoView walks up every scrollable
+// ancestor — it would yank the whole panel on each line change. Scroll the
+// container itself, and only when the active index actually moves.
+function KaraokeTranscript({ chunks, t, onSeek }) {
+  const boxRef = useRef(null);
+  const rowsRef = useRef([]);
+  const idx = chunkIndexAt(chunks, t);
+  const lastIdx = useRef(-1);
+
+  useEffect(() => {
+    if (idx < 0 || idx === lastIdx.current) return;
+    lastIdx.current = idx;
+    const box = boxRef.current;
+    const row = rowsRef.current[idx];
+    if (!box || !row) return;
+    // Rects, not offsetTop: the box is not a positioned ancestor, so offsetTop
+    // measured the row's distance down the whole panel and scrolled this list
+    // straight to its bottom on every line.
+    const b = box.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const top = centerScrollTop({
+      scrollTop: box.scrollTop,
+      boxTop: b.top,
+      boxHeight: box.clientHeight,
+      rowTop: r.top,
+      rowHeight: r.height,
+      scrollHeight: box.scrollHeight,
+    });
+    if (top != null) box.scrollTo({ top, behavior: "smooth" });
+  }, [idx]);
+
+  return (
+    <div
+      ref={boxRef}
+      className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200"
+    >
+      {chunks.map((c, i) => (
+        <button
+          key={i}
+          ref={(el) => (rowsRef.current[i] = el)}
+          onClick={() => onSeek(c.timestamp?.[0] || 0)}
+          title="Ir para este ponto do vídeo"
+          className={`block w-full rounded px-1 py-0.5 text-left break-words transition-colors ${
+            i === idx ? "bg-primary/25 text-white" : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <span className="mr-1.5 tabular-nums text-[10px] text-zinc-500">
+            {fmtClock(c.timestamp?.[0])}
+          </span>
+          {(c.text || "").trim()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, playhead }) {
   const [open, setOpen] = useState(false);
   // Counts are stored as raw numbers (schema 2) and formatted here. Records
   // written before that carry pre-formatted strings — pass those through.
@@ -187,6 +258,15 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress })
     share: n(raw.share),
   };
   const hasCounts = c.like || c.comment || c.share || c.views;
+  // Karaoke only for THIS card, and only when the tab is playing THIS video. The
+  // id travels with every tick precisely so a reel change can't scrub the wrong
+  // transcript. No chunks (an old record) → the plain text view, unchanged.
+  const karaoke = !!playhead?.tick && playhead.tick.videoId === it.videoId && !!it.chunks?.length;
+  // Auto-open the transcript when its video starts playing — the whole point is
+  // not having to click anything while you watch.
+  useEffect(() => {
+    if (karaoke) setOpen(true);
+  }, [karaoke]);
   const base = it.platform === "instagram" ? "https://www.instagram.com" : "https://www.facebook.com";
   // author.url comes in two shapes: FB/IG store a relative path (needs an origin
   // prepended above), while Pinterest/TikTok already store a full absolute URL —
@@ -196,14 +276,22 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress })
   const profUrl = it.author?.url ? (isAbsolute ? it.author.url : `${base}${it.author.url.startsWith("/") ? "" : "/"}${it.author.url}`) : null;
   // Link back to the original reel/video: the stored sourceUrl, or reconstruct
   // one from the id for older records (FB reels key by their reel id).
+  // Facebook records captured from a feed before 0.75.1 stored /watch/?v=<id>,
+  // and that route falls back to the reels FEED when Facebook won't serve the
+  // item — which is how a card opened a totally different reel. fbCardLink
+  // rebuilds those as /reel/<id>; every other platform keeps its own URL.
   const srcUrl =
-    it.sourceUrl ||
-    (it.videoId
-      ? it.platform === "instagram"
-        ? `https://www.instagram.com/p/${it.videoId}/`
-        : `https://www.facebook.com/reel/${it.videoId}`
-      : null);
-
+    it.platform === "instagram"
+      ? it.sourceUrl || (it.videoId ? `https://www.instagram.com/p/${it.videoId}/` : null)
+      : fbCardLink({
+          platform: it.platform,
+          videoId: it.videoId,
+          sourceUrl: it.sourceUrl,
+          // Records captured since this fix say which link shape the post used, so
+          // a real /videos/ post keeps its watch URL instead of being rebuilt as a
+          // reel it is not. Absent on legacy records — those still get rebuilt.
+          videoKind: it.videoKind,
+        });
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div className="relative aspect-[3/4] bg-zinc-900">
@@ -225,6 +313,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress })
           {srcUrl && (
             <a
               href={srcUrl}
+             
               target="_blank"
               rel="noreferrer"
               title="Abrir o reel original"
@@ -301,11 +390,14 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress })
                 </span>
               )}
             </button>
-            {open && (
-              <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 break-words whitespace-pre-wrap">
-                {it.text}
-              </div>
-            )}
+            {open &&
+              (karaoke ? (
+                <KaraokeTranscript chunks={it.chunks} t={playhead.tick.t} onSeek={(t) => playhead.seek(it.videoId, t)} />
+              ) : (
+                <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 break-words whitespace-pre-wrap">
+                  {it.text}
+                </div>
+              ))}
             <div className="mt-auto flex flex-wrap gap-x-2 gap-y-0.5 pt-1 text-[11px]">
               <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
               <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.txt`, it.text)}>.txt</button>
@@ -393,6 +485,9 @@ export default function TranscriptsPanel() {
   const saved = useStore(SKEY);
   const savedIds = new Set(saved.map((s) => s.videoId));
   const progress = useTxProgress();
+  // One port for the whole tab, shared by every card — the card whose videoId
+  // matches the tick is the one that lights up.
+  const playhead = usePlayhead();
   // A delete that removed nothing used to leave the card sitting there in silence —
   // the same thing a button with no handler does. Say so on the card instead.
   const [failed, setFailed] = useState({});
@@ -443,6 +538,7 @@ export default function TranscriptsPanel() {
                 onDelete={() => deleteOne(it.videoId)}
                 deleteError={failed[it.videoId]}
                 progress={it.text ? null : progress[it.videoId]}
+                playhead={playhead}
               />
             ))}
           </Grid>
@@ -462,6 +558,8 @@ const PLATFORM_META = {
 
 export function SavedPanel() {
   const saved = useStore(SKEY);
+  // Saved cards carry transcripts too, so they follow the tab the same way.
+  const playhead = usePlayhead();
   const [collapsed, setCollapsed] = useState({});
 
   if (!saved.length) {
@@ -506,7 +604,7 @@ export function SavedPanel() {
             {open && (
               <Grid>
                 {items.map((it) => (
-                  <VideoCard key={it.videoId} it={it} saved onToggleSave={() => removeSavedEntry(it.videoId)} />
+                  <VideoCard key={it.videoId} it={it} saved playhead={playhead} onToggleSave={() => removeSavedEntry(it.videoId)} />
                 ))}
               </Grid>
             )}

@@ -6,9 +6,9 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "0.74.1",
+  version: "0.78.2",
   version_name:
-    "0.74.1 — corrige o botão Transcrever do feed que transcrevia OUTRO post: o trilho flutuante congelava quando a aba ficava em segundo plano",
+    "0.78.2 — varredura de bugs: peso do TE finalmente chega ao overlay do Instagram, player de reels deixa de agir no reel anterior, link do card não vira reel quando é vídeo de página, e mais seis correções",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
@@ -72,6 +72,13 @@ export default defineManifest({
     {
       matches: ["*://*.facebook.com/*"],
       js: ["src/content/fb/reels-capture.js"],
+      run_at: "document_idle",
+    },
+    // FB research-feed engagement filter — hides the posts under the panel's
+    // like/comment/share thresholds as the search or hashtag feed scrolls.
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/feed-filter.js"],
       run_at: "document_idle",
     },
     // FB comment scraper — floating button on reel/post permalinks → JSON export.

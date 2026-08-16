@@ -197,6 +197,124 @@ function textNodes(el, out = []) {
   return out;
 }
 
+// The Share control's label is only the bare word "Compartilhar" on a reel rail.
+// In the search / hashtag feed the same control reads "Send this to friends or
+// post it on your profile." (pt-BR: "Envie para seus amigos…"), which the exact
+// COUNT_LBL.share above deliberately does not match. This wider form is used only
+// by readCountsByControl, so the reel scrapers keep their tighter matching.
+const SHARE_LBL_WIDE =
+  /^(share|compartilhar|compartir|partager|teilen|condividi)\b|send this to|envie para|env[íi]a esto|envoyer|invia questo|sende dies/i;
+
+// A reaction-count tooltip ("Like: 295 people", "Amei: 3,3 mil pessoas") is also a
+// [role="button"][aria-label] inside the action row. Every one of them carries a
+// colon; no action control does.
+const isTooltipCtrl = (b) => (b.getAttribute("aria-label") || "").indexOf(":") >= 0;
+
+function centerOf(node) {
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  if (!el || !el.getBoundingClientRect) return null;
+  const b = el.getBoundingClientRect();
+  if (!b.width && !b.height) return null; // never laid out (unmounted, or jsdom)
+  return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+}
+
+/**
+ * The action row's counts, each filed under the control it belongs to.
+ *
+ * WHY THIS EXISTS BESIDE readPostCounts: that one reads the row's bare numbers
+ * POSITIONALLY, as [reactions, comments, shares]. Facebook prints NO number beside
+ * a control whose count is zero, so a post with no comments renders "4 … 2" and the
+ * positional read files its 2 shares as 2 comments — which silently passes a
+ * "≥ 2 comments" filter. Verified live on /search/top?q=%23auralytrend
+ * (2026-08-15): numbers at x≈1027 and x≈1131 against controls at like x≈1013,
+ * comment x≈1065, share x≈1117.
+ *
+ * So each number is filed by WHERE IT IS, not by how many came before it:
+ *   1. inside one of the three controls → that control (survives any layout);
+ *   2. otherwise the nearest control by centre distance;
+ *   3. and if nothing was ever laid out (an unmounted post, or a test DOM), a
+ *      3-number row falls back to the positional reading.
+ *
+ * Returns the raw localized strings — parse with parseCount from ./counts.js —
+ * or null when the post has no action row yet, which on a virtualized feed means
+ * "not mounted", not "no engagement".
+ */
+function readCountsByControl(container) {
+  if (!container) return null;
+  const anchor = actionControls(container).find((b) =>
+    COUNT_LBL.comment.test(b.getAttribute("aria-label") || ""),
+  );
+  if (!anchor) return null;
+
+  // Climb to the smallest ancestor holding the whole action row, and never past
+  // the post itself — on a reacted post the "Like" label is gone, and an unbounded
+  // climb would walk into the neighbouring post's row.
+  let row = anchor;
+  for (let i = 0; i < 7 && row.parentElement && row !== container; i++) {
+    row = row.parentElement;
+    if (actionControls(row).filter((b) => !isTooltipCtrl(b)).length >= 2) break;
+  }
+
+  const controls = actionControls(row).filter((b) => !isTooltipCtrl(b));
+  const at = controls.indexOf(anchor);
+  const share = controls.find((b) => SHARE_LBL_WIDE.test(b.getAttribute("aria-label") || ""));
+  // The like control is whatever action sits before Comment in the bar. Matching
+  // it by label would need every reaction word in every locale ("Amei", "Remover
+  // Curtir", "Change Like reaction"); its POSITION never changes.
+  const like = at > 0 ? controls[0] : null;
+  const slots = [
+    ["like", like],
+    ["comment", anchor],
+    ["share", share || null],
+  ].filter(([, el]) => el);
+
+  const out = { like: null, comment: null, share: null };
+  const numbers = [];
+  (function walk(el) {
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3) {
+        const t = (n.nodeValue || "").trim();
+        if (t && t.length <= 8 && COUNT_RE.test(t)) numbers.push(n);
+      } else if (n.nodeType === 1) walk(n);
+    }
+  })(row);
+
+  let placed = 0;
+  for (const node of numbers) {
+    let kind = null;
+    for (const [k, el] of slots) if (el.contains(node)) kind = k;
+    if (!kind) {
+      const c = centerOf(node);
+      let best = Infinity;
+      if (c)
+        for (const [k, el] of slots) {
+          const cc = centerOf(el);
+          if (!cc) continue;
+          // Vertical distance is weighted: a wrapped row stacks the controls, and
+          // a number one line down belongs to the control above it, not to the one
+          // that happens to share its column.
+          const d = Math.hypot(c.x - cc.x, (c.y - cc.y) * 3);
+          if (d < best) {
+            best = d;
+            kind = k;
+          }
+        }
+    }
+    if (kind && out[kind] == null) {
+      out[kind] = (node.nodeValue || "").trim();
+      placed++;
+    }
+  }
+
+  // Nothing could be placed by containment OR geometry (never laid out): fall back
+  // to the positional reading, which is right whenever all three numbers are shown.
+  if (!placed && numbers.length === 3) {
+    const t = (n) => (n.nodeValue || "").trim();
+    return { like: t(numbers[0]), comment: t(numbers[1]), share: t(numbers[2]) };
+  }
+  return out;
+}
+
 function readPostCounts(container) {
   if (!container) return null;
   // (a) bare numbers from the action row
@@ -244,6 +362,86 @@ function readPostCounts(container) {
     views: w(num + "\\s*(?:views?|visualiz\\w*)\\b"),
   };
   return counts.like || counts.comment || counts.share || counts.views ? counts : null;
+}
+// >>> inline:end
+  // <<< inline:src/lib/shared/fbPermalink.js
+// GENERATED by scripts/gen-inline.mjs — do not edit here.
+// Edit src/lib/shared/fbPermalink.js and run `npm run gen:inline`.
+// Where a captured Facebook video actually lives. Canonical source — inlined
+// verbatim into the import-free capture scripts by scripts/gen-inline.mjs.
+//
+// A video id ALONE does not say which URL opens it, and getting that wrong is not
+// a dead link — it opens somebody else's video. Checked live on 2026-08-15:
+//
+//   /reel/<id>          opened the right video for every id tried, including ids
+//                       whose record had been stored in watch form, and it is the
+//                       form Facebook's own markup uses for reels
+//   /watch/?v=<id>      usually right, but this route falls back to the reels FEED
+//                       when Facebook won't serve the item — which is how a card
+//                       opened "a totally different one"
+//   /video.php?v=<id>   redirects into /watch/?v=<id>, so it inherits that
+//
+// (An earlier read of this said /watch/ ALWAYS bounces reels to the feed. That was
+// measured while Facebook was serving this profile error pages, and the same probe
+// gave the opposite answer an hour later. Don't rebuild anything on that signal.)
+//
+// So: capture records the FORM the post's own link used, and anything left over
+// from before that is linked as a reel.
+const KIND = { reel: "reel", video: "video" };
+
+/**
+ * The video a Facebook link points at: `{ id, kind }`, or null when it points at
+ * no video. `kind` is "reel" for /reel/<id> and "video" for /videos/<id> and
+ * ?v=<id> — the two shapes that need different permalinks.
+ */
+function fbVideoRef(href) {
+  const s = String(href || "");
+  if (!s) return null;
+  const reel = s.match(/\/reel\/(\d+)/);
+  if (reel) return { id: reel[1], kind: KIND.reel };
+  const videos = s.match(/\/videos\/(\d+)/);
+  if (videos) return { id: videos[1], kind: KIND.video };
+  const v = s.match(/[?&]v=(\d+)/);
+  if (v) return { id: v[1], kind: KIND.video };
+  return null;
+}
+
+/**
+ * The URL to open for a captured video. An unknown kind gets the reel form: it is
+ * what this extension captures most, and a wrong reel URL fails visibly instead of
+ * silently playing a stranger's video.
+ */
+function fbPermalink(ref) {
+  const id = ref && ref.id;
+  if (!id) return null;
+  return ref.kind === KIND.video
+    ? `https://www.facebook.com/watch/?v=${id}`
+    : `https://www.facebook.com/reel/${id}`;
+}
+
+/**
+ * The URL a Library card should open.
+ *
+ * Non-Facebook records keep whatever they stored (TikTok/Instagram/Pinterest URLs
+ * are already canonical). A Facebook record stored before the capture fix carries
+ * /watch/?v=<id>, which is the route that can dump the viewer into the reels feed
+ * — rebuild those as /reel/<id>, which addressed every id correctly in testing.
+ *
+ * `videoKind` is what keeps that rebuild off the records it would BREAK. Capture
+ * records it ("reel" or "video") from the post's own link, and a real page-video
+ * post — /<page>/videos/<id>, or the theater's ?v=<id> — is stored in watch form
+ * ON PURPOSE, because that is the URL that opens it. Rewriting one of those to
+ * /reel/<id> points the card at something that is not a reel. So only a record
+ * with no kind at all (legacy: captured before the fix, when watch form meant a
+ * reel) is rebuilt.
+ */
+function fbCardLink({ platform, videoId, sourceUrl, videoKind } = {}) {
+  if (platform && platform !== "facebook") return sourceUrl || null;
+  if (!sourceUrl)
+    return videoId ? fbPermalink({ id: videoId, kind: videoKind || KIND.reel }) : null;
+  if (!videoId || !/\/watch\/\?/.test(sourceUrl)) return sourceUrl;
+  if (videoKind === KIND.video) return sourceUrl; // captured as a video post — watch IS its URL
+  return fbPermalink({ id: videoId, kind: KIND.reel });
 }
 // >>> inline:end
   // <<< inline:src/lib/shared/captureIdentity.js
@@ -486,6 +684,16 @@ function sameCapture(a, b) {
     const fromUrl = urlPathVideoId();
     if (fromUrl && /\/(reel|watch|videos)\b/.test(location.pathname + location.search))
       return fromUrl;
+    const ref = grabVideoRef(container, videoEl);
+    if (ref) return ref.id;
+    // Fallback: the page URL id (theater MAIN video, or any surface missed above).
+    return fromUrl;
+  }
+  // The post's own permalink link, as { id, kind }. The KIND matters: a reel id put
+  // into a /watch/?v= URL sends Facebook to the bare reels feed, which then plays an
+  // arbitrary reel — a Library card that opened a stranger's video. See
+  // src/lib/shared/fbPermalink.js for the verified redirect behaviour.
+  function grabVideoRef(container, videoEl) {
     let el = container || videoEl;
     for (let k = 0; k < 5 && el; k++) {
       const links =
@@ -493,15 +701,12 @@ function sameCapture(a, b) {
           'a[href*="v="], a[href*="/videos/"], a[href*="/reel/"]',
         ) || [];
       for (const a of links) {
-        const m = (a.getAttribute("href") || "").match(
-          /[?&]v=(\d+)|\/videos\/(\d+)|\/reel\/(\d+)/,
-        );
-        if (m) return m[1] || m[2] || m[3];
+        const ref = fbVideoRef(a.getAttribute("href") || "");
+        if (ref) return ref;
       }
       el = el.parentElement;
     }
-    // Fallback: the page URL id (theater MAIN video, or any surface missed above).
-    return fromUrl;
+    return null;
   }
   // Every plausible numeric media id from the post (clean permalink ids + any
   // 15-19 digit run in the markup). FB buries the real video_id in the post even
@@ -588,10 +793,27 @@ function sameCapture(a, b) {
       const v = new URL(location.href).searchParams.get("v");
       if (v) return `https://www.facebook.com/watch/?v=${v}`;
     } catch {}
-    // A feed post (warmer auto-capture): reconstruct from the video id if we have one.
+    // A feed post (warmer auto-capture). The id alone is NOT enough to build a
+    // permalink: /watch/?v=<reel id> bounces to the bare reels feed and plays an
+    // arbitrary reel. Use the form the post's own link was written in, and only
+    // fall back to a guess when the post exposes no link at all.
+    const ref = grabVideoRef(container, videoEl);
+    if (ref) return fbPermalink(ref);
     const id = grabVideoId(container, videoEl);
-    if (id) return `https://www.facebook.com/watch/?v=${id}`;
+    if (id) return fbPermalink({ id });
     return location.href.split("?")[0];
+  }
+  // Which SHAPE this post's link had: "reel" or "video". Stored beside the URL so
+  // a Library card can tell a watch URL that is correct (a real /videos/ post)
+  // from a legacy record that stored watch form for a reel — see fbCardLink.
+  function currentVideoKind(container, videoEl) {
+    if (/\/reel\/\d+/.test(location.pathname)) return "reel";
+    if (/\/videos\/\d+/.test(location.pathname)) return "video";
+    try {
+      if (new URL(location.href).searchParams.get("v")) return "video";
+    } catch {}
+    const ref = grabVideoRef(container, videoEl);
+    return ref ? ref.kind : null; // no link at all → unknown, and unknown stays null
   }
   function grabMeta(videoEl) {
     const container = findPostUnit(videoEl);
@@ -603,6 +825,7 @@ function sameCapture(a, b) {
       author: grabAuthor(container),
       caption: grabCaption(container),
       sourceUrl: currentSourceUrl(container, videoEl),
+      videoKind: currentVideoKind(container, videoEl),
     };
   }
   // A scrape you can trust. A reel page updates location.href ~150-175 ms BEFORE
@@ -925,6 +1148,78 @@ function boundMediaIsStale({ floating, connected, railRect, boundRect }, slack =
     if (msg?.type === "FBW_DOWNLOAD_RESULT") resolvePending?.("download", !!msg.success);
     // Liveness probe (background sets the panel's reload hint from the reply).
     if (msg?.type === "FBW_PING") sendResponse?.({ ok: true });
+  });
+
+  // ============================================================
+  // Playhead reporter — the panel highlights a stored transcript in time with the
+  // video playing HERE. The page owns the clock: it publishes {videoId, t} and the
+  // panel decides which line that is (lib/playhead.js).
+  //
+  // Measured on a live reel: `timeupdate` fires ~3.8×/s (median gap 265 ms), which
+  // is ~5 updates per 1.31 s chunk — no rAF loop, no polling.
+  //
+  // videoId travels with EVERY tick on purpose. A reel page updates location.href
+  // 150-175 ms before it swaps the mounted card, so a time and an id sampled
+  // apart can belong to different reels; sending them together lets the panel
+  // refuse a mismatched pair instead of scrubbing the wrong transcript.
+  // ============================================================
+  const PLAYHEAD_PORT = "fbw-playhead";
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== PLAYHEAD_PORT || fbwDisabled) return;
+    let video = null;
+    let dead = false;
+    const post = () => {
+      if (dead || !video || !video.isConnected) return;
+      const t = video.currentTime;
+      if (!Number.isFinite(t)) return;
+      try {
+        port.postMessage({
+          videoId: urlPathVideoId() || grabVideoId(findPostUnit(video), video),
+          t,
+          paused: video.paused,
+          duration: Number.isFinite(video.duration) ? video.duration : null,
+        });
+      } catch {
+        dead = true; // port closed under us (panel shut)
+      }
+    };
+    const EVENTS = ["timeupdate", "play", "pause", "seeked", "ended"];
+    const detach = () => {
+      if (!video) return;
+      for (const e of EVENTS) video.removeEventListener(e, post);
+      video = null;
+    };
+    // FB swaps <video> nodes on every reel change, so the reporter re-binds
+    // instead of holding one node. Cheap: a pick + identity check, twice a second.
+    const rebind = () => {
+      if (dead) return;
+      const next = pickActiveVideo();
+      if (next === video && (!video || video.isConnected)) return;
+      detach();
+      video = next;
+      if (!video) return;
+      for (const e of EVENTS) video.addEventListener(e, post);
+      post(); // paint immediately, don't wait for the next tick
+    };
+    const iv = setInterval(rebind, 500);
+    rebind();
+    port.onMessage.addListener((msg) => {
+      // Click-to-seek from the panel. Verified live: FB does not fight a JS seek
+      // (11.71 → 23.71 landed at 24.00 and kept playing). Refuse when the page has
+      // moved on to another video — seeking the wrong reel is worse than no seek.
+      if (msg?.type !== "seek" || !video || !video.isConnected) return;
+      const here = urlPathVideoId() || grabVideoId(findPostUnit(video), video);
+      if (msg.videoId && here && msg.videoId !== here) return;
+      try {
+        video.currentTime = Math.max(0, Number(msg.t) || 0);
+        if (video.paused) video.play().catch(() => {});
+      } catch {}
+    });
+    port.onDisconnect.addListener(() => {
+      dead = true;
+      clearInterval(iv);
+      detach();
+    });
   });
 
   // ---- auto-capture (driven by the warmer engine in the same tab) ----
@@ -1250,6 +1545,7 @@ function boundMediaIsStale({ floating, connected, railRect, boundRect }, slack =
           author: msg.author,
           caption: msg.caption,
           sourceUrl: msg.sourceUrl,
+          videoKind: msg.videoKind,
           language: msg.language,
         },
       })

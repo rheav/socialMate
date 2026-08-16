@@ -22,6 +22,9 @@ import {
   RotateCw,
   Trash2,
   Square,
+  ChevronsDown,
+  Sheet,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -35,6 +38,9 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
+import { DATE_RANGES, withinDateRange, normalizeErWeights, ER_WEIGHTS, ER_WEIGHTS_KEY } from "@/lib/shared/igFilters.js";
+import { buildXlsx } from "@/lib/xlsx.js";
+import { downloadPath } from "@/lib/downloadPath";
 import {
   sortRecords,
   recordToCard,
@@ -68,6 +74,25 @@ export default function IgSortTool() {
   const [surface, setSurface] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const [sortKey, setSortKey] = useState("default");
+  // Item 4: a hashtag search is mostly old posts — "what worked lately" needs a
+  // window, not just an ordering.
+  const [dateRange, setDateRange] = useState("all");
+  // Item 5: ER weights are a setting now. Stored in local storage so the on-page
+  // overlay recomputes with the same numbers the panel sorts by.
+  const [erW, setErW] = useState(ER_WEIGHTS);
+  useEffect(() => {
+    chrome.storage?.local?.get?.(ER_WEIGHTS_KEY, (r) => setErW(normalizeErWeights(r && r[ER_WEIGHTS_KEY])));
+  }, []);
+  const setWeight = (k, v) => {
+    // "" is what the field holds mid-retype, and Number("") is 0 — finite and >= 0,
+    // so it passed normalizeErWeights' guard and silently zeroed that term (then
+    // rewrote the input to "0", which the user had to delete as well). An empty
+    // field means "no opinion": fall back to the default for that weight.
+    const raw = v === "" || v == null ? undefined : v;
+    const next = normalizeErWeights({ ...erW, [k]: raw });
+    setErW(next);
+    chrome.storage?.local?.set?.({ [ER_WEIGHTS_KEY]: next });
+  };
   const [sortDir, setSortDir] = useState("desc");
   const [overlay, setOverlay] = useState(true);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
@@ -152,7 +177,8 @@ export default function IgSortTool() {
     refresh();
   };
 
-  const scoped = showAll ? records : filterBySurface(records, surface);
+  const scopedAll = showAll ? records : filterBySurface(records, surface);
+  const scoped = scopedAll.filter((r) => withinDateRange(r.taken_at, dateRange));
   const sorted = sortRecords(scoped, sortKey, sortDir);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
@@ -276,6 +302,108 @@ export default function IgSortTool() {
     }
   }
 
+  // Item 7: the listed posts as a spreadsheet. One row per post, numbers kept as
+  // numbers so they sort and sum, and the creator stats (item 2) and audio (item 3)
+  // ride along — which is the whole point: the sheet answers "who is worth
+  // modelling", not just "what did this post do".
+  //
+  // The reference extension embeds each thumbnail in the row and bundles ExcelJS
+  // to do it (most of its 970 KB). Here the thumbnail is a URL column and the
+  // writer is ~120 lines over the zip writer this extension already ships.
+  const XLSX_COLS = [
+    { key: "code", label: "Código" },
+    { key: "url", label: "Link" },
+    { key: "username", label: "Perfil" },
+    { key: "user_follower_count", label: "Seguidores" },
+    { key: "views", label: "Visualizações" },
+    { key: "likes", label: "Curtidas" },
+    { key: "comments", label: "Comentários" },
+    { key: "reposts", label: "Reposts" },
+    { key: "er", label: "TE %" },
+    { key: "views_per_follower", label: "Views/seguidor" },
+    { key: "date", label: "Data" },
+    { key: "media_type", label: "Tipo" },
+    { key: "caption", label: "Legenda" },
+    { key: "audio_id", label: "Áudio" },
+    { key: "audio_url", label: "Link do áudio" },
+    { key: "audio_author", label: "Autor do áudio" },
+    { key: "user_biography", label: "Bio" },
+    { key: "user_external_url", label: "Link da bio" },
+    { key: "thumb", label: "Miniatura" },
+    { key: "video", label: "Vídeo" },
+  ];
+  function exportXlsx() {
+    const rows = sorted.map((r) => {
+      const er = engagementRate(r, erW);
+      const vpf =
+        r.play_count != null && r.user_follower_count
+          ? Math.round((r.play_count / r.user_follower_count) * 100) / 100
+          : null;
+      return {
+        code: r.code || null,
+        url: r.code ? `https://www.instagram.com/p/${r.code}/` : null,
+        username: r.username || null,
+        user_follower_count: r.user_follower_count ?? null,
+        views: r.play_count ?? null,
+        likes: r.like_count ?? null,
+        comments: r.comment_count ?? null,
+        reposts: r.repost ?? null,
+        er: er == null ? null : Math.round(er * 100) / 100,
+        views_per_follower: vpf,
+        date: r.taken_at ? new Date(r.taken_at * 1000).toISOString().slice(0, 10) : null,
+        media_type: r.media_type || null,
+        caption: r.caption || null,
+        audio_id: r.audio_id || null,
+        audio_url: r.audio_id ? `https://www.instagram.com/reels/audio/${r.audio_id}/` : null,
+        audio_author: r.audio_author || null,
+        user_biography: r.user_biography || null,
+        user_external_url: r.user_external_url || null,
+        thumb: r.thumb || r.image || null,
+        video: r.video || null,
+      };
+    });
+    const bytes = buildXlsx(XLSX_COLS, rows, "Posts");
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const stamp = new Date().toISOString().slice(0, 10);
+    chrome.downloads.download({
+      url,
+      // `surface` is null before the first poll answers, and stays null on a page
+      // that reports none — with "mostrar tudo" the export is still legitimate, so
+      // it needs a name rather than a TypeError that silently downloads nothing.
+      filename: downloadPath(
+        "instagram",
+        "sheet",
+        `ig-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`,
+      ),
+      saveAs: false,
+      conflictAction: "uniquify",
+    });
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  // Item 6: ask the page to scroll so Instagram paginates. The pacing lives in the
+  // page (scrollGapMs — 3 s, then 6 s, then 10 s) because that is where the
+  // scrolling happens; the panel only says how many rounds.
+  const [scrolling, setScrolling] = useState(false);
+  async function harvest(rounds) {
+    // send() targets the bound Instagram TAB — the scroll runs in the page, and
+    // the background has no idea what is on screen there.
+    if (scrolling) {
+      await send({ type: "FBW_IG_SCROLL_STOP" }, { userAction: true }).catch(() => {});
+      setScrolling(false);
+      return;
+    }
+    setScrolling(true);
+    const res = await send({ type: "FBW_IG_SCROLL", rounds }, { userAction: true }).catch(() => null);
+    if (!res) {
+      setScrolling(false);
+      return;
+    }
+    // The page paces itself; this is the panel's own estimate of when it is done.
+    const ms = rounds * 3000 + Math.max(0, rounds - 5) * 3000 + Math.max(0, rounds - 10) * 4000;
+    setTimeout(() => setScrolling(false), ms);
+  }
+
   // Transcribe a reel: hand the background the direct MP4 URL (captured via the
   // always-on full-stats fetch). It reuses the same Whisper pipeline as Facebook;
   // the result streams into fbw_transcripts → Library → Transcripts.
@@ -344,6 +472,12 @@ export default function IgSortTool() {
       {banner}
       <ToolBar>
         <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
+        <ToolSelect
+          label="Período"
+          value={dateRange}
+          onValueChange={setDateRange}
+          options={DATE_RANGES.map((r) => ({ value: r.value, label: r.label, short: r.short || r.label }))}
+        />
         <ToolIconButton
           icon={sortDir === "desc" ? ArrowDown : ArrowUp}
           label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
@@ -361,6 +495,23 @@ export default function IgSortTool() {
           variant={clearArmed ? "destructive" : "outline"}
           onClick={onClearTap}
         />
+        <ToolIconButton
+          icon={scrolling ? Square : ChevronsDown}
+          label={scrolling ? "Parar a coleta" : "Coletar (rolar 10×)"}
+          hint={
+            scrolling
+              ? "Parar a rolagem automática"
+              : "Rola a página em ritmo humano (3 s, depois 6 s, depois 10 s) para o Instagram carregar mais posts"
+          }
+          onClick={() => harvest(10)}
+        />
+        <ToolIconButton
+          icon={Sheet}
+          label="Planilha (.xlsx)"
+          hint="Exporta os posts listados com seguidores, TE, views por seguidor e áudio"
+          onClick={exportXlsx}
+          disabled={!sorted.length}
+        />
         <ActionButton
           icon={bulk ? Square : Download}
           label={bulk ? (bulk.stopping ? "Parando…" : `Parar ${bulk.done}/${bulk.total}`) : "Tudo"}
@@ -370,6 +521,30 @@ export default function IgSortTool() {
           disabled={bulk ? bulk.stopping : !sorted.length}
         />
       </ToolBar>
+
+      {/* ER weights (item 5). What counts as engagement differs per niche — a
+          saved-heavy niche wants comments weighted differently from a viral one —
+          and the on-page overlay reads the same stored numbers. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="font-medium text-foreground/80">Peso do TE:</span>
+        {[
+          ["like", "curtida"],
+          ["comment", "coment."],
+          ["repost", "repost"],
+        ].map(([k, label]) => (
+          <label key={k} className="flex items-center gap-1">
+            {label}
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={erW[k]}
+              onChange={(e) => setWeight(k, e.target.value)}
+              className="w-11 rounded-md border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
+            />
+          </label>
+        ))}
+      </div>
 
       {/* flex-wrap, not truncate: when the tally and the toggle can't share a
           line the toggle drops to its own line instead of losing words. */}
@@ -400,7 +575,7 @@ export default function IgSortTool() {
             const c = recordToCard(rec);
             const st = statusOf(statusKey(c.id));
             const stThumb = statusOf(statusKey(c.id, "thumb"));
-            const er = engagementRate(rec);
+            const er = engagementRate(rec, erW);
             const TypeIcon = TYPE_ICON[c.type] || ImageIcon;
             return (
               <div

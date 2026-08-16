@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Flame, Library as LibraryIcon, Moon, Sun } from "lucide-react";
+import { ChevronRight, Flame, Library as LibraryIcon, Moon, Search as SearchIcon, Sun } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
-import { toolsForPlatform, getTool } from "@/lib/tools";
+import { workspaceToolsForPlatform, getTool } from "@/lib/tools";
 import { detectActivePlatform, hasChromeTabs } from "@/lib/tabs";
 import {
   NAV_KEY,
@@ -148,8 +148,21 @@ export default function Shell() {
   );
   const setTab = useCallback((t) => setNav((n) => withTab(n, t)), []);
   // Header switcher: jump straight into a platform's workspace from anywhere.
+  // Picking a platform from the header keeps you on the tab you are on — except in
+  // Arquivo, which is platform-agnostic, where it means "take me to that platform".
   const pickPlatform = useCallback(
-    (p) => setNav((n) => withPlatform(withTab(n, "warm"), p)),
+    (p) =>
+      setNav((n) => {
+        // Arquivo is platform-agnostic, so picking a platform there means "take me
+        // to that platform". Aquecer exists only for platforms with a warmer, and
+        // the header offers all four: choosing Pinterest there used to show it
+        // selected while the body fell back to a picker that does not list it —
+        // selected and unreachable at once. Land such a pick in Pesquisa, which
+        // every platform has.
+        const leaving =
+          n.tab === "library" || (n.tab === "warm" && !WARM_PLATFORMS.includes(p));
+        return withPlatform(leaving ? withTab(n, "research") : n, p);
+      }),
     [],
   );
 
@@ -168,7 +181,7 @@ export default function Shell() {
         <div className="flex min-w-0 items-center gap-2.5">
           <button
             onClick={() => {
-              setTab("warm");
+              setTab("research");
               setPlatform(null);
             }}
             title="Início — socialMate"
@@ -200,8 +213,9 @@ export default function Shell() {
           value={tab}
           onChange={setTab}
           items={[
-            { id: "warm", label: "Aquecimento", Icon: Flame },
-            { id: "library", label: "Biblioteca", Icon: LibraryIcon },
+            { id: "research", label: "Pesquisa", Icon: SearchIcon },
+            { id: "warm", label: "Aquecer", Icon: Flame },
+            { id: "library", label: "Arquivo", Icon: LibraryIcon },
           ]}
         />
       </div>
@@ -209,8 +223,10 @@ export default function Shell() {
       <main className="min-w-0 flex-1 px-4 py-3 space-y-3">
         {tab === "library" ? (
           <LibraryTool />
+        ) : tab === "warm" ? (
+          <WarmTab platform={platform} setPlatform={setPlatform} />
         ) : (
-          <WarmTab
+          <ResearchTab
             platform={platform}
             setPlatform={setPlatform}
             toolId={toolIdFor(nav, platform)}
@@ -298,50 +314,67 @@ function useFollowActiveTab(ready, ownWindowId, setNav) {
   }, [ready, ownWindowId, setNav]);
 }
 
-// Warmer tab: platform picker → platform workspace (segmented tools + panel).
-function WarmTab({ platform, setPlatform, toolId, setToolId }) {
-  if (!platform) {
-    return (
-      <div className="space-y-3">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Escolha uma plataforma
-        </p>
-        <div className="space-y-2">
-          {PLATFORM_ORDER.map((id) => {
-            const { name, Glyph, theme } = PLATFORMS[id];
-            const tools = toolsForPlatform(id)
-              .map((t) => t.label)
-              .join(" · ");
-            return (
-              <button
-                key={id}
-                onClick={() => setPlatform(id)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
+// Shared by Pesquisa and Aquecer: neither can render anything until a platform is
+// chosen, and both used to be the same tab, so the picker is one component.
+// `only` narrows the list to the platforms a tab actually supports — the warmer
+// runs on three of the four, and offering Pinterest there would crash WarmTool on
+// PLATFORMS[platform].defaultMode.
+function PlatformPicker({ setPlatform, only = null, describe }) {
+  const ids = only ? PLATFORM_ORDER.filter((id) => only.includes(id)) : PLATFORM_ORDER;
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Escolha uma plataforma
+      </p>
+      <div className="space-y-2">
+        {ids.map((id) => {
+          const { name, Glyph, theme } = PLATFORMS[id];
+          const blurb = describe(id);
+          return (
+            <button
+              key={id}
+              onClick={() => setPlatform(id)}
+              className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
+            >
+              <span
+                className="grid size-10 place-items-center rounded-xl text-white shadow-sm"
+                style={{ backgroundImage: theme["--sw-grad"] }}
               >
-                <span
-                  className="grid size-10 place-items-center rounded-xl text-white shadow-sm"
-                  style={{ backgroundImage: theme["--sw-grad"] }}
-                >
-                  <Glyph width={20} height={20} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">{name}</span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {tools}
-                  </span>
-                </span>
-                <ChevronRight className="size-4 text-muted-foreground" />
-              </button>
-            );
-          })}
-        </div>
+                <Glyph width={20} height={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">{name}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{blurb}</span>
+              </span>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </button>
+          );
+        })}
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  const tools = toolsForPlatform(platform);
-  // A remembered tool that no longer exists (renamed/removed) falls back to the
-  // platform's first tool rather than rendering nothing.
+// Pesquisa: the platform workspace — picker, then that platform's research tools
+// (segmented sub-nav + panel). The warmer used to be the first of those tools; it
+// is a top-level tab now, so workspaceToolsForPlatform leaves it out here.
+function ResearchTab({ platform, setPlatform, toolId, setToolId }) {
+  if (!platform)
+    return (
+      <PlatformPicker
+        setPlatform={setPlatform}
+        describe={(id) =>
+          workspaceToolsForPlatform(id)
+            .map((t) => t.label)
+            .join(" · ") || "sem ferramentas de pesquisa"
+        }
+      />
+    );
+
+  const tools = workspaceToolsForPlatform(platform);
+  // A remembered tool that no longer exists (renamed/removed, or the warmer now
+  // that it lives up top) falls back to the platform's first tool rather than
+  // rendering nothing.
   const activeId = tools.some((t) => t.id === toolId) ? toolId : tools[0]?.id;
   const Panel = activeId ? getTool(activeId)?.Panel : null;
 
@@ -351,7 +384,7 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
     return (
       <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
         <p className="py-8 text-center text-sm leading-relaxed text-muted-foreground">
-          Nenhuma ferramenta para esta plataforma.
+          Nenhuma ferramenta de pesquisa para esta plataforma.
         </p>
       </ToolFrame>
     );
@@ -371,6 +404,29 @@ function WarmTab({ platform, setPlatform, toolId, setToolId }) {
           tool that produced it. */}
       <ErrorBoundary key={`${platform}:${activeId}`}>
         <Panel platform={platform} />
+      </ErrorBoundary>
+    </ToolFrame>
+  );
+}
+
+// Aquecer: the warmer, promoted out of the workspace. It reads
+// PLATFORMS[platform].defaultMode on mount, so it may only be rendered once a
+// platform the warmer actually supports is chosen — hence the narrowed picker.
+const WARM_PLATFORMS = getTool("warm")?.platforms || [];
+function WarmTab({ platform, setPlatform }) {
+  const WarmPanel = getTool("warm")?.Panel;
+  if (!platform || !WARM_PLATFORMS.includes(platform) || !WarmPanel)
+    return (
+      <PlatformPicker
+        setPlatform={setPlatform}
+        only={WARM_PLATFORMS}
+        describe={(id) => `Aquecer ${PLATFORMS[id].name}`}
+      />
+    );
+  return (
+    <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
+      <ErrorBoundary key={`warm:${platform}`}>
+        <WarmPanel platform={platform} />
       </ErrorBoundary>
     </ToolFrame>
   );

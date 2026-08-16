@@ -18,6 +18,316 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.78.2] — 2026-08-15
+
+Varredura de bugs sobre o código todo (revisão + conferência ao vivo no navegador).
+
+### Corrigido
+- **O peso do TE nunca chegava ao overlay do Instagram.** Duas falhas em série:
+  1. `ER_WEIGHTS_KEY` era lido no topo do bridge.js mas declarado ~300 linhas
+     abaixo, na região inlinada do igFormat — zona morta temporal. O
+     `ReferenceError` caía no `catch (_) {}`, então a leitura inicial E o listener
+     de `onChanged` morriam calados, e o overlay ficava nos pesos padrão para
+     sempre. A fiação de storage foi movida para DEPOIS da região.
+  2. mesmo corrigido, nada repintava: a assinatura que decide se um tile precisa
+     ser redesenhado é feita das CONTAGENS do post, então trocar o peso
+     re-renderizava e pulava todo tile já na tela. Os pesos entram na assinatura.
+  - Conferido ao vivo em um perfil: `(28 + 4×50 + 3×50)/650` → o tile foi de
+    8,62% para 58,2% e voltou, sem recarregar a página.
+- **O player de reels agia no reel anterior.** O carimbo `data-sw-media` é escrito
+  na CAIXA do player (que sobrevive à troca de reel, ao contrário do `<video>`),
+  mas um host já carimbado era pulado para sempre — então rolar para o próximo
+  reel deixava o id antigo no lugar, e stats/baixar/salvar/transcrever atuavam no
+  vídeo errado. Agora o carimbo é refeito quando a mídia sob a caixa muda
+  (identidade do `<video>` + `src`), e o carimbo velho é REMOVIDO antes: não
+  resolver nada é recuperável, apontar para o reel errado não é.
+- **Link do card virava reel mesmo quando era vídeo de página.** `fbCardLink`
+  reescrevia qualquer `/watch/?v=` como `/reel/<id>`, mas a captura grava watch de
+  propósito para post de vídeo (`/<página>/videos/<id>` e o teatro `?v=`). A
+  captura agora grava também a FORMA do link (`videoKind`), e só registro sem essa
+  marca — os antigos, de antes da correção — continua sendo reescrito.
+- **Enriquecimento carimbava a superfície errada.** A fila anda a 1 req/s e pausa
+  com a aba escondida, então uma página de 24 leva ≥24 s: sair da hashtag para um
+  perfil nesse meio tempo fazia os pendentes carimbarem `profile:<user>` em posts
+  de hashtag (e o bridge ainda preenchia o username por ali). A superfície agora
+  viaja com o `pk` na fila.
+- **Playhead deixava uma porta órfã viva.** `bind()` chamava `drop()` e só então
+  esperava `tabs.query`; dois gatilhos juntos (`onActivated` + `onUpdated` de SPA)
+  abriam duas portas, e a perdedora nunca era desconectada — seu `onDisconnect`
+  comparava com `portRef.current` e nunca batia. Agora cada `bind` tem senha: a
+  antiga desconecta e para de emitir tick.
+- **Parar a coleta sem coleta rodando travava a próxima.** `igScrollStop` só era
+  limpo ao fim de um ciclo; um Parar clicado depois do fim real deixava a flag
+  armada e o próximo Coletar saía no primeiro passo. Limpa no início do ciclo.
+  Conferido ao vivo: Parar sem ciclo → Coletar → `scrollY 0 → 3234`.
+- **Planilha .xlsx quebrava sem superfície.** `surface` é null antes da primeira
+  resposta da página (e com "mostrar tudo" numa página sem superfície), e
+  `surface.replace(...)` lançava TypeError — clique sem download e sem aviso. Cai
+  para `tudo`.
+- **Limpar um campo de peso zerava o peso.** `Number("")` é 0, finito e ≥ 0, então
+  passava pela validação: apagar para redigitar zerava o termo e reescrevia o
+  campo como "0". Campo vazio agora significa "usar o padrão".
+- **Pinterest no Aquecer era um beco sem saída.** O seletor do topo oferece as
+  quatro plataformas, mas o Aquecer só existe para três: escolher Pinterest ali
+  mostrava a plataforma selecionada e o corpo caindo num seletor que não a lista.
+  Agora essa escolha leva para a Pesquisa, que toda plataforma tem.
+- Índice `igUsersByName` sem teto (só `igUsers` era podado), bytes de controle
+  crus no regex do `xlsx.js` (mesmo conjunto, agora escapado) e import morto no
+  `Shell.jsx`.
+
+---
+
+## [0.78.1] — 2026-08-15
+
+Auditoria do filtro da pesquisa (0.77.0), com o custo medido na página.
+
+### Alterado
+- **A passada deixou de percorrer o feed inteiro.** Ela lia um
+  `getBoundingClientRect()` por post JÁ carregado a cada quadro de rolagem —
+  medido: 0,4 ms para 33 filhos, ou seja ~4 ms por quadro numa sessão de hashtag
+  com 300 posts, para reaprender o que o IntersectionObserver já sabia. Agora o
+  observador É a lista de trabalho: a passada olha só o que está perto da tela
+  (mais os poucos posts devendo uma reconferência), e o custo não cresce mais com
+  o tamanho do feed. `pending` virou contador, não varredura.
+- Mudar a regra continua refiltrando o feed todo na hora — agora por um
+  `sweepAll()` explícito, disparado só quando a regra muda, e não por acidente a
+  cada quadro.
+
+### Corrigido
+- **Veredito zerado ficava para sempre.** A releitura só valia para post
+  APROVADO; um REPROVADO nunca era reconferido — e ele está escondido, então nada
+  mais olhava para ele. Se a barra de ações montasse um quadro antes dos números
+  pintarem, o post era lido como 0/0/0, reprovava e sumia da pesquisa pelo resto
+  da sessão. Agora uma leitura sem número nenhum é marcada e reconferida (até 3
+  vezes, 1,2 s de intervalo) antes de o zero ser aceito.
+- **Referências presas ao sair da pesquisa.** `near`/`recheck` seguram os
+  elementos do feed (diferente de `verdicts`, que é WeakMap); sem limpá-los, todo
+  post de toda pesquisa feita na aba continuava alcançável. `teardown()` esvazia
+  os dois.
+- **Timer órfão a cada reload da extensão.** A geração que sai de cena parava os
+  observadores mas deixava o vigia de navegação SPA (700 ms) rodando para sempre;
+  agora ele também é encerrado.
+
+---
+
+## [0.78.0] — 2026-08-15
+
+Oito melhorias no Instagram, medidas contra a extensão de referência (IG Sorter
+2.4.1) e contra o que o Instagram realmente manda hoje.
+
+### Corrigido
+- **As visualizações voltaram.** A busca por palavra-chave
+  (`xdt_fbsearch__top_serp_graphql`) parou de mandar views: medido ao vivo em
+  15/08/2026, `view_count: null` em 24 de 24 vídeos e nenhuma chave `play_count` /
+  `ig_play_count` — com `like_count` presente nos 24 e
+  `like_and_view_counts_disabled` falso. O campo não mudou de nome; aquele endpoint
+  simplesmente parou de trazer. `/api/v1/media/<pk>/info/` responde play_count 52222
+  para o mesmo post, então um vídeo sem views vira um pedido — **um por segundo, e
+  só com a aba visível**. (A referência dispara os 24 de uma vez, sem fila.) O
+  `x-ig-app-id` é pego do tráfego do próprio Instagram, não fixado no código.
+
+### Adicionado
+- **Tamanho do criador.** Seguidores, seguindo, nº de posts, nº de reels, bio,
+  link da bio e conta comercial, colhidos passivamente dos payloads que já
+  passavam por aqui — zero requisições novas. O overlay ganhou a linha de
+  seguidores; a planilha ganhou "views por seguidor", que é o número que separa
+  "foi bem" de "foi bem PARA uma conta desse tamanho".
+- **Áudio do reel.** `audio_id`, autor e duração do som original (ou da faixa
+  licenciada) — o link `instagram.com/reels/audio/<id>/` lista todo mundo que
+  está usando aquele som.
+- **Filtro por período** — 7/14/30/90/180 dias, 1 e 2 anos. Um post sem data é
+  MANTIDO: as grades costumam omitir `taken_at`, e escondê-los pareceria que o
+  filtro comeu resultados.
+- **Peso do TE editável** (curtida / comentário / repost). O overlay na página lê
+  os mesmos números que o painel usa para ordenar.
+- **Coleta em ritmo humano** — rola a página para o Instagram paginar, com pausas
+  que crescem (3 s nas primeiras 5, 6 s nas 5 seguintes, 10 s daí em diante).
+- **Planilha .xlsx** com link, perfil, seguidores, views, curtidas, comentários,
+  reposts, TE, views/seguidor, data, legenda, áudio e bio. Escrita sobre o
+  `zipWriter` que já existe: um .xlsx é um zip de XML, e a referência carrega o
+  ExcelJS inteiro (a maior parte dos 970 KB dela) para fazer o mesmo. A miniatura
+  vai como link, não embutida.
+- **Overlay no player de reels e no permalink** (`/reels/<code>/`, `/reel/…`,
+  `/p/…`). Lá não existe `<a>` em volta do vídeo, então a varredura por link não
+  achava nada — a página onde a estatística mais importa era a única sem ela.
+  Verificado ao vivo em `/reels/DaBFBcgxZIi/`: 17 players marcados, 17 raias com
+  93,3 mil views · 4,6 mil · 1,4 mil · 271 · 12,2% · data.
+- **Os botões não pausam mais o reel — e agora recebem o clique.** O player do
+  Instagram pinta uma camada `role="button"` do tamanho do vídeo POR CIMA de tudo
+  que está dentro da subárvore dele. Com a raia pendurada ali, o clique real nunca
+  chegava aos nossos botões: `elementsFromPoint` no centro do botão devolvia a
+  camada do Instagram em 1º e o nosso `button` em 6º. Nenhum z-index resolve isso
+  de dentro da subárvore, então as raias do player passaram a viver numa camada
+  própria (`#sw-ig-layer`, `position:fixed`, z-index alto, pendurada no `<html>`,
+  fora da raiz do React), posicionada sobre o player a cada passada e reposicionada
+  no scroll/resize — a mesma forma que o overlay do Facebook já usava, pelo mesmo
+  motivo.
+  As duas raias também engolem a sequência de ponteiro
+  (`pointerdown`/`mousedown`/`pointerup`/`mouseup`), com `stopPropagation` e não
+  `stopImmediatePropagation`, para o menu de idioma do próprio botão continuar
+  funcionando.
+  Verificado com CLIQUE REAL (não evento sintético — o sintético pula o hit-test e
+  passava mesmo quebrado): miniatura baixou `ig-agnestarot-DaBFBcgxZIi-thumb.jpg`,
+  vídeo baixou 5,4 MB, salvar gravou na Biblioteca, transcrever abriu o menu
+  BR/EN — e em todos os quatro o reel continuou tocando.
+- **A raia do player deixou de congelar.** Ela era montada uma vez e nunca mais:
+  como as views chegam ~1 s depois (o enriquecimento por mídia), a raia ficava
+  para sempre com curtidas/comentários/data e SEM views e SEM TE — exatamente o
+  que apareceu no player. A verificação de assinatura já cobria isso; o `continue`
+  que eu tinha posto antes dela é que impedia qualquer remontagem.
+- **A raia do player subiu para o meio** (60% da altura, ancorada pela camada).
+  Colada embaixo ela disputava espaço com o botão de mudo do Instagram e se lia
+  como parte da legenda.
+- **Botão de transcrever na raia do reel/post.** A raia tinha salvar, baixar mídia
+  e baixar miniatura; transcrever só existia nos stories e no painel. Mesmo caminho
+  do Whisper, com o badge BR/EN e o mesmo menu de dois toques dos stories
+  (idioma primeiro, job depois — o badge seria mentira se o botão não deixasse
+  trocar). Verificado ponta a ponta: `DaBFBcgxZIi` → `done`, 725 caracteres, com
+  views/curtidas/comentários no registro.
+
+### Detalhes que não são óbvios
+- `ER_WEIGHTS` passou a ter UMA definição (`lib/shared/igFilters.js`): duas cópias
+  inlinadas no mesmo content script são `const` repetido — SyntaxError que derruba
+  a bridge inteira.
+- O bloco dos pesos não pode ser inicializado no topo do script: a região inlinada
+  vem depois, e ler a constante ali é temporal dead zone (`Cannot access 'D' before
+  initialization`). Começa `null`; `engagementRate` já cai no padrão.
+- **As props do React só existem no mundo MAIN.** A primeira tentativa de ler
+  `media$key.id` / `videoFBID` foi escrita na bridge, que roda no mundo ISOLADO: os
+  dois mundos compartilham o DOM, não as propriedades JS penduradas nos elementos,
+  então a busca não encontrava nada e nada aparecia. Agora quem resolve é o
+  main-world, que escreve o id de volta como ATRIBUTO (`data-sw-media`) — atributo
+  atravessa a fronteira. A extensão de referência não tem esse problema porque o
+  script dela inteiro roda no MAIN.
+- Estatísticas de criador não existem em NENHUM payload de busca — nem no
+  `/info/`, cujo `user` não traz `follower_count`. Elas chegam em payloads de
+  perfil, então o join também casa por @handle: os itens da própria timeline de
+  perfil não carregam objeto `user`.
+
+---
+
+## [0.77.0] — 2026-08-15
+
+Filtro de engajamento na pesquisa do Facebook. Você diz o mínimo de curtidas,
+comentários e compartilhamentos; enquanto rola `/search/*` ou `/hashtag/*`, quem
+não bate a regra sai do feed. Combinação E/OU: "2000 comentários OU 200
+compartilhamentos", ou os dois ao mesmo tempo.
+
+### Adicionado
+- **Ferramenta "Filtrar"** (Pesquisa → Facebook): liga/desliga, três mínimos
+  (branco = ignora a métrica) e o combinador E/OU, com contagem ao vivo
+  ("4 exibidos · 7 ocultos"). A regra vive em `chrome.storage.local`
+  (`sw_fb_filter`), então continua valendo com o painel fechado, depois de um
+  reload e em qualquer outra aba do Facebook.
+- **`src/content/fb/feed-filter.js`** — o filtro em si. Fatos medidos ao vivo em
+  `/search/top?q=%23auralytrend` (2026-08-15) que sustentam o desenho:
+  - o Facebook JÁ virtualiza esse feed: filho fora da tela perde o conteúdo mas
+    mantém a altura, e filhos só são acrescentados, nunca removidos → **o filho do
+    `[role="feed"]` é a identidade do post**. Permalink não serve: dois posts
+    diferentes carregavam o mesmo `/stories/…`;
+  - a faixa de montagem é ~−0,5 a +2,3 telas, ou seja, dá para ler as contagens de
+    um post ~2 telas antes de ele ser visto e escondê-lo em silêncio;
+  - `display:none` no filho encolhe a página exatamente na altura dele, não mexe no
+    `scrollY` e **não trava a paginação** (38 → 54 filhos com 47 escondidos, até
+    "End of results").
+  - Custo em regime: 0,2–0,3 ms por passada. As passadas são disparadas por
+    IntersectionObserver (margem 200%) + MutationObserver de `childList`, com um
+    tique de 500 ms que só roda enquanto existe post indeciso.
+- **Chip na página** (canto inferior esquerdo): mostra exibidos/ocultos e liga ou
+  desliga o filtro sem sair do feed. Fica pendurado no `<html>`, fora da raiz React
+  do Facebook — dentro do feed ele morreria no próximo re-render.
+- **`readCountsByControl()`** em `src/lib/shared/fbCounts.js`: lê a barra de ações
+  arquivando cada número no controle a que ele pertence (por conter o número ou
+  pela distância até o centro), com recuo para a leitura posicional.
+
+### Corrigido
+- **Contagem zero deslocava a leitura.** O Facebook não imprime número nenhum ao
+  lado de um controle zerado, então um post com 4 reações, 0 comentários e 2
+  compartilhamentos renderiza "4 … 2" — e a leitura POSICIONAL de
+  `readPostCounts` arquivava os 2 compartilhamentos como 2 comentários, passando
+  num filtro de "≥ 2 comentários". Medido ao vivo: números em x≈1027 e x≈1131
+  contra controles em curtir x≈1013, comentar x≈1065, compartilhar x≈1117.
+  `readPostCounts` (usada pelos scrapers de reel) segue como estava.
+
+### Notas de comportamento
+- Mudar o limite NÃO exige rolar de novo: as contagens já lidas ficam em cache e
+  são reavaliadas contra a nova regra na hora, inclusive para posts que o Facebook
+  já desmontou.
+- Esconder um post que ficou ACIMA da tela devolve a mesma distância ao scroll (e
+  o inverso ao reexibir), senão a página pula debaixo dos olhos de quem lê.
+- Post que ainda não montou não é escondido — indeciso continua visível e é
+  julgado quando o Facebook o renderiza. Aba em segundo plano não monta nada, e
+  aí o filtro simplesmente espera.
+- Sair da pesquisa (navegação SPA) devolve todos os posts e remove o chip.
+
+---
+
+## [0.76.0] — 2026-08-15
+
+### Corrigido
+- **O link do card abria outro reel.** Um reel capturado a partir de um FEED era
+  salvo com `/watch/?v=<id>` — a rota /watch cai no FEED de reels quando o Facebook
+  não serve o item, e aí toca qualquer coisa. Agora a captura guarda a FORMA do
+  link do próprio post (`/reel/<id>` para reel, `/watch/?v=` para vídeo de página),
+  e os registros antigos em forma de watch são reescritos como `/reel/<id>` na hora
+  de abrir. Conferido ao vivo: `/reel/1846308513007203` abre o vídeo do James Love
+  Guide, que é exatamente o dono do registro.
+  - Nota honesta: uma primeira leitura disso concluiu que `/watch/?v=` SEMPRE
+    desvia reels para o feed. Aquilo foi medido enquanto o Facebook servia páginas
+    de erro para este perfil, e a mesma sonda deu resposta oposta uma hora depois.
+    O sinal de redirect não é confiável e não há nada construído sobre ele.
+
+### Alterado
+- **Três abas no topo: Pesquisa · Aquecer · Arquivo.** "Aquecimento" virou
+  "Pesquisa", o "Aquecer" saiu de dentro dela e subiu para o topo, e "Biblioteca"
+  virou "Arquivo". A aba Pesquisa lista só as ferramentas de pesquisa da
+  plataforma; o seletor de plataforma é o mesmo componente nas duas abas.
+- O warmer só existe para Facebook, Instagram e TikTok, então a aba Aquecer oferece
+  apenas essas três — `WarmTool` lê `PLATFORMS[platform].defaultMode` no mount e
+  quebraria com Pinterest.
+- Nada de navegação salva se perde: `tab: "warm"` guardado continua significando o
+  warmer (agora no topo), e uma ferramenta lembrada que sumiu da aba Pesquisa cai
+  para a primeira da plataforma.
+
+---
+
+## [0.75.0] — 2026-08-15
+
+Karaokê. A transcrição salva acompanha o vídeo que está tocando na aba: a linha
+que está sendo falada fica destacada, a lista rola sozinha, e clicar numa linha
+pula o vídeo para aquele ponto. Vale para Transcrições e para Salvos.
+
+### Adicionado
+- **Playhead da página → painel.** O content script publica `{videoId, t, paused}`
+  numa porta (`fbw-playhead`); o painel decide qual linha é (`lib/playhead.js`).
+  A página é dona do relógio — medido ao vivo: `timeupdate` dispara ~3,8×/s
+  (intervalo mediano 265 ms), o que dá ~5 atualizações por chunk de 1,31 s. Sem
+  rAF, sem polling.
+- **Clicar numa linha pula o vídeo.** Verificado ao vivo: o Facebook não briga com
+  o seek (11,71 → 23,71 parou em 24,00 e continuou tocando).
+- **`lib/playhead.js`** — `chunkIndexAt(chunks, t)`, puro e testado: início do chunk
+  pertence ao próprio chunk, buraco entre legendas segura a linha anterior em vez de
+  piscar, e a última linha fica acesa quando o vídeo passa do fim da transcrição.
+  Destaca 150 ms adiantado — a linha que aparece exatamente na primeira sílaba é
+  lida como atrasada.
+
+### Detalhes que não são óbvios
+- **O `videoId` viaja em TODO tick.** Uma página de reel troca a URL 150-175 ms antes
+  de trocar o card montado (medido), então tempo e id colhidos separados podem ser de
+  reels diferentes. Junto, o painel recusa o par trocado em vez de rolar a
+  transcrição errada. O mesmo vale para o seek: pedido com id de outro vídeo é
+  ignorado.
+- **A rolagem é do container, não `scrollIntoView`.** A lista vive numa caixa de
+  176 px dentro da Biblioteca, que também rola; `scrollIntoView` sobe por todos os
+  ancestros roláveis e sacudiria o painel inteiro a cada linha.
+- **Nada de player próprio.** Tocar o vídeo dentro do painel funciona (um
+  `progressive_url` do fbcdn carrega no `chrome-extension://`), mas 1 em 3 reels
+  testados não expõe URL nenhuma (os que chegam por paginação SPA) e a URL expira
+  em ~5 dias. O vídeo da própria aba não tem nenhum desses problemas.
+- Sem transcrição para o vídeo que está tocando, nada muda na tela.
+
+---
+
 ## [0.74.1] — 2026-08-10
 
 ### Corrigido

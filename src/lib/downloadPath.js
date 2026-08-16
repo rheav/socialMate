@@ -12,7 +12,7 @@
 //
 //   social-mate/
 //     facebook/   videos | fotos | miniaturas | comentarios | transcricoes
-//     instagram/  videos | imagens | miniaturas | transcricoes
+//     instagram/  videos | imagens | miniaturas | transcricoes | planilhas
 //     tiktok/     videos | imagens | miniaturas | comentarios | transcricoes
 //     pinterest/  videos | imagens
 //     sessoes/    (run logs — not tied to a platform)
@@ -45,7 +45,7 @@ const PLATFORM_DIRS = {
 // kept apart from the full-size media so a pile of covers never buries the real files.
 const KIND_DIRS = {
   facebook: { video: "videos", image: "fotos", thumb: "miniaturas", comments: "comentarios", transcript: "transcricoes" },
-  instagram: { video: "videos", image: "imagens", thumb: "miniaturas", transcript: "transcricoes" },
+  instagram: { video: "videos", image: "imagens", thumb: "miniaturas", transcript: "transcricoes", sheet: "planilhas" },
   tiktok: { video: "videos", image: "imagens", thumb: "miniaturas", comments: "comentarios", transcript: "transcricoes" },
   pinterest: { video: "videos", image: "imagens" },
 };

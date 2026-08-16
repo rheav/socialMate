@@ -10,8 +10,8 @@ import {
 } from "./navState.js";
 
 describe("emptyNav / normalizeNav", () => {
-  it("defaults to the Warmer tab at Home", () => {
-    expect(emptyNav()).toEqual({ tab: "warm", platform: null, perPlatform: {} });
+  it("defaults to the research workspace at Home", () => {
+    expect(emptyNav()).toEqual({ tab: "research", platform: null, perPlatform: {} });
   });
   it("coerces junk to defaults", () => {
     expect(normalizeNav(null)).toEqual(emptyNav());
@@ -134,5 +134,34 @@ describe("withTab", () => {
     nav = withTab(nav, "library");
     expect(nav.platform).toBe("tiktok");
     expect(toolIdFor(nav, "tiktok")).toBe("tt-sort");
+  });
+});
+
+// ---- three top-level tabs: Pesquisa · Aquecer · Arquivo ----
+// "Aquecer" was promoted out of the platform workspace, so the workspace needed an
+// id of its own ("research"). "warm" keeps meaning the warmer — which is what an
+// existing stored value already meant — and "library" is untouched.
+describe("research tab", () => {
+  it("accepts the three tabs and rejects anything else", () => {
+    let nav = emptyNav();
+    expect(withTab(nav, "research").tab).toBe("research");
+    expect(withTab(nav, "warm").tab).toBe("warm");
+    expect(withTab(nav, "library").tab).toBe("library");
+    expect(withTab(nav, "bogus")).toBe(nav);
+  });
+
+  it("opens on the research workspace for a fresh install", () => {
+    expect(emptyNav().tab).toBe("research");
+  });
+
+  it("keeps a stored research tab through normalize", () => {
+    expect(normalizeNav({ tab: "research", platform: "facebook", perPlatform: {} }).tab).toBe("research");
+  });
+
+  it("leaves an existing user's stored tab alone", () => {
+    // Their "warm" now lands on the promoted Aquecer tab, which is the same tool
+    // they were last looking at — not a broken state.
+    expect(normalizeNav({ tab: "warm", perPlatform: {} }).tab).toBe("warm");
+    expect(migrateNav(null, { tab: "library" }).tab).toBe("library");
   });
 });

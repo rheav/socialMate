@@ -616,7 +616,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
   // faster/cheaper. Whisper stays the fallback when no caption URL is present.
   if (meta.captionUrl) {
     const id = videoId;
-    const { thumb, counts, author, caption, platform, sourceUrl } = meta;
+    const { thumb, counts, author, caption, platform, sourceUrl, videoKind } = meta;
     // NOT the user's BR/EN pick: Whisper never runs on this path, so the text is
     // whatever language TikTok wrote its own subtitle track in. null when the track
     // is neither of ours — and cleared rather than inherited, so an earlier Whisper
@@ -627,6 +627,10 @@ async function runTranscription(videoId, tabId, meta = {}) {
       language: captionLang,
       ...(thumb ? { thumb } : {}), ...(counts ? { counts } : {}), ...(author ? { author } : {}),
       ...(caption ? { caption } : {}), ...(platform ? { platform } : {}), ...(sourceUrl ? { sourceUrl } : {}),
+      // The link SHAPE the post used. Without it a Library card cannot tell a
+      // correct /watch/?v= (a real video post) from a legacy reel record — see
+      // fbCardLink in src/lib/shared/fbPermalink.js.
+      ...(videoKind ? { videoKind } : {}),
     }, { clear: ["language"] });
     try {
       if (isTiktokCdn(meta.captionUrl)) await ensureTiktokReferer();
@@ -692,7 +696,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     });
     return;
   }
-  const { thumb, counts, author, caption, platform, sourceUrl } = meta;
+  const { thumb, counts, author, caption, platform, sourceUrl, videoKind } = meta;
   await putTranscript(id, {
     status: "running",
     error: null,
@@ -703,6 +707,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     ...(caption ? { caption } : {}),
     ...(platform ? { platform } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
+    ...(videoKind ? { videoKind } : {}),
   });
   try {
     await ensureOffscreen();
@@ -1033,6 +1038,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         caption: msg.caption,
         platform: msg.platform,
         sourceUrl: msg.sourceUrl,
+        videoKind: msg.videoKind,
         language: msg.language,
         mediaUrl: msg.mediaUrl,
         captionUrl: msg.captionUrl, // caption-first (TikTok subtitleInfos webvtt)

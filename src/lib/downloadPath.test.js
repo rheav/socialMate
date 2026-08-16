@@ -158,3 +158,14 @@ describe("sanitizeFilenamePart", () => {
     expect(sanitizeFilenamePart("Astra Valé ✦")).toBe("Astra Valé ✦");
   });
 });
+
+// The Instagram spreadsheet export (0.77.0) needs a folder of its own — an
+// unknown kind silently drops the folder segment and the file lands loose in
+// social-mate/instagram/, mixed in with videos.
+describe("spreadsheet folder", () => {
+  it("files an xlsx under planilhas", () => {
+    expect(downloadPath("instagram", "sheet", "ig-tag_x-2026-08-15.xlsx")).toBe(
+      "social-mate/instagram/planilhas/ig-tag_x-2026-08-15.xlsx",
+    );
+  });
+});

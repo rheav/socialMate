@@ -33,8 +33,14 @@ const TARGETS = {
     "src/lib/shared/fbCommentParse.js",
   ],
   "src/content/fb/reels-capture.js": ["src/lib/shared/counts.js"],
+  "src/content/fb/feed-filter.js": [
+    "src/lib/shared/counts.js",
+    "src/lib/shared/fbCounts.js",
+    "src/lib/shared/feedFilter.js",
+  ],
   "src/content/transcription/inject.js": [
     "src/lib/shared/fbCounts.js",
+    "src/lib/shared/fbPermalink.js",
     "src/lib/shared/captureIdentity.js",
     "src/lib/shared/txLang.js",
     "src/lib/shared/railTarget.js",
@@ -45,11 +51,12 @@ const TARGETS = {
     "src/lib/shared/igSurface.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/filenames.js",
+    "src/lib/shared/igFilters.js",
     "src/lib/shared/igFormat.js",
     "src/lib/shared/overlayUi.js",
     "src/lib/shared/txLang.js",
   ],
-  "src/content/ig/main-world.js": ["src/lib/shared/igSurface.js"],
+  "src/content/ig/main-world.js": ["src/lib/shared/igFilters.js", "src/lib/shared/igEnrich.js", "src/lib/shared/igSurface.js"],
   "src/content/tt/tt-relay.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/savedEntry.js",

@@ -361,6 +361,51 @@ function igSurfaceKey(path) {
   // from src/lib/shared/igSurface.js — the MAIN world inlines the same copy so a
   // record's surface is decided where it was captured.
   const surfaceKey = igSurfaceKey;
+  // ER weights (item 5) are a user setting now, not a constant: what counts as
+  // "engagement" differs per niche, and the panel and this overlay must agree on
+  // it. igFormat's engagementRate takes them as an argument; this is the live copy.
+  // Starts null, NOT normalizeErWeights(null): this runs at script top, while the
+  // inlined ER_WEIGHTS const is declared further down — reading it here is a
+  // temporal dead zone and took the whole bridge down with it. engagementRate
+  // already falls back to the defaults when handed nothing.
+  //
+  // The storage wiring that fills it lives BELOW the inlined igFormat region
+  // (search: "ER weights: the storage wiring"), for exactly the same reason —
+  // ER_WEIGHTS_KEY is declared there too, and reading it up here threw a TDZ
+  // ReferenceError that the try/catch swallowed, so custom weights never reached
+  // this overlay at all.
+  let erWeights = null;
+  // The weights, flattened into the overlay's repaint signature. A tile is skipped
+  // when its signature is unchanged, and that signature is built from the RECORD —
+  // so changing the weights re-ran the render and repainted nothing, leaving the
+  // old ER on every tile already on screen (caught live, 2026-08-15).
+  let erSig = "d";
+  let igScrollRun = null;
+  let igScrollStop = false;
+
+  // Creator stats, keyed by user id. Collected passively by the MAIN world from
+  // payloads Instagram parses anyway, and joined onto every record by the same
+  // author — so a post carries how big the account behind it is.
+  const igUsers = new Map();
+  const igUsersByName = new Map();
+  function applyUserStats(rec) {
+    // By id when the post names its author, by @handle when it doesn't — the
+    // profile timeline's own items carry no `user` object at all.
+    const u =
+      (rec.userid && igUsers.get(rec.userid)) ||
+      (rec.username && igUsersByName.get(rec.username)) ||
+      null;
+    if (!u) return rec;
+    rec.user_follower_count = u.follower_count;
+    rec.user_following_count = u.following_count;
+    rec.user_media_count = u.media_count;
+    rec.user_total_clips_count = u.total_clips_count;
+    rec.user_biography = u.biography;
+    rec.user_external_url = u.external_url;
+    rec.user_is_business = u.is_business;
+    if (!rec.username && u.username) rec.username = u.username;
+    return rec;
+  }
 
   const onIgRelay = (e) => {
     if (e.source !== window || !e.data || !e.data.__fbwIg) return;
@@ -369,6 +414,21 @@ function igSurfaceKey(path) {
     for (const r of e.data.records || []) {
       // Stories/highlights route to their own store (no surface, no overlay).
       if (r.__kind === "reel" || r.__kind === "story") { ingestReel(r); continue; }
+      if (r.__kind === "user") {
+        const merged = { ...(igUsers.get(r.userid) || {}), ...r };
+        igUsers.set(r.userid, merged);
+        if (merged.username) igUsersByName.set(merged.username, merged);
+        // Backfill the posts already listed for this creator.
+        for (const rec of byId.values())
+          if (rec.userid === r.userid || (merged.username && rec.username === merged.username)) applyUserStats(rec);
+        // Both maps are capped, and the by-name one has to be capped SEPARATELY:
+        // it is keyed by username, so evicting the id map leaves its entry behind
+        // and the name index grows without a ceiling for the life of the tab.
+        while (igUsers.size > 400) igUsers.delete(igUsers.keys().next().value);
+        while (igUsersByName.size > 400)
+          igUsersByName.delete(igUsersByName.keys().next().value);
+        continue;
+      }
       // The record's OWN capture-time surface wins. A replay (after "Atualizar",
       // or the startup pokes) resends everything the MAIN world ever captured, so
       // using the live surface here relabels other profiles' posts as this one's.
@@ -389,6 +449,7 @@ function igSurfaceKey(path) {
         // Store the COALESCED record in both indexes. Storing the raw `r` here let
         // a later stats-less payload overwrite a rich one, so grabMeta() — which
         // reads igMedia — could lose the video URL that byId still had.
+        applyUserStats(prev);
         if (prev.code) igMedia[prev.code] = prev;
         if (prev.pk) igMedia[prev.pk] = prev;
       }
@@ -534,6 +595,33 @@ function igSurfaceKey(path) {
       sendResponse?.({ ok: true });
       return;
     }
+    // Paced harvest (item 6): scroll the grid so Instagram paginates, at a cadence
+    // that slows the longer it runs (see scrollGapMs). Collection was manual before
+    // this — the panel could only sort what the user had already scrolled past.
+    if (msg?.type === "FBW_IG_SCROLL") {
+      const rounds = Math.max(1, Math.min(60, Number(msg.rounds) || 10));
+      if (!igScrollRun) {
+        // Clear the stop flag HERE, not only when a run ends. The panel's finish
+        // estimate can outlast the page loop, so a Stop clicked in that window used
+        // to arm the flag with no run to stop — and the next Coletar then broke on
+        // its first iteration and collected nothing while the panel showed it
+        // running for the full 45s.
+        igScrollStop = false;
+        igScrollRun = (async () => {
+          for (let i = 0; i < rounds; i++) {
+            if (disabled || igScrollStop) break;
+            window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+            await new Promise((r) => setTimeout(r, scrollGapMs(i)));
+          }
+          igScrollRun = null;
+          igScrollStop = false;
+        })();
+      }
+      sendResponse?.({ ok: true, rounds });
+      return;
+    }
+    if (msg?.type === "FBW_IG_SCROLL_STOP") { igScrollStop = true; sendResponse?.({ ok: true }); return; }
+    if (msg?.type === "FBW_IG_TOP") { window.scrollTo({ top: 0, behavior: "smooth" }); sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true }); } // liveness ack (clears the panel's reload hint)
   });
 
@@ -569,6 +657,92 @@ function sanitizeFilenamePart(s) {
 }
 // >>> inline:end
 
+// <<< inline:src/lib/shared/igFilters.js
+// GENERATED by scripts/gen-inline.mjs — do not edit here.
+// Edit src/lib/shared/igFilters.js and run `npm run gen:inline`.
+// Panel-side knobs for the Instagram tool that the page ALSO needs — the overlay
+// draws the same ER the panel sorts by, and the auto-scroll runs in the page.
+// Canonical source, inlined into the capture scripts (see ./README.md).
+
+// ---- date range (item 4) ----
+// A hashtag search is mostly old posts; "what worked this month" is the question
+// worth asking, and sorting alone can't answer it.
+const DATE_RANGES = [
+  { value: "all", label: "Todo o período", days: null },
+  { value: "7d", label: "Últimos 7 dias", days: 7 },
+  { value: "14d", label: "Últimos 14 dias", days: 14 },
+  { value: "30d", label: "Últimos 30 dias", days: 30 },
+  { value: "90d", label: "Últimos 90 dias", days: 90 },
+  { value: "180d", label: "Últimos 180 dias", days: 180 },
+  { value: "1y", label: "Último ano", days: 365 },
+  { value: "2y", label: "Últimos 2 anos", days: 730 },
+];
+
+/**
+ * `takenAt` is IG's taken_at — UNIX SECONDS, like the payload gives it. A record
+ * whose date never arrived is KEPT: the grid payloads often omit taken_at, and
+ * hiding those posts would look like the filter had eaten real results.
+ */
+function withinDateRange(takenAt, range, nowSec = Math.floor(Date.now() / 1000)) {
+  const r = DATE_RANGES.find((x) => x.value === range);
+  if (!r || r.days == null) return true;
+  if (typeof takenAt !== "number" || !Number.isFinite(takenAt)) return true;
+  return takenAt >= nowSec - r.days * 86400;
+}
+
+// ---- ER weights (item 5) ----
+// Defaults match IG Sorter's, which is what these numbers were copied from: a
+// comment and a repost each cost far more intent than a like.
+const ER_WEIGHTS = { like: 1, comment: 4, repost: 4 };
+const ER_WEIGHTS_KEY = "fbw_ig_er_weights"; // storage.local — panel writes, page reads
+
+/** Per-field fallback: one junk value must not throw away the other two. */
+function normalizeErWeights(w) {
+  const out = { ...ER_WEIGHTS };
+  if (!w || typeof w !== "object") return out;
+  for (const k of Object.keys(ER_WEIGHTS)) {
+    const n = Number(w[k]);
+    if (Number.isFinite(n) && n >= 0) out[k] = n;
+  }
+  return out;
+}
+
+// ---- paced auto-scroll (item 6) ----
+// IG Sorter scrolls to the bottom on a timer: 3 s for the first five, 6 s for the
+// next five, then 10 s. Same shape here — a harvester that keeps a constant fast
+// cadence is the part that reads as automation.
+function scrollGapMs(i) {
+  if (i < 5) return 3000;
+  if (i < 10) return 6000;
+  return 10000;
+}
+
+// ---- React-props media resolution (item 8) ----
+// The full-screen /reels/ player renders no <a> around the video, so an
+// anchor-based overlay finds nothing there. Instagram's own props do carry an
+// identifier — a shortcode on some surfaces, a media id or the video's FB id on
+// others — so the overlay resolves whichever one is present and looks it up.
+const CODE_RE = /\/(?:reel|p|tv)\/([A-Za-z0-9_-]+)/;
+
+function readReactMediaRef(props) {
+  if (!props || typeof props !== "object") return null;
+  const code = props.post && props.post.code;
+  if (code) return { kind: "code", value: String(code) };
+  const mediaKeyId = props.media$key && props.media$key.id;
+  if (mediaKeyId) return { kind: "id", value: String(mediaKeyId) };
+  if (props.mediaId) return { kind: "id", value: String(props.mediaId) };
+  const fbid = (props.coreVideoPlayerMetaData && props.coreVideoPlayerMetaData.videoFBID) || props.videoFBID;
+  if (fbid) return { kind: "pk", value: String(fbid) };
+  if (props.postId) return { kind: "pk", value: String(props.postId) };
+  const postIdNested = props.post && props.post.id;
+  if (postIdNested) return { kind: "id", value: String(postIdNested) };
+  if (typeof props.href === "string") {
+    const m = props.href.match(CODE_RE);
+    if (m) return { kind: "code", value: m[1] };
+  }
+  return null;
+}
+// >>> inline:end
 // <<< inline:src/lib/shared/igFormat.js
 // GENERATED by scripts/gen-inline.mjs — do not edit here.
 // Edit src/lib/shared/igFormat.js and run `npm run gen:inline`.
@@ -588,15 +762,16 @@ function sanitizeFilenamePart(s) {
 // calls of our own). Reels-tab payloads carry views; posts-grid payloads often
 // don't. Missing reposts count as 0; missing views make ER null so ER-sorted lists
 // and labels degrade gracefully (null sorts last, shows "—").
+// The weights live in igFilters (one definition: the panel edits them, the page
+// reads them, and two inlined copies of the same const would not parse).
 
-const ER_WEIGHTS = { like: 1, comment: 4, repost: 4 };
 
-function engagementRate(rec) {
+function engagementRate(rec, weights) {
   const v = rec.play_count;
   if (!v || v <= 0) return null;
   // ER = (like×wLike + comment×wComment + repost×wRepost) / plays × 100 — the
   // exact shape IG Sorter uses. (IG exposes no save count, so saves are omitted.)
-  const w = ER_WEIGHTS;
+  const w = weights || ER_WEIGHTS;
   const eng =
     w.like * (rec.like_count || 0) +
     w.comment * (rec.comment_count || 0) +
@@ -655,6 +830,24 @@ function baseNameFor(rec, ext, idx) {
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
 }
 // >>> inline:end
+
+  // ER weights: the storage wiring. It has to sit AFTER the inlined region above,
+  // because ER_WEIGHTS_KEY is declared in it. Reading that key higher up threw a
+  // temporal-dead-zone ReferenceError, and the try/catch around it swallowed the
+  // throw — so the initial read AND the onChanged listener were both lost and this
+  // overlay silently kept the default weights however the panel was configured.
+  try {
+    const applyErWeights = (raw) => {
+      erWeights = normalizeErWeights(raw);
+      erSig = `${erWeights.like}/${erWeights.comment}/${erWeights.repost}`;
+      scheduleRender();
+    };
+    chrome.storage?.local?.get?.(ER_WEIGHTS_KEY, (r) => applyErWeights(r && r[ER_WEIGHTS_KEY]));
+    chrome.storage?.onChanged?.addListener?.((c, area) => {
+      if (area !== "local" || !c[ER_WEIGHTS_KEY]) return;
+      applyErWeights(c[ER_WEIGHTS_KEY].newValue);
+    });
+  } catch (_) {}
 
   // Shape an IG record for the shared Saved tab (VideoCard reads author/counts).
   // Library record shape — GENERATED from src/lib/shared/savedEntry.js so the
@@ -909,6 +1102,10 @@ const OVERLAY_ICONS = {
   zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   repost: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   cal: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+  // Follower count — how big the account behind the post is.
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  // The sound a reel rides, so a trend can be traced to its audio.
+  audio: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
 };
 
 // 15px is the tile-action button's glyph; the floating rails pass their own size.
@@ -973,6 +1170,20 @@ function flashOverlayBtn(btn, state) {
       .sw-ovl-row{display:flex;align-items:center;gap:6px;font-size:${OVL.fontRow}px;font-weight:700;line-height:1;white-space:nowrap}
       .sw-ovl-row.primary{font-size:${OVL.fontPrimary}px;font-weight:800}
       .sw-ovl svg{flex:none}
+      /* The reel/post PLAYER is a tall 9:16 box: pinned to the bottom the rail
+         collides with Instagram's mute button and reads as part of the caption.
+         Sat around the lower-middle it stays over the video and clear of both. */
+      /* The reel/post PLAYER paints a full-size role="button" play/pause layer
+         OVER everything inside its own subtree, so a rail parented in there loses
+         every real click to Instagram (verified with elementsFromPoint: our button
+         came SIXTH in the hit stack) — the tap toggled playback instead of running
+         the action. No z-index inside that subtree can win, so the player's rails
+         live in this layer instead: a fixed, top-level box on <html>, outside
+         Instagram's React root, positioned over the player each pass. Same shape
+         the Facebook overlay uses, and for the same reason. */
+      #sw-ig-layer{position:fixed;left:0;top:0;width:0;height:0;z-index:2147483000;pointer-events:none}
+      #sw-ig-layer .sw-ovl,#sw-ig-layer .sw-acts{position:fixed}
+      #sw-ig-layer .sw-acts{pointer-events:auto}
       .sw-acts{position:absolute;top:7px;left:7px;display:flex;flex-direction:column;gap:5px;z-index:6}
       .sw-actbtn{display:grid;place-items:center;width:${OVL.btnSize}px;height:${OVL.btnSize}px;border-radius:8px;cursor:pointer;color:#fff;
         background:rgba(0,0,0,${OVL.bgOpacity});
@@ -1007,11 +1218,15 @@ function flashOverlayBtn(btn, state) {
     rows.push(`<div class="sw-ovl-row">${overlayIcon("msg", OVL.iconRow)}<span>${fmtCount(rec.comment_count)}</span></div>`);
     if (rec.repost != null)
       rows.push(`<div class="sw-ovl-row">${overlayIcon("repost", OVL.iconRow)}<span>${fmtCount(rec.repost)}</span></div>`);
-    const e = fmtER(engagementRate(rec));
+    const e = fmtER(engagementRate(rec, erWeights));
     if (e != null)
       rows.push(`<div class="sw-ovl-row">${overlayIcon("zap", OVL.iconRow)}<span>${e}</span></div>`);
     const d = fmtDate(rec.taken_at) || dateFromPk(rec.pk);
     if (d) rows.push(`<div class="sw-ovl-row">${overlayIcon("cal", OVL.iconRow)}<span>${d}</span></div>`);
+    // How big the account behind the post is (item 2) — the number that turns
+    // "this did well" into "this did well FOR a page that size".
+    if (rec.user_follower_count != null)
+      rows.push(`<div class="sw-ovl-row">${overlayIcon("user", OVL.iconRow)}<span>${fmtCount(rec.user_follower_count)}</span></div>`);
     el.innerHTML = rows.join("");
     return el;
   }
@@ -1055,6 +1270,107 @@ function flashOverlayBtn(btn, state) {
     if (!res || res.ok === false) throw new Error(res?.error || "falha ao salvar");
     return res.saved;
   }
+  // The media a stamped player box refers to. The MAIN world writes the id (it is
+  // the only world that can read Instagram's React props — see main-world.js);
+  // this side just reads the attribute, because DOM attributes cross the world
+  // boundary and JS properties do not. That was the whole reason the reel player
+  // had no rail: the resolution used to live here, where the props are invisible.
+  function recFromStamp(host) {
+    const value = host.getAttribute("data-sw-media");
+    if (!value) return null;
+    const direct = byId.get(value);
+    if (direct) return direct;
+    for (const rec of byId.values())
+      if (String(rec.pk) === value || String(rec.code) === value || String(rec.id) === value) return rec;
+    return null;
+  }
+  // Same Whisper path as the stories rail and the panel: the background gets the
+  // direct MP4 URL and the result lands in Biblioteca → Transcrições.
+  async function ovlTranscribe(rec, language) {
+    if (!rec || !rec.video) throw new Error("sem vídeo para transcrever");
+    await chrome.runtime.sendMessage({
+      type: "FBW_TRANSCRIBE",
+      videoId: rec.code || rec.pk,
+      mediaUrl: rec.video,
+      platform: "instagram",
+      language: language ? normTxLang(language) : await getTxLang(),
+      caption: rec.caption || null,
+      author: {
+        name: rec.username || rec.full_name || "desconhecido",
+        url: rec.username ? `/${rec.username}/` : null,
+      },
+      thumb: rec.thumb || rec.image || null,
+      counts: { like: rec.like_count ?? null, comment: rec.comment_count ?? null, views: rec.play_count ?? null },
+    });
+    return true;
+  }
+  // Instagram's reel player and story viewer toggle playback on the POINTER
+  // sequence, not on click — so a button that only swallows `click` still pauses
+  // the video the moment you press it (reported on the reel rail: every tap on
+  // save/download/transcribe paused the reel).
+  //
+  // stopPropagation, not stopImmediatePropagation: listeners on the button itself
+  // — the transcribe button's own long-press language menu — must still run. Only
+  // the bubble to Instagram's handler is cut.
+  // host element -> its rails in the top-level layer
+  const igLayerRails = new Map();
+  function ensureIgLayer() {
+    let layer = document.getElementById("sw-ig-layer");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = "sw-ig-layer";
+      document.documentElement.appendChild(layer);
+    }
+    return layer;
+  }
+  // Rails are POSITIONED over the player rather than parented to it, so they
+  // survive Instagram remounting the player subtree and never enter its stacking
+  // context. Off-screen or unmounted hosts hide their rails instead of moving them.
+  function placeIgRails(host, rails) {
+    const r = host.getBoundingClientRect();
+    if (!host.isConnected || r.width < 100 || r.bottom < 0 || r.top > window.innerHeight) {
+      rails.ovl.style.display = "none";
+      rails.acts.style.display = "none";
+      return;
+    }
+    rails.ovl.style.display = "";
+    rails.acts.style.display = "";
+    rails.acts.style.left = Math.round(r.left + 8) + "px";
+    rails.acts.style.top = Math.round(r.top + 8) + "px";
+    // Lower-middle, right-aligned: clear of Instagram's mute button at the bottom
+    // and of the caption, still over the video.
+    rails.ovl.style.left = "auto";
+    rails.ovl.style.right = Math.round(window.innerWidth - r.right + 8) + "px";
+    rails.ovl.style.top = Math.round(r.top + r.height * 0.6) + "px";
+    rails.ovl.style.bottom = "auto";
+  }
+  function syncIgLayer() {
+    for (const [host, rails] of igLayerRails) {
+      if (!host.isConnected) {
+        rails.ovl.remove();
+        rails.acts.remove();
+        igLayerRails.delete(host);
+        continue;
+      }
+      placeIgRails(host, rails);
+    }
+  }
+  let igLayerQueued = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!igLayerRails.size || igLayerQueued) return;
+      igLayerQueued = true;
+      requestAnimationFrame(() => { igLayerQueued = false; syncIgLayer(); });
+    },
+    { passive: true, capture: true },
+  );
+  window.addEventListener("resize", syncIgLayer, { passive: true });
+
+  function swallowPointer(btn) {
+    const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+    for (const ev of ["pointerdown", "mousedown", "pointerup", "mouseup"]) btn.addEventListener(ev, stop);
+  }
   function buildActs(rec) {
     const wrap = document.createElement("div");
     wrap.className = "sw-acts";
@@ -1064,6 +1380,7 @@ function flashOverlayBtn(btn, state) {
       b.type = "button";
       b.title = title;
       b.innerHTML = overlayIcon(icon, 15);
+      swallowPointer(b);
       b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(b); });
       return b;
     };
@@ -1077,6 +1394,21 @@ function flashOverlayBtn(btn, state) {
     wrap.appendChild(saveBtn);
     wrap.appendChild(mk("dl", "Baixar mídia", (b) => ovlRun(b, () => ovlDownload(rec))));
     wrap.appendChild(mk("img", "Baixar miniatura", (b) => ovlRun(b, () => ovlThumb(rec))));
+    // Transcribe, for videos only — the stories rail has had this; the reel/post
+    // rail never did, so transcribing a reel meant going through the panel.
+    if (rec.video) {
+      // Two taps, like the stories rail and the Facebook rail: the BR/EN menu
+      // first, then the job in the language just picked. The badge would be a lie
+      // otherwise — it shows a language the button never lets you change.
+      const txBtn = mk("tx", "Transcrever este reel", (b) =>
+        openTxLangMenu(b, async (lang) => {
+          await ovlTranscribe(rec, lang);
+          flashOverlayBtn(b, "ok");
+        }),
+      );
+      enableTxBadge(txBtn);
+      wrap.appendChild(txBtn);
+    }
     return wrap;
   }
   // Perf-critical: IG mutates the DOM constantly (virtualized feeds), so this
@@ -1089,6 +1421,7 @@ function flashOverlayBtn(btn, state) {
       if (document.querySelector(".sw-ovl, .sw-acts")) {
         ovlObserver.disconnect();
         document.querySelectorAll(".sw-ovl, .sw-acts").forEach((e) => e.remove());
+        igLayerRails.clear(); // the layer's rails were in that sweep
         observeBody();
       }
       return;
@@ -1097,6 +1430,7 @@ function flashOverlayBtn(btn, state) {
     // data changed — late-arriving full-stats fields (views/reposts) and saved
     // state must update already-annotated tiles.
     const toBuild = [];
+    const playerBuild = []; // rails that go in the top-level layer, not on the tile
     for (const a of document.querySelectorAll('a[href*="/reel/"], a[href*="/p/"]')) {
       const code = tileCode(a);
       if (!code) continue;
@@ -1107,10 +1441,50 @@ function flashOverlayBtn(btn, state) {
       if (rec.like_count == null && rec.comment_count == null && rec.play_count == null) continue;
       const sig = [
         rec.play_count, rec.like_count, rec.comment_count, rec.repost,
-        rec.taken_at, savedSet.has(code) ? 1 : 0,
+        rec.taken_at, savedSet.has(code) ? 1 : 0, erSig,
       ].join("|");
       if (a.dataset.swCode === code && a.dataset.swSig === sig && a.querySelector(":scope > .sw-ovl")) continue;
       toBuild.push([a, code, rec, sig]);
+    }
+    // The full-screen /reels/ player wraps NO <a> around the video, so the scan
+    // above finds nothing there and the overlay simply never appeared on that
+    // surface. Instagram's own React props do name the media — a shortcode on some
+    // surfaces, a media id or the video's FB id on others — so resolve whichever is
+    // present and hang the rail on the player itself.
+    if (/^\/(reels?|p)\//.test(location.pathname)) {
+      for (const host of document.querySelectorAll("[data-sw-media]")) {
+        const r = host.getBoundingClientRect();
+        if (r.width < 200 || r.height < 200) continue;
+        // NO early "already has a rail" skip here: the views arrive a second
+        // later, from the per-media enrichment, and a rail built before that
+        // would keep showing likes/comments/date with no views and no ER —
+        // forever. The signature check below is what decides a rebuild.
+        const rec = recFromStamp(host);
+        if (!rec) continue;
+        if (rec.like_count == null && rec.comment_count == null && rec.play_count == null) continue;
+        const code = rec.code || rec.pk;
+        // Same signature as a tile, so the rail repaints when the enrichment
+        // fetch fills the views in a second later.
+        const sig = [erSig, rec.play_count, rec.like_count, rec.comment_count, rec.repost, rec.taken_at,
+                     savedSet.has(code) ? 1 : 0].join("|");
+        const existing = igLayerRails.get(host);
+        if (existing && existing.sig === sig) { placeIgRails(host, existing); continue; }
+        playerBuild.push([host, code, rec, sig]);
+      }
+    }
+    if (playerBuild.length) {
+      ensureOvlStyle();
+      const layer = ensureIgLayer();
+      for (const [host, code, rec, sig] of playerBuild) {
+        const prev = igLayerRails.get(host);
+        if (prev) { prev.ovl.remove(); prev.acts.remove(); }
+        const rails = { ovl: buildOvl(rec, code), acts: buildActs(rec), sig };
+        layer.appendChild(rails.ovl);
+        layer.appendChild(rails.acts);
+        igLayerRails.set(host, rails);
+        placeIgRails(host, rails);
+      }
+      syncIgLayer(); // drop rails whose player has since been unmounted
     }
     if (!toBuild.length) return;
     ensureOvlStyle();
@@ -1260,6 +1634,7 @@ function flashOverlayBtn(btn, state) {
       b.type = "button";
       b.title = title;
       b.innerHTML = overlayIcon(icon, 19);
+      swallowPointer(b);
       b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); fn(b); });
       return b;
     };

@@ -15,15 +15,17 @@
 // don't. Missing reposts count as 0; missing views make ER null so ER-sorted lists
 // and labels degrade gracefully (null sorts last, shows "—").
 import { sanitizeFilenamePart } from "./filenames.js";
+// The weights live in igFilters (one definition: the panel edits them, the page
+// reads them, and two inlined copies of the same const would not parse).
+import { ER_WEIGHTS } from "./igFilters.js";
 
-export const ER_WEIGHTS = { like: 1, comment: 4, repost: 4 };
 
-export function engagementRate(rec) {
+export function engagementRate(rec, weights) {
   const v = rec.play_count;
   if (!v || v <= 0) return null;
   // ER = (like×wLike + comment×wComment + repost×wRepost) / plays × 100 — the
   // exact shape IG Sorter uses. (IG exposes no save count, so saves are omitted.)
-  const w = ER_WEIGHTS;
+  const w = weights || ER_WEIGHTS;
   const eng =
     w.like * (rec.like_count || 0) +
     w.comment * (rec.comment_count || 0) +

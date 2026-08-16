@@ -1,5 +1,7 @@
 // Pure, DOM-free helpers for the IG Sort tool (panel side). Unit-tested.
 
+import { ER_WEIGHTS, ER_WEIGHTS_KEY } from "./shared/igFilters.js";
+export { ER_WEIGHTS, ER_WEIGHTS_KEY };
 import { downloadPath, kindFromExt } from "./downloadPath.js";
 import { fmtCount } from "./shared/counts.js";
 import { sanitizeFilenamePart } from "./shared/filenames.js";
@@ -7,7 +9,6 @@ import { sanitizeFilenamePart } from "./shared/filenames.js";
 // inlined into src/content/ig/bridge.js by scripts/gen-inline.mjs. bridge.js used
 // to hand-copy all of it, epoch literal included.
 import {
-  ER_WEIGHTS,
   engagementRate,
   fmtDate,
   dateFromPk,
@@ -16,7 +17,7 @@ import {
   baseNameFor,
 } from "./shared/igFormat.js";
 export { fmtCount };
-export { ER_WEIGHTS, engagementRate, fmtDate, dateFromPk, fmtER, extFromUrl, baseNameFor };
+export { engagementRate, fmtDate, dateFromPk, fmtER, extFromUrl, baseNameFor };
 
 const METRIC = {
   likes: (r) => r.like_count,
