@@ -25,6 +25,7 @@ import {
   Square,
   Sheet,
   Users,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -38,6 +39,7 @@ import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
+import MetricLegend from "@/components/ui/MetricLegend";
 import {
   sortRecords,
   recordToCard,
@@ -55,6 +57,7 @@ import {
   normalizeTtErWeights,
   ttViewsPerFollower,
 } from "@/lib/ttMedia";
+import { reachTier } from "@/lib/shared/ttFormat.js";
 // Not "igFilters": the date window and the scroll cadence are platform-neutral —
 // TikTok's createTime is the same unix-seconds stamp Instagram's taken_at is.
 import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
@@ -526,6 +529,8 @@ export default function TtSortTool() {
         </div>
       </details>
 
+      <MetricLegend weights={erW} />
+
       {/* flex-wrap, not truncate: when the tally and the toggle can't share a
           line the toggle drops to its own line instead of losing words. */}
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
@@ -555,6 +560,7 @@ export default function TtSortTool() {
             const st = statusOf(statusKey(c.id));
             const stThumb = statusOf(statusKey(c.id, "thumb"));
             const er = engagementRate(rec, erW);
+            const tier = reachTier(c.viewsPerFollower);
             return (
               <div
                 key={c.id}
@@ -627,9 +633,24 @@ export default function TtSortTool() {
 
                 {/* stat rail — right side, blue glow */}
                 <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
+                  {/* REACH LEADS, and it is graded. Views say how big the number
+                      is; reach says whether the FORMAT worked, independent of how
+                      big the account already was — the question you are scanning a
+                      hashtag grid to answer. The colour makes outliers findable
+                      without reading a figure. */}
+                  {tier && (
+                    <div
+                      className="flex items-center gap-1 text-[15px] font-extrabold leading-none"
+                      style={{ color: tier.color, textShadow: `0 0 10px ${tier.color}66` }}
+                      title={`${tier.label} — ${fmtRatio(c.viewsPerFollower)} o próprio público (views ÷ seguidores)`}
+                    >
+                      <TrendingUp className="size-3.5" />
+                      {fmtRatio(c.viewsPerFollower)}
+                    </div>
+                  )}
                   {c.views != null && (
-                    <div className="flex items-center gap-1 text-[14px] font-extrabold leading-none">
-                      <Eye className="size-3.5" />
+                    <div className={"flex items-center gap-1 leading-none " + (tier ? "text-[11.5px] font-bold" : "text-[14px] font-extrabold")}>
+                      <Eye className={tier ? "size-3" : "size-3.5"} />
                       {fmtCount(c.views)}
                     </div>
                   )}
@@ -660,12 +681,16 @@ export default function TtSortTool() {
                     </div>
                   )}
                   {/* Creator size, and how far past that audience the video went.
-                      Free on TikTok — authorStats rides along on every list item. */}
+                      Free on TikTok — authorStats rides along on every list item.
+                      TWO rows, not one: behind a single person icon "3.4K · 352×"
+                      read as if both numbers were followers. */}
                   {c.followers != null && (
-                    <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                    <div
+                      className="flex items-center gap-1 text-[11.5px] font-bold leading-none"
+                      title={`${fmtCount(c.followers)} seguidores`}
+                    >
                       <Users className="size-3" />
                       {fmtCount(c.followers)}
-                      {c.viewsPerFollower != null ? ` · ${fmtRatio(c.viewsPerFollower)}` : ""}
                     </div>
                   )}
                   {c.date && (

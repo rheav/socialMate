@@ -748,6 +748,40 @@ function ttPermalink(rec) {
 function ttErLabel(rec, weights) {
   return fmtER(ttEngagementRate(rec, weights));
 }
+
+// ---- reach grade ----------------------------------------------------------
+// Views-per-follower is the one figure on the rail that says whether the FORMAT
+// worked, independent of how big the account already was — so it leads the rail
+// and it is graded, rather than being one more number in a stack of eight.
+//
+// The ladder is a heat ramp, not a pass/fail: every tier above `baseline` is a
+// good outcome, just a progressively rarer one. Red is deliberately absent —
+// there is no failure state here, and red would read as an error badge.
+//
+// Thresholds are round numbers on purpose. They are a reading aid, not a
+// measurement: 1× is the only one that means something exact (the video reached
+// exactly as many views as the account has followers, i.e. it did not leave the
+// follower base), and the rest are the magnitudes people actually talk in.
+const REACH_TIERS = [
+  { key: "inside", min: 0, color: "#94a3b8", label: "Ficou na base de seguidores" },
+  { key: "baseline", min: 1, color: "#7dd3fc", label: "Alcance normal" },
+  { key: "working", min: 3, color: "#4ade80", label: "O formato funcionou" },
+  { key: "strong", min: 10, color: "#fbbf24", label: "Alcance forte" },
+  { key: "breakout", min: 50, color: "#fb923c", label: "Estourou" },
+];
+
+/** The tier a views-per-follower figure falls in, or null when it is unknown. */
+function reachTier(vpf) {
+  if (vpf == null || !Number.isFinite(vpf)) return null;
+  let out = REACH_TIERS[0];
+  for (const t of REACH_TIERS) if (vpf >= t.min) out = t;
+  return out;
+}
+
+/** Convenience: straight from a record to its tier. */
+function recordReachTier(rec) {
+  return reachTier(ttViewsPerFollower(rec));
+}
 // >>> inline:end
 
   // The surface a record belongs to. Live value only — a record's OWN
@@ -1028,6 +1062,10 @@ const OVERLAY_ICONS = {
   cal: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
   // Follower count — how big the account behind the post is.
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  // Reach multiplier: views divided by the creator's followers. A separate glyph
+  // from `user` on purpose — the two used to share a row behind the follower
+  // icon, which said "followers" over a number that is not a follower count.
+  trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   // The sound a reel rides, so a trend can be traced to its audio.
   audio: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
 };
@@ -1116,6 +1154,9 @@ function flashOverlayBtn(btn, state) {
         text-shadow:0 1px 2px rgba(0,0,0,.45)}
       .sw-ttovl-row{display:flex;align-items:center;gap:6px;font-size:${TT_OVL.fontRow}px;font-weight:700;line-height:1;white-space:nowrap}
       .sw-ttovl-row.primary{font-size:${TT_OVL.fontPrimary}px;font-weight:800}
+      /* The reach grade carries its colour inline (from REACH_TIERS); the glow is
+         what makes a breakout findable while scrolling past a wall of tiles. */
+      .sw-ttovl-row.sw-ttovl-reach{text-shadow:0 0 10px currentColor,0 1px 2px rgba(0,0,0,.55)}
       .sw-ttovl.compact{padding:5px 7px;gap:3px;border-radius:9px}
       .sw-ttovl.compact .sw-ttovl-row{font-size:11px}
       .sw-ttovl.compact .sw-ttovl-row.primary{font-size:13px}
@@ -1586,9 +1627,20 @@ function buildSavedEntry({
       el.innerHTML = rows.join("");
       return el;
     }
+    // REACH LEADS. Views tell you how big a number is; reach tells you whether
+    // the FORMAT worked, independent of how big the account already was — which
+    // is the question you are scanning a hashtag grid to answer in the first
+    // place. Graded on a heat ramp (REACH_TIERS) so the outliers are findable
+    // without reading a single figure.
+    const vpf = ttViewsPerFollower(rec);
+    const tier = reachTier(vpf);
+    if (tier)
+      rows.push(
+        `<div class="sw-ttovl-row primary sw-ttovl-reach" style="color:${tier.color}" title="${tier.label} — ${fmtRatio(vpf)} o próprio público (views ÷ seguidores)">${overlayIcon("trend", TT_OVL.iconPrimary)}<span>${fmtRatio(vpf)}</span></div>`,
+      );
     if (hasViews)
-      rows.push(`<div class="sw-ttovl-row primary">${overlayIcon("eye", TT_OVL.iconPrimary)}<span>${fmtCount(rec.play_count)}</span></div>`);
-    rows.push(`<div class="sw-ttovl-row${hasViews ? "" : " primary"}">${overlayIcon("heart", TT_OVL.iconRow)}<span>${fmtCount(rec.digg_count)}</span></div>`);
+      rows.push(`<div class="sw-ttovl-row${tier ? "" : " primary"}">${overlayIcon("eye", tier ? TT_OVL.iconRow : TT_OVL.iconPrimary)}<span>${fmtCount(rec.play_count)}</span></div>`);
+    rows.push(`<div class="sw-ttovl-row${hasViews || tier ? "" : " primary"}">${overlayIcon("heart", TT_OVL.iconRow)}<span>${fmtCount(rec.digg_count)}</span></div>`);
     rows.push(`<div class="sw-ttovl-row">${overlayIcon("msg", TT_OVL.iconRow)}<span>${fmtCount(rec.comment_count)}</span></div>`);
     // Shares and saves are TikTok's own: Instagram exposes neither, which is why
     // the ER weights differ and why these two rows have no IG counterpart.
@@ -1599,14 +1651,11 @@ function buildSavedEntry({
     const er = ttErLabel(rec, ttErWeights);
     if (er != null)
       rows.push(`<div class="sw-ttovl-row">${overlayIcon("zap", TT_OVL.iconRow)}<span>${er}</span></div>`);
-    // How big the account is, and how far past it the video travelled — the pair
-    // that turns "this did well" into "this did well FOR an account this size".
-    if (rec.user_follower_count != null) {
-      const vpf = fmtRatio(ttViewsPerFollower(rec));
-      rows.push(
-        `<div class="sw-ttovl-row">${overlayIcon("user", TT_OVL.iconRow)}<span>${fmtCount(rec.user_follower_count)}${vpf ? " · " + vpf : ""}</span></div>`,
-      );
-    }
+    // How big the account is. The multiple it reached is the graded headline at
+    // the top of the rail; these two used to share one row behind the follower
+    // icon, where "3.4K · 352×" read as if both numbers were followers.
+    if (rec.user_follower_count != null)
+      rows.push(`<div class="sw-ttovl-row">${overlayIcon("user", TT_OVL.iconRow)}<span>${fmtCount(rec.user_follower_count)}</span></div>`);
     const d = fmtDate(rec.create_time);
     if (d) rows.push(`<div class="sw-ttovl-row">${overlayIcon("cal", TT_OVL.iconRow)}<span>${d}</span></div>`);
     el.innerHTML = rows.join("");

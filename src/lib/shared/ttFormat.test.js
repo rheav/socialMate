@@ -7,6 +7,9 @@ import {
   fmtRatio,
   ttPermalink,
   ttErLabel,
+  REACH_TIERS,
+  reachTier,
+  recordReachTier,
 } from "./ttFormat.js";
 
 const REC = {
@@ -85,5 +88,41 @@ describe("ttErLabel", () => {
   it("is the string both the overlay and the panel print", () => {
     expect(ttErLabel(REC)).toBe("48.8%");
     expect(ttErLabel({ play_count: null })).toBe(null);
+  });
+});
+
+describe("reachTier", () => {
+  // The ladder is a reading aid: 1x is the only exact boundary (the video
+  // reached exactly its own follower count, so it never left the base).
+  it("grades a video by how far past its own audience it went", () => {
+    expect(reachTier(0.4).key).toBe("inside");
+    expect(reachTier(1).key).toBe("baseline");
+    expect(reachTier(2.7).key).toBe("baseline");
+    expect(reachTier(3).key).toBe("working");
+    expect(reachTier(9.9).key).toBe("working");
+    expect(reachTier(10).key).toBe("strong");
+    expect(reachTier(49).key).toBe("strong");
+    expect(reachTier(50).key).toBe("breakout");
+    expect(reachTier(352).key).toBe("breakout");
+  });
+
+  it("has no opinion when the figure is unknown", () => {
+    expect(reachTier(null)).toBe(null);
+    expect(reachTier(undefined)).toBe(null);
+    expect(reachTier(NaN)).toBe(null);
+  });
+
+  it("gives every tier a colour and a plain-language label", () => {
+    for (const t of REACH_TIERS) {
+      expect(t.color).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(t.label.length).toBeGreaterThan(3);
+    }
+    // No red: there is no failure state here, and red would read as an error.
+    expect(REACH_TIERS.map((t) => t.color)).not.toContain("#ef4444");
+  });
+
+  it("goes straight from a record to its tier", () => {
+    expect(recordReachTier(REC).key).toBe("baseline"); // 84.6k / 31.4k = 2.7x
+    expect(recordReachTier({ play_count: 1200000, user_follower_count: 3400 }).key).toBe("breakout");
   });
 });

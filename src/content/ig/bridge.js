@@ -1204,6 +1204,10 @@ const OVERLAY_ICONS = {
   cal: '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
   // Follower count — how big the account behind the post is.
   user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  // Reach multiplier: views divided by the creator's followers. A separate glyph
+  // from `user` on purpose — the two used to share a row behind the follower
+  // icon, which said "followers" over a number that is not a follower count.
+  trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   // The sound a reel rides, so a trend can be traced to its audio.
   audio: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
 };

@@ -18,6 +18,46 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.82.0] — 2026-08-17
+
+### Adicionado
+- **Alcance (views por seguidor) virou o primeiro número do card**, com nota por
+  cor. Views dizem o tamanho do número; alcance diz se o FORMATO funcionou,
+  independente do tamanho da conta — que é a pergunta que se faz varrendo uma
+  grade de hashtag. A escala:
+
+  | | | |
+  |---|---|---|
+  | cinza | `< 1×` | ficou na base de seguidores |
+  | azul | `1–3×` | alcance normal |
+  | verde | `3–10×` | o formato funcionou |
+  | âmbar | `10–50×` | alcance forte |
+  | laranja | `50×+` | estourou |
+
+  Medido ao vivo em `#cardreading` (24 vídeos): 5 / 6 / 10 / 2 / 1 — a escala
+  separa de verdade, não empilha tudo num balde só. Um `352×` laranja com brilho
+  salta da grade; um `0.2×` cinza some. Sem vermelho de propósito: aqui não
+  existe estado de erro, e vermelho leria como alerta.
+- **Legenda "O que significam os números"** no painel: cada ícone do trilho
+  explicado, a fórmula do TE com os PESOS ATUAIS (não uma genérica que envelhece)
+  e a escala de alcance — desenhada a partir do mesmo `REACH_TIERS` de que os
+  cards se pintam, então a legenda não tem como descrever uma escala que os
+  cards não usam.
+
+### Corrigido
+- **`3.4K · 352×` dividido em duas linhas.** Os dois números dividiam o ícone de
+  seguidores, então lia-se como se ambos fossem seguidores. Agora seguidores tem
+  o ícone de pessoa e o alcance tem o seu (`trending-up`).
+- **A barra de ferramentas do TikTok cabia em uma linha só e não cabia.** Oito
+  controles espremiam os dois selects até "P…" e "To…" — os selects são os
+  membros flexíveis da linha, então a largura de cada botão saía deles. Selects
+  ganharam uma linha própria; os botões, a seguinte.
+- **Pesos do TE recolhidos** num `<details>` com os valores no resumo
+  (`1·4·4·2`). É ajuste de uma vez por nicho, não controle de sessão, e aberto
+  custava duas linhas logo acima da grade.
+
+---
+
 ## [0.81.0] — 2026-08-17
 
 ### Corrigido

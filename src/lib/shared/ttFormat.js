@@ -63,3 +63,37 @@ export function ttPermalink(rec) {
 export function ttErLabel(rec, weights) {
   return fmtER(ttEngagementRate(rec, weights));
 }
+
+// ---- reach grade ----------------------------------------------------------
+// Views-per-follower is the one figure on the rail that says whether the FORMAT
+// worked, independent of how big the account already was — so it leads the rail
+// and it is graded, rather than being one more number in a stack of eight.
+//
+// The ladder is a heat ramp, not a pass/fail: every tier above `baseline` is a
+// good outcome, just a progressively rarer one. Red is deliberately absent —
+// there is no failure state here, and red would read as an error badge.
+//
+// Thresholds are round numbers on purpose. They are a reading aid, not a
+// measurement: 1× is the only one that means something exact (the video reached
+// exactly as many views as the account has followers, i.e. it did not leave the
+// follower base), and the rest are the magnitudes people actually talk in.
+export const REACH_TIERS = [
+  { key: "inside", min: 0, color: "#94a3b8", label: "Ficou na base de seguidores" },
+  { key: "baseline", min: 1, color: "#7dd3fc", label: "Alcance normal" },
+  { key: "working", min: 3, color: "#4ade80", label: "O formato funcionou" },
+  { key: "strong", min: 10, color: "#fbbf24", label: "Alcance forte" },
+  { key: "breakout", min: 50, color: "#fb923c", label: "Estourou" },
+];
+
+/** The tier a views-per-follower figure falls in, or null when it is unknown. */
+export function reachTier(vpf) {
+  if (vpf == null || !Number.isFinite(vpf)) return null;
+  let out = REACH_TIERS[0];
+  for (const t of REACH_TIERS) if (vpf >= t.min) out = t;
+  return out;
+}
+
+/** Convenience: straight from a record to its tier. */
+export function recordReachTier(rec) {
+  return reachTier(ttViewsPerFollower(rec));
+}
