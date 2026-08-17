@@ -40,7 +40,7 @@ function dl(platform, name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
   chrome.downloads.download({
     url,
-    filename: downloadPath(platform || "facebook", "transcript", name),
+    filename: downloadPath("transcript", name),
     saveAs: false,
     conflictAction: "uniquify",
   });

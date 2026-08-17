@@ -248,7 +248,7 @@ export function extFromUrl(url, kind) {
 // so an empty owner degrades to "perfil" rather than an empty segment.
 // Bare file name, no folder. Kept separate from the path because the bulk ZIP uses
 // it for its ENTRY names: a path there would make every extracted archive rebuild a
-// social-mate/facebook/fotos/ tree inside whatever folder you unzip into.
+// social-mate/imagens/ tree inside whatever folder you unzip into.
 export function baseNameFor(rec, ext, idx) {
   const owner = sanitizeFilenamePart(rec.owner || rec.ownerKey) || "perfil";
   const base = `fb-${owner}-${rec.fbid || Date.now()}`;
@@ -256,7 +256,7 @@ export function baseNameFor(rec, ext, idx) {
 }
 
 export function filenameFor(rec, ext, idx) {
-  return downloadPath("facebook", kindFromExt(ext), baseNameFor(rec, ext, idx));
+  return downloadPath(kindFromExt(ext), baseNameFor(rec, ext, idx));
 }
 
 // "2026-07-25_16-40-12" — filesystem-safe, sorts chronologically.
@@ -266,10 +266,11 @@ export function stampFor(date) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
-// The bulk ZIP holds photos, so it sits with them under facebook/fotos rather than
+// The bulk ZIP holds photos but is itself data, so DATA_EXTS files it under dados/
+// rather than
 // in a folder of its own — one place to look for "the photos I pulled off a page".
 export function zipFilename(owner, date) {
-  return downloadPath("facebook", "image", `fb-${sanitizeFilenamePart(owner) || "perfil"}-${stampFor(date)}.zip`);
+  return downloadPath("image", `fb-${sanitizeFilenamePart(owner) || "perfil"}-${stampFor(date)}.zip`);
 }
 
 // Human size for the UI ("2,4 MB"). pt-BR decimal comma, since every label in

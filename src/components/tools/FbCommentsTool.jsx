@@ -279,7 +279,7 @@ export default function FbCommentsTool() {
           className="h-8 basis-0 grow"
           onClick={() =>
             jsonDownload(
-              downloadPath("facebook", "comments", `fb-comments-${active.post_id}.json`),
+              downloadPath("comments", `fb-comments-${active.post_id}.json`),
               active,
             )
           }

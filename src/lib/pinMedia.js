@@ -316,7 +316,7 @@ export function baseNameFor(rec, ext, idx) {
 // A pin is an image OR a video (and a carousel can mix them), so the sub-folder
 // comes from the resolved extension of THIS item, not from the record.
 export function filenameFor(rec, ext, idx) {
-  return downloadPath("pinterest", kindFromExt(ext), baseNameFor(rec, ext, idx));
+  return downloadPath(kindFromExt(ext), baseNameFor(rec, ext, idx));
 }
 
 export function extFromUrl(url, kind) {

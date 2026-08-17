@@ -1633,7 +1633,7 @@ function boundMediaIsStale({ floating, connected, railRect, boundRect }, slack =
     const author = grabAuthor(unit);
     const name = `fb-${sanitFb(author?.name) || "photo"}-${Date.now()}.jpg`;
     // Bare name + platform: this script is import-free (FB CSP), so the background
-    // builds the social-mate/facebook/fotos/ path with lib/downloadPath.js.
+    // builds the social-mate/imagens/ path with lib/downloadPath.js.
     chrome.runtime.sendMessage({ type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", url, filename: name }).catch(() => {});
   }
 
@@ -2007,7 +2007,7 @@ function boundMediaIsStale({ floating, connected, railRect, boundRect }, slack =
           type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", folder: "thumb", url,
           // Was a hardcoded "socialMate-thumbs/" folder (note the stray capital M).
           // The per-author sub-folder is kept — a whole page's covers in one place is
-          // the point of this button — it just lives inside miniaturas now, and
+          // the point of this button — the -thumb suffix marks it now, and
           // downloadPath sanitises the author segment.
           filename: `${author}/reel_${id}.jpg`,
         }).catch(() => {});

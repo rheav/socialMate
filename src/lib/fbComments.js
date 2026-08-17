@@ -37,7 +37,7 @@ function stamp(d = new Date()) {
 // Both routes to a comments export — the content script's auto-save and the panel's
 // "baixar JSON" button — call this, so they can never disagree about where it lands.
 export function filenameFor(postId) {
-  return downloadPath("facebook", "comments", `fb-${postId || "post"}-${stamp()}.json`);
+  return downloadPath("comments", `fb-${postId || "post"}-${stamp()}.json`);
 }
 
 // Assemble the export envelope. Records arrive already ordered (top-level then its

@@ -5,7 +5,7 @@
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
-import { downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
+import { DOWNLOAD_ROOT, downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
 import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
 import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
@@ -760,19 +760,24 @@ async function runTranscription(videoId, tabId, meta = {}) {
 // The service worker is the only context that actually calls chrome.downloads for
 // media/JSON, so it — not the sender — decides the folder. Two shapes arrive:
 //
-//   • Panels and pin-api.js CAN import lib/downloadPath.js, so they send a finished
-//     path. It is passed through underDownloadRoot(), which returns an already
-//     rooted path byte-identical and re-roots anything else.
+//   • Panels and pin-api.js CAN import lib/downloadPath.js, so they send a FINISHED
+//     path, already rooted at social-mate/.
 //   • The Facebook / Instagram / TikTok content scripts are import-free on purpose
 //     (an ES import makes CRXJS emit a dynamic-import loader, which those origins'
 //     CSP can kill — that would break all capture). They send a BARE file name plus
-//     `platform` and, when the folder isn't just the media kind, `folder`.
+//     `kind`, and `folder` when the bucket isn't just the media kind.
+//
+// The two are told apart by the ROOT SEGMENT, not by which fields are set: a panel
+// sends `kind: "video"` alongside its finished path, so keying off `kind` would run
+// an already-rooted path back through downloadPath and produce
+// "social-mate/videos/social-mate/videos/tt-x.mp4".
 //
 // Either way it is impossible for a caller to land a file in the Downloads root.
 function resolveDownloadPath(msg, fallbackName) {
   const name = msg.filename || fallbackName;
-  if (msg.platform) return downloadPath(msg.platform, msg.folder || msg.kind || null, name);
-  return underDownloadRoot(name);
+  const rooted = String(name == null ? "" : name).split(/[\\/]+/)[0] === DOWNLOAD_ROOT;
+  if (rooted) return underDownloadRoot(name); // idempotent for a finished path
+  return downloadPath(msg.folder || msg.kind || null, name);
 }
 
 async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, durationHint, primedAt) {
@@ -788,7 +793,7 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, dura
         // fallback is the Instagram case: the IG bridge is the only sender that omits
         // a name, and it always hands us a progressive MP4.
         filename: underDownloadRoot(
-          mediaName || downloadPath("instagram", "video", `ig-${videoId || Date.now()}.mp4`),
+          mediaName || downloadPath("video", `ig-${videoId || Date.now()}.mp4`),
         ),
       });
       notifyTab(tabId, { type: "FBW_DOWNLOAD_RESULT", videoId, success: true });
@@ -830,7 +835,7 @@ async function runDownload(videoId, tabId, mediaUrl, candidates, mediaName, dura
       // The offscreen doc returns a BARE name — it muxes bytes, it doesn't decide
       // where files live. A DASH mux is always a Facebook video, so the folder is
       // known here.
-      filename: downloadPath("facebook", "video", res.filename || `fb-${id}.mp4`),
+      filename: downloadPath("video", res.filename || `fb-${id}.mp4`),
     });
     notifyTab(tabId, {
       type: "FBW_DOWNLOAD_RESULT",
@@ -1063,7 +1068,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // The FB rail sends a bare "fb-<id>.mp4"; the IG bridge sends no name at all
         // (its progressive MP4 is always Instagram). The folder is decided here, not
         // by the content script — neither of them can import downloadPath.
-        msg.mediaName ? downloadPath(msg.platform || "facebook", "video", msg.mediaName) : null,
+        msg.mediaName ? downloadPath("video", msg.mediaName) : null,
         msg.durationHint,
         msg.primedAt,
       );

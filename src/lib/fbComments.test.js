@@ -85,9 +85,9 @@ describe("buildExport", () => {
 });
 
 describe("filenameFor", () => {
-  it("files the export under social-mate/facebook/comentarios with the post id", () => {
+  it("files the export under social-mate/dados with the post id", () => {
     expect(filenameFor("123")).toMatch(
-      /^social-mate\/facebook\/comentarios\/fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/,
+      /^social-mate\/dados\/fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/,
     );
     expect(filenameFor(null)).toMatch(/fb-post-/);
   });

@@ -105,5 +105,5 @@ function stamp(d = new Date()) {
 }
 
 export function exportFilename(awemeId) {
-  return downloadPath("tiktok", "comments", `tt-${awemeId || "video"}-${stamp()}.json`);
+  return downloadPath("comments", `tt-${awemeId || "video"}-${stamp()}.json`);
 }

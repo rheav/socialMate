@@ -166,7 +166,7 @@ export default function FbPhotosTool() {
           const data = new Uint8Array(await res.arrayBuffer());
           // baseNameFor, not filenameFor: this is the ZIP ENTRY name. Using the
           // download PATH here would make every extracted archive rebuild a
-          // social-mate/facebook/fotos/ tree inside the folder you unzip into.
+          // social-mate/imagens/ tree inside the folder you unzip into.
           builder.add(baseNameFor({ ...rec, owner }, extFromUrl(rec.url, "image")), data);
           bytes += data.length;
         } catch {

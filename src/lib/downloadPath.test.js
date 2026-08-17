@@ -20,95 +20,106 @@ function assertAcceptableToChrome(path) {
 }
 
 describe("downloadPath", () => {
-  it("puts every platform's media under one root, by platform then by kind", () => {
-    expect(downloadPath("instagram", "video", "ig-ivy-X1.mp4")).toBe(
-      "social-mate/instagram/videos/ig-ivy-X1.mp4",
-    );
-    expect(downloadPath("instagram", "image", "ig-ivy-X1.jpg")).toBe(
-      "social-mate/instagram/imagens/ig-ivy-X1.jpg",
-    );
-    expect(downloadPath("tiktok", "video", "tt-creator-1.mp4")).toBe(
-      "social-mate/tiktok/videos/tt-creator-1.mp4",
-    );
-    expect(downloadPath("pinterest", "image", "pin-user-9.jpg")).toBe(
-      "social-mate/pinterest/imagens/pin-user-9.jpg",
-    );
-    // Facebook says "fotos", not "imagens" — the word Facebook itself uses in pt-BR.
-    expect(downloadPath("facebook", "image", "fb-perfil-9.jpg")).toBe(
-      "social-mate/facebook/fotos/fb-perfil-9.jpg",
-    );
-    expect(downloadPath("facebook", "thumb", "fb-page-1.jpg")).toBe(
-      "social-mate/facebook/miniaturas/fb-page-1.jpg",
-    );
-    expect(downloadPath("tiktok", "comments", "tt-999-x.json")).toBe(
-      "social-mate/tiktok/comentarios/tt-999-x.json",
-    );
+  // The tree used to be root → platform → kind: 22 directories, with the platform
+  // spelled a second time in every file name (fb-/ig-/tt-/pin-) and the kind a
+  // second time in every extension. Now there are three buckets and one job for
+  // them: keep a 200-cover thumb dump and a pile of JSON out of the way of the
+  // media you actually went looking for.
+  it("sorts by what the file IS, not by where it came from", () => {
+    expect(downloadPath("video", "ig-ivy-X1.mp4")).toBe("social-mate/videos/ig-ivy-X1.mp4");
+    expect(downloadPath("video", "tt-creator-1.mp4")).toBe("social-mate/videos/tt-creator-1.mp4");
+    expect(downloadPath("image", "pin-user-9.jpg")).toBe("social-mate/imagens/pin-user-9.jpg");
+    expect(downloadPath("image", "fb-perfil-9.jpg")).toBe("social-mate/imagens/fb-perfil-9.jpg");
   });
 
-  it("has no session/run-log pseudo-platform (removed in 0.68.0 with the run logs)", () => {
-    expect(downloadPath("sessions", null, "run-2026-07-25.json")).toBe(
-      "social-mate/run-2026-07-25.json",
-    );
+  it("keeps covers with the other images — the -thumb suffix already marks them", () => {
+    expect(downloadPath("thumb", "fb-page-1-thumb.jpg")).toBe("social-mate/imagens/fb-page-1-thumb.jpg");
+  });
+
+  it("files everything that is data rather than media under dados", () => {
+    expect(downloadPath("comments", "tt-999-x.json")).toBe("social-mate/dados/tt-999-x.json");
+    expect(downloadPath("transcript", "fb-transcricao-1.txt")).toBe("social-mate/dados/fb-transcricao-1.txt");
+    expect(downloadPath("sheet", "ig-tag_x-2026-08-15.xlsx")).toBe("social-mate/dados/ig-tag_x-2026-08-15.xlsx");
+  });
+
+  // fbPhotos names its album archive through the "image" kind, so under the old
+  // per-platform map a ZIP landed in the photos folder. The extension is the
+  // honest signal about what the bytes are, so it overrules the declared kind.
+  it("lets the extension overrule a kind that would misfile the bytes", () => {
+    expect(downloadPath("image", "fb-perfil-2026-08-16.zip")).toBe("social-mate/dados/fb-perfil-2026-08-16.zip");
+    expect(downloadPath("image", "tt-creator-1.json")).toBe("social-mate/dados/tt-creator-1.json");
+    expect(downloadPath("video", "ig-ivy-X1.vtt")).toBe("social-mate/dados/ig-ivy-X1.vtt");
+    // …but only for data types. A .mov declared as an image is still an image
+    // folder question, not a licence to re-file every mismatch.
+    expect(downloadPath("image", "pin-user-9.png")).toBe("social-mate/imagens/pin-user-9.png");
   });
 
   it("keeps the file name exactly as the caller built it", () => {
-    // The point of the refactor: only the FOLDER changes, never the name.
+    // Only the FOLDER changed in 0.80.0. The platform prefix, the author, the id
+    // and the -thumb suffix are all still what the media libs produced.
     for (const name of ["ig-user-code_2.mp4", "fb-Astra Vale-122.jpg", "pin-user-1.webp"]) {
-      expect(downloadPath("instagram", "video", name).endsWith("/" + name)).toBe(true);
+      expect(downloadPath("video", name).endsWith("/" + name)).toBe(true);
     }
   });
 
   it("never lets an owner name escape the folder", () => {
     // A profile can literally be named "../../etc" — Chrome would reject the download
     // outright, and the call sites swallow that error.
-    const evil = downloadPath("facebook", "thumb", "../../etc/passwd");
+    const evil = downloadPath("thumb", "../../etc/passwd");
     assertAcceptableToChrome(evil);
-    expect(evil).toBe("social-mate/facebook/miniaturas/etc/passwd");
+    expect(evil).toBe("social-mate/imagens/etc/passwd");
 
-    const absolute = downloadPath("instagram", "video", "/etc/hosts.mp4");
+    const absolute = downloadPath("video", "/etc/hosts.mp4");
     assertAcceptableToChrome(absolute);
 
-    const windows = downloadPath("instagram", "video", "..\\..\\Windows\\System32\\x.mp4");
+    const windows = downloadPath("video", "..\\..\\Windows\\System32\\x.mp4");
     assertAcceptableToChrome(windows);
-    expect(windows).toBe("social-mate/instagram/videos/Windows/System32/x.mp4");
+    expect(windows).toBe("social-mate/videos/Windows/System32/x.mp4");
 
-    const dotdot = downloadPath("tiktok", "video", "..");
+    const dotdot = downloadPath("video", "..");
     assertAcceptableToChrome(dotdot);
   });
 
   it("scrubs characters that break a download or a filesystem", () => {
-    expect(downloadPath("tiktok", "video", 'a:b*c?d"e<f>g|h.mp4')).toBe(
-      "social-mate/tiktok/videos/a_b_c_d_e_f_g_h.mp4",
-    );
+    expect(downloadPath("video", 'a:b*c?d"e<f>g|h.mp4')).toBe("social-mate/videos/a_b_c_d_e_f_g_h.mp4");
     // Accents and emoji are legal and must survive — Brazilian profile names use them.
-    expect(downloadPath("facebook", "image", "fb-Astra Valé ✦-9.jpg")).toBe(
-      "social-mate/facebook/fotos/fb-Astra Valé ✦-9.jpg",
-    );
+    expect(downloadPath("image", "fb-Astra Valé ✦-9.jpg")).toBe("social-mate/imagens/fb-Astra Valé ✦-9.jpg");
   });
 
   it("never returns a folder with no file, whatever the caller passes", () => {
     for (const bad of [null, undefined, "", "   ", "/", "..", "././."]) {
-      const p = downloadPath("instagram", "video", bad);
+      const p = downloadPath("video", bad);
       assertAcceptableToChrome(p);
-      expect(p).toBe("social-mate/instagram/videos/arquivo");
+      expect(p).toBe("social-mate/videos/arquivo");
     }
   });
 
-  it("falls back to the root rather than inventing folders for an unknown platform/kind", () => {
-    expect(downloadPath("myspace", "video", "x.mp4")).toBe("social-mate/x.mp4");
-    expect(downloadPath("instagram", "banana", "x.mp4")).toBe("social-mate/instagram/x.mp4");
+  it("falls back to the root rather than inventing a folder for a kind it doesn't know", () => {
+    expect(downloadPath("banana", "x.mp4")).toBe("social-mate/x.mp4");
+    expect(downloadPath(null, "x.mp4")).toBe("social-mate/x.mp4");
   });
 });
 
 describe("underDownloadRoot", () => {
   it("returns an already-rooted path byte-identical", () => {
     for (const p of [
-      "social-mate/instagram/videos/ig-ivy-X1.mp4",
-      "social-mate/sessoes/run-x.json",
-      downloadPath("pinterest", "video", "pin-user-1.mp4"),
+      "social-mate/videos/ig-ivy-X1.mp4",
+      "social-mate/dados/run-x.json",
+      downloadPath("video", "pin-user-1.mp4"),
     ]) {
       expect(underDownloadRoot(p)).toBe(p);
     }
+  });
+
+  // background.js's resolveDownloadPath tells a finished path from a bare name by
+  // its ROOT SEGMENT, because a panel sends `kind: "video"` alongside a path it
+  // already built. Keying off `kind` instead produced
+  // "social-mate/videos/social-mate/videos/tt-x.mp4" — this is the property that
+  // makes the guard safe to apply twice.
+  it("is idempotent, so a finished path can be re-checked without nesting", () => {
+    const once = downloadPath("video", "tt-creator-1.mp4");
+    expect(underDownloadRoot(once)).toBe(once);
+    expect(underDownloadRoot(underDownloadRoot(once))).toBe(once);
   });
 
   it("re-roots anything a caller forgot to build with downloadPath", () => {
@@ -156,16 +167,5 @@ describe("sanitizeFilenamePart", () => {
     expect(sanitizeFilenamePart(null)).toBe("");
     expect(sanitizeFilenamePart("x".repeat(80))).toHaveLength(40);
     expect(sanitizeFilenamePart("Astra Valé ✦")).toBe("Astra Valé ✦");
-  });
-});
-
-// The Instagram spreadsheet export (0.77.0) needs a folder of its own — an
-// unknown kind silently drops the folder segment and the file lands loose in
-// social-mate/instagram/, mixed in with videos.
-describe("spreadsheet folder", () => {
-  it("files an xlsx under planilhas", () => {
-    expect(downloadPath("instagram", "sheet", "ig-tag_x-2026-08-15.xlsx")).toBe(
-      "social-mate/instagram/planilhas/ig-tag_x-2026-08-15.xlsx",
-    );
   });
 });

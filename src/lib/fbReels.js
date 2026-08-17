@@ -69,7 +69,7 @@ export function recordToCard(rec) {
 export { sanitizeFilenamePart };
 
 // The Reels Sort tool only ever downloads the reel's COVER image, so this always
-// files under miniaturas.
+// files it with the other images; the -thumb suffix is what marks it as a cover.
 export function filenameFor(owner, id) {
-  return downloadPath("facebook", "thumb", `fb-${sanitizeFilenamePart(owner) || "reel"}-${id || Date.now()}.jpg`);
+  return downloadPath("thumb", `fb-${sanitizeFilenamePart(owner) || "reel"}-${id || Date.now()}.jpg`);
 }

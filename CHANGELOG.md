@@ -18,6 +18,175 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.81.0] — 2026-08-17
+
+### Corrigido
+- **A busca do TikTok não capturava NADA.** Abrir
+  `tiktok.com/search?q=%23cardreading` — a superfície onde uma pesquisa de hashtag
+  de fato começa — rendia zero registros, por dois motivos independentes que se
+  escondiam um atrás do outro:
+
+  - o regex de endpoints cobria `/api/<algo>/item_list`, e a busca não tem essa
+    forma: a aba padrão "Melhores" é `/api/search/general/full/` e a aba "Vídeos"
+    é `/api/search/item/full/`. Nenhuma das duas batia;
+  - e mesmo que batessem, o leitor só olhava `itemList` / `items`, enquanto a
+    busca responde `item_list` (snake_case) ou `data[] → {type, item}`.
+
+  As duas metades agora estão cobertas, junto com `/api/search/user/full/` e
+  `/api/user/detail/` (estatísticas do criador). Medido ao vivo: 0 → 48 vídeos em
+  três rolagens.
+
+- **A página de um vídeo dependia de um blob que o TikTok apaga.** O item aberto
+  não vem por fetch nenhum — é renderizado no servidor dentro de
+  `__UNIVERSAL_DATA_FOR_REHYDRATION__`. Esse blob era lido pela ponte isolada, que
+  roda em `document_idle`, e o TikTok registra um service worker: numa carga
+  quente a mesma URL que tinha servido o blob minutos antes vinha sem ele. Agora
+  são três fontes, nessa ordem: a captura de fetch, o blob lido em
+  `document_start` (antes da hidratação poder removê-lo) e, por último, os números
+  que estão na tela (`data-e2e="like-count"` e vizinhos). Views não aparecem no
+  DOM de uma página de vídeo, então nessa terceira via o TE fica nulo em vez de
+  ser inventado sobre um denominador menor.
+
+### Adicionado
+- **A sobreposição de estatísticas do Instagram, agora no TikTok.** Cada tile de
+  grade e o player ganham o mesmo painel: views, curtidas, comentários,
+  compartilhamentos, salvamentos, TE %, seguidores · views por seguidor e data —
+  mais os botões salvar / baixar vídeo / baixar miniatura / transcrever. Liga e
+  desliga pelo painel (`sw_tt_overlay`).
+
+  Dois detalhes que só aparecem ao vivo: o player do TikTok pinta uma camada de
+  clique sobre toda a sua subárvore (a mesma armadilha do Instagram, onde nosso
+  botão chegava em SEXTO no `elementsFromPoint`), então os trilhos do player moram
+  numa camada fixa de topo posicionada sobre ele; e o TikTok mistura tamanhos de
+  tile na mesma página — 185×249 na barra "Você pode gostar" contra 252×336 na
+  busca — então abaixo de 230px o painel cai para três linhas em vez de estourar
+  a borda e cortar os próprios números.
+
+- **Seguidores e views por seguidor, de graça.** `authorStats` viaja em todo item
+  de lista do TikTok. O mesmo número no Instagram custa uma requisição de
+  enriquecimento por post, e views por seguidor lá não dá nem para ordenar.
+
+- **Paridade do painel Ordenar:** filtro de período, "Coletar (rolar 10×)",
+  exportação `.xlsx` (23 colunas, com áudio, hashtags, local e a URL da legenda
+  automática), ordenação por seguidores e por views/seguidor, e pesos de TE
+  editáveis — quatro termos aqui (curtida, comentário, compartilhamento, salvo)
+  contra três no Instagram, porque o TikTok expõe shares e saves.
+
+  A coleta rola `<main>`, não a janela: a grade do TikTok não rola o documento
+  (`document.scrollingElement.scrollHeight === clientHeight` enquanto
+  `main.scrollHeight` ia de 2250 a 7287), então rolar a janela ali não paginava
+  coisa nenhuma.
+
+- **Transcrição sem Whisper quando dá.** ~2/3 dos vídeos trazem uma faixa WebVTT
+  de ASR pronta em `subtitleInfos` / `claInfo.captionInfos`; o resto continua indo
+  para o Whisper.
+
+- `docs/research/tiktok-data-map.md` — o mapa de endpoints, o que a grade tem
+  contra o que a página do vídeo tem, e as duas armadilhas de medição (um hook de
+  `fetch` instalado depois do load não pega nada, e
+  `performance.getEntriesByType("resource")` corta em 250 entradas, que os ~220
+  chunks estáticos do TikTok estouram antes da primeira chamada de API).
+
+### Mudado
+- `src/lib/shared/` ganhou `ttItems.js` (uma única tradução de payload → registro,
+  no lugar das duas que já tinham divergido: `liteItem` na captura e `mapItem` na
+  ponte), `ttFormat.js`, `fmt.js` (`fmtDate`/`fmtER`, que existiam em duas cópias)
+  e `harvest.js` (período e cadência de rolagem, que não tinham nada de Instagram
+  apesar de morarem em `igFilters.js`).
+- A superfície de um registro do TikTok passa a ser carimbada onde ele é
+  capturado, não na hora de repassar — um replay reenvia tudo que a captura já
+  viu, e o carimbo tardio renomeava os vídeos do perfil anterior como sendo do
+  perfil aberto agora. O Instagram já tinha aprendido isso.
+
+---
+
+## [0.80.0] — 2026-08-17
+
+### Mudado
+- **Downloads: 22 pastas viraram 3.** A árvore era
+  `social-mate/<plataforma>/<tipo>/`, montada por um mapa de plataformas mais um
+  mapa de tipos POR plataforma — que é como o Facebook acabou com `fotos` enquanto
+  todo mundo tinha `imagens`. Agora:
+
+  ```
+  social-mate/
+    videos/    fb-astravale-1234.mp4   ig-ivy-DaBFBcgxZIi.mp4   tt-veloria691-765….mp4
+    imagens/   fb-astravale-1234.jpg   tt-veloria691-765…-thumb.jpg
+    dados/     tt-765…-2026-08-16.json   ig-tag_cardreading-2026-08-16.xlsx
+  ```
+
+### Por que os dois mapas não valiam nada
+- **Todo nome de arquivo já dizia as duas coisas.** `tt-veloria691-765….mp4` diz a
+  plataforma no prefixo e o tipo na extensão — então
+  `social-mate/tiktok/videos/tt-…-765….mp4` falava "tiktok" duas vezes e "vídeo"
+  duas vezes.
+- **Só uma coisa ainda justifica uma pasta:** manter o volume de lixo longe do
+  arquivo que você foi buscar. Um despejo de capas são 50–200 miniaturas e
+  JSON/XLSX são dados, não mídia. Isso são três baldes, e mais nada.
+- Os nomes **não mudaram**: prefixo `fb-`/`ig-`/`tt-`/`pin-`, autor, id e o sufixo
+  `-thumb` continuam exatamente como estavam. Quem some é a pasta, não a
+  informação.
+
+### Corrigido
+- **O ZIP do álbum do Facebook ia parar junto com as fotos.** Ele é nomeado pelo
+  tipo `image` (contém fotos), então caía em `facebook/fotos/`. A extensão é o
+  sinal honesto do que são os bytes, e agora ela vence o tipo declarado: `.json`,
+  `.xlsx`, `.csv`, `.txt`, `.vtt`, `.srt` e `.zip` vão para `dados/` venha de onde
+  vier.
+- **`resolveDownloadPath` distingue caminho pronto de nome cru pelo SEGMENTO RAIZ,
+  não pelos campos da mensagem.** Um painel manda `kind: "video"` junto com o
+  caminho que ele mesmo montou; decidir por `kind` gerava
+  `social-mate/videos/social-mate/videos/tt-x.mp4`. Tem teste de idempotência
+  travando isso.
+
+### Migração
+- Nada se move. O Chrome não mexe no que já gravou — os arquivos antigos ficam
+  onde estão e só os novos usam a árvore nova.
+
+---
+
+## [0.79.0] — 2026-08-16
+
+### Adicionado
+- **Barra de progresso no player do Instagram** (`/p/…`, `/reel/…`, `/reels/…`):
+  fina na borda de baixo do vídeo, engorda no hover, e clicar/arrastar navega no
+  vídeo. Verificado ao vivo nos dois formatos — post 25,7 s e reel 33,58 s.
+
+### Como ela é leve (e por que não é um ticker)
+- **Quem anima é o navegador, não nós.** O preenchimento é UMA animação Web
+  Animations (`transform: scaleX`) com duração igual ao tempo que falta: roda no
+  compositor, como uma transição CSS. **Zero JavaScript por quadro** — nada de
+  `requestAnimationFrame`, nada de `setInterval`.
+- Medido antes de escrever a barra: uma animação dessas acompanha o relógio do
+  vídeo com **15 a 29 ms** de diferença em 6 segundos. Um laço de rAF gastaria uma
+  chamada por quadro, numa página que já re-renderiza sem parar, para não chegar
+  mais perto do que isso.
+- `timeupdate` (que o Instagram já dispara ~4×/s, então não custa nada a mais) é
+  só conferência: acima de 250 ms de diferença a animação leva um empurrão; um
+  salto maior que 1,5 s é loop ou scrub e ela é refeita. Custo por player: 3 divs,
+  8 listeners, 1 animação, 0 timers.
+- Pausar cancela a animação e deixa o preenchimento parado no ponto certo
+  (verificado: 0.064 → 0.064 parado, volta a andar ao despausar).
+
+### Detalhes que não são óbvios
+- **Os controles nativos (`video.controls = true`) até aparecem** — e seriam de
+  graça — mas o Instagram pinta uma camada `role="presentation"` por cima da
+  faixa de controle, e o `<video>` não escapa desse contexto de empilhamento sem
+  mexer nos contêineres do próprio Instagram. Brigar com isso em cada superfície
+  é justamente a gambiarra que este approach evita: a barra mora na camada
+  própria da extensão (`#sw-ig-layer`), que já ganha o hit-test.
+- **O vídeo do Instagram é MSE** (`src` é `blob:`): `duration` só existe depois que
+  o player alimenta o MediaSource, então toda conta checa isso antes — buscar
+  `NaN` lança. O clipe inteiro entra no buffer em segundos (33,6 de 33,6), então
+  arrastar para qualquer ponto responde na hora.
+- **Reels dão loop**: o `currentTime` volta para ~0 sozinho. Isso chega como um
+  salto para trás e refaz a animação, em vez de ser tratado como desvio.
+- O clique na barra é engolido (`stopPropagation` + `preventDefault`) porque o
+  player alterna play/pause na sequência de ponteiro — arrastar não pode virar
+  uma pausa.
+
+---
+
 ## [0.78.2] — 2026-08-15
 
 Varredura de bugs sobre o código todo (revisão + conferência ao vivo no navegador).

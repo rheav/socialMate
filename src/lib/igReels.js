@@ -63,7 +63,7 @@ export function storyFilename(item, ext, idx) {
   const owner = sanitizeFilenamePart(item.owner_username || item.username || "unknown");
   const base = `ig-story-${owner}-${item.pk || item.id || Date.now()}`;
   const name = idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
-  return downloadPath("instagram", kindFromExt(ext), name);
+  return downloadPath(kindFromExt(ext), name);
 }
 
 // Group reels by owner → [{ owner, reels:[...] }]; owners A→Z, each owner's

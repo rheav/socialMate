@@ -7,19 +7,28 @@
 // and muxed videos landed loose in ~/Downloads. Four spellings for four folders and
 // a dozen files spilled into the Downloads root: "fica bagunçado".
 //
-// Now every filename that reaches chrome.downloads.download is built here, so the
-// tree can never drift apart again:
+// The first fix over-corrected into root → platform → kind: 22 directories, built
+// from a platform map plus a per-platform kind map (which is how Facebook ended up
+// with "fotos" while everyone else got "imagens"). Both maps were redundant with
+// the file name, because every name this extension produces ALREADY says where the
+// file came from and what it is:
+//
+//   fb-astravale-1234.jpg   ig-ivy-DaBFBcgxZIi.mp4   tt-veloria691-765….mp4
+//   tt-veloria691-765…-thumb.jpg   ig-tag_cardreading-2026-08-16.xlsx
+//
+// So "social-mate/tiktok/videos/tt-…-765….mp4" said "tiktok" twice and "video"
+// twice. Only ONE thing still earns a folder: keeping bulk junk away from the file
+// you went there for. A cover dump is 50-200 thumbnails and JSON/XLSX are data, not
+// media. That is three buckets, and nothing else:
 //
 //   social-mate/
-//     facebook/   videos | fotos | miniaturas | comentarios | transcricoes
-//     instagram/  videos | imagens | miniaturas | transcricoes | planilhas
-//     tiktok/     videos | imagens | miniaturas | comentarios | transcricoes
-//     pinterest/  videos | imagens
-//     sessoes/    (run logs — not tied to a platform)
+//     videos/    every .mp4, whatever platform it came from
+//     imagens/   photos AND covers (a cover is already named "…-thumb.jpg")
+//     dados/     comment JSON, spreadsheets, transcripts, album ZIPs
 //
 // Folder names are pt-BR because the user browses them in Finder and the whole UI
-// is pt-BR. The map KEYS stay the internal English ids (the platform ids from
-// lib/platforms.jsx, plus the media kinds), so nothing else in the codebase changes.
+// is pt-BR. The KEYS stay the internal English media kinds, so no call site has to
+// learn a new vocabulary — they pass the same `kind` they always did.
 // ---------------------------------------------------------------------------
 
 // The name-part scrubber lives in shared/ because the content scripts need it too
@@ -29,26 +38,23 @@ export { sanitizeFilenamePart };
 
 export const DOWNLOAD_ROOT = "social-mate";
 
-// Only real platforms live here. There used to be a SESSIONS pseudo-platform
-// mapping to "sessoes/" for the per-run telemetry JSON that got downloaded after
-// every run; that feature was removed in 0.68.0, so the folder went with it.
-const PLATFORM_DIRS = {
-  facebook: "facebook",
-  instagram: "instagram",
-  tiktok: "tiktok",
-  pinterest: "pinterest",
+// Media kind -> bucket. `thumb` deliberately shares a bucket with `image`: the
+// covers are named "…-thumb.jpg" already, so a folder to say the same thing again
+// only adds a directory to click through.
+const BUCKETS = {
+  video: "videos",
+  image: "imagens",
+  thumb: "imagens",
+  comments: "dados",
+  transcript: "dados",
+  sheet: "dados",
 };
 
-// Facebook says "fotos" where the others say "imagens" — that is the word Facebook
-// itself uses in pt-BR, and the user recognises it. "miniaturas" holds cover-only
-// downloads (the "baixar miniatura" buttons and the reels-grid thumb dump); they are
-// kept apart from the full-size media so a pile of covers never buries the real files.
-const KIND_DIRS = {
-  facebook: { video: "videos", image: "fotos", thumb: "miniaturas", comments: "comentarios", transcript: "transcricoes" },
-  instagram: { video: "videos", image: "imagens", thumb: "miniaturas", transcript: "transcricoes", sheet: "planilhas" },
-  tiktok: { video: "videos", image: "imagens", thumb: "miniaturas", comments: "comentarios", transcript: "transcricoes" },
-  pinterest: { video: "videos", image: "imagens" },
-};
+// Extensions that are data whatever the caller called them. This is not pedantry:
+// fbPhotos builds its album archive through the `image` kind, so before this the
+// ZIP was filed with the photos. The extension is the honest signal about what the
+// bytes are, and it overrules a kind that would misfile them.
+const DATA_EXTS = new Set(["json", "xlsx", "csv", "txt", "vtt", "srt", "zip"]);
 
 // Used when a caller hands us nothing usable. A nameless download is a bug, but a
 // stable name keeps it visible in the folder instead of failing silently.
@@ -72,29 +78,36 @@ function safeSegment(s) {
     .slice(0, 120);
 }
 
+const extOf = (name) => {
+  const m = String(name == null ? "" : name).match(/\.([A-Za-z0-9]{1,5})$/);
+  return m ? m[1].toLowerCase() : "";
+};
+
+/** Which of the three buckets a file belongs in, or null to sit at the root. */
+function bucketFor(kind, filename) {
+  if (DATA_EXTS.has(extOf(filename))) return "dados";
+  return BUCKETS[kind] || null;
+}
+
 /**
  * Build the download path for one file.
  *
- *   downloadPath("instagram", "video", "ig-ivy-X1.mp4")
- *     -> "social-mate/instagram/videos/ig-ivy-X1.mp4"
- *   downloadPath("facebook", "comments", "fb-123-2026-07-26.json")
- *     -> "social-mate/facebook/comentarios/fb-123-2026-07-26.json"
+ *   downloadPath("video", "ig-ivy-X1.mp4")      -> "social-mate/videos/ig-ivy-X1.mp4"
+ *   downloadPath("comments", "fb-123-x.json")   -> "social-mate/dados/fb-123-x.json"
+ *   downloadPath("thumb", "tt-a-1-thumb.jpg")   -> "social-mate/imagens/tt-a-1-thumb.jpg"
  *
- * `filename` is a path relative to the kind folder — usually a bare name, but it may
- * carry sub-folders (the reels-grid thumb dump groups by page author). Each segment
- * is scrubbed on its own, so an author literally named "../../etc" lands as a segment
- * inside the tree instead of escaping it.
+ * `filename` is a path relative to the bucket — usually a bare name, but it may
+ * carry sub-folders. Each segment is scrubbed on its own, so an author literally
+ * named "../../etc" lands as a segment inside the tree instead of escaping it.
  *
  * The result is always relative to ~/Downloads: it never starts with "/", never has a
  * ".." component and never a drive letter. chrome.downloads rejects all three, and
  * every call site here swallows download errors — a bad path would fail invisibly.
  */
-export function downloadPath(platform, kind, filename) {
+export function downloadPath(kind, filename) {
   const parts = [DOWNLOAD_ROOT];
-  const platformDir = PLATFORM_DIRS[platform];
-  if (platformDir) parts.push(platformDir);
-  const kindDir = platformDir && KIND_DIRS[platform] ? KIND_DIRS[platform][kind] : null;
-  if (kindDir) parts.push(kindDir);
+  const bucket = bucketFor(kind, filename);
+  if (bucket) parts.push(bucket);
 
   const tail = String(filename == null ? "" : filename)
     .split(/[\\/]+/)
@@ -124,7 +137,7 @@ export function underDownloadRoot(path) {
 }
 
 // A pin, an IG carousel child or a story can be either an image or a video, so the
-// sub-folder must follow the media actually being saved, not the platform's usual
+// bucket must follow the media actually being saved, not the platform's usual
 // output. The libs already resolve the extension before naming the file, so that is
 // the cheapest honest signal of what the bytes are.
 const VIDEO_EXTS = new Set(["mp4", "mov", "webm", "m4v", "mkv"]);
@@ -132,8 +145,3 @@ const VIDEO_EXTS = new Set(["mp4", "mov", "webm", "m4v", "mkv"]);
 export function kindFromExt(ext) {
   return VIDEO_EXTS.has(String(ext || "").toLowerCase()) ? "video" : "image";
 }
-
-// Canonical filename-part scrubber. This used to be copy-pasted byte-identically into
-// fbPhotos / fbReels / igMedia / ttMedia / pinMedia; those now re-export this one so
-// there is a single definition. Caps at 40 chars because it is only ever applied to a
-// PART of a name (an owner/author), never to the whole file name.
