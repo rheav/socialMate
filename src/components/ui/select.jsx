@@ -10,7 +10,10 @@ const SelectTrigger = React.forwardRef(({ className, children, ...props }, ref) 
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
+      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors duration-[160ms] data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
+      // The chevron turns while the menu is open, so the trigger itself shows
+      // the state instead of leaving the popup to carry it alone.
+      "[&>svg]:transition-transform [&>svg]:duration-200 [&>svg]:ease-[cubic-bezier(0.25,0.8,0.25,1)] data-[state=open]:[&>svg]:rotate-180",
       className
     )}
     {...props}
@@ -30,7 +33,15 @@ const SelectContent = React.forwardRef(({ className, children, position = "poppe
       position={position}
       className={cn(
         "relative z-50 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden rounded-md border bg-card text-card-foreground shadow-md",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        // The open/close animation had no duration and no direction: it used
+        // tw-animate-css's default and appeared centred on itself, so a menu
+        // dropping BELOW the trigger and one flipping ABOVE it looked identical.
+        // Now it grows out of the trigger's edge, and closing is quicker than
+        // opening — a dismissal should feel like it got out of the way.
+        "data-[state=open]:animate-in data-[state=closed]:animate-out",
+        "data-[state=open]:duration-200 data-[state=closed]:duration-[120ms] ease-[cubic-bezier(0.25,0.8,0.25,1)]",
+        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+        "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1 origin-(--radix-select-content-transform-origin)",
         className
@@ -57,7 +68,7 @@ const SelectItem = React.forwardRef(({ className, children, ...props }, ref) => 
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-7 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-7 text-sm outline-none transition-colors duration-100 focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

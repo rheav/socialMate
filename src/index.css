@@ -321,3 +321,64 @@
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--sw-action); border-radius: 4px; }
 .log-scroll::-webkit-scrollbar-thumb { background: #475569; }
+
+/* ============================================================================
+   MOTION
+   The panel used to change state instantly: a tool swap repainted the whole
+   body in one frame, a <details> jumped open, and a dropdown appeared with no
+   sense of where it came from. Nothing here is decoration — each one answers
+   "what just changed, and where did it come from?", which is the question an
+   instant swap leaves you to work out for yourself.
+
+   Everything is short (140-220ms) and every rule is disabled wholesale under
+   prefers-reduced-motion at the bottom of this block.
+
+   One easing for the whole panel, so the app moves like one thing. It is a
+   gentle ease-out: fast at the start (the response feels immediate) and slow
+   at the end (the arrival reads as settling rather than stopping).
+   ============================================================================ */
+:root {
+  --sw-ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --sw-swap-ms: 180ms;
+}
+
+/* Tool / tab swap. The element carries a React `key`, so switching tools
+   REMOUNTS it and the animation runs again — a plain CSS transition could not
+   fire here, because the old subtree is gone rather than changed. The lift is
+   deliberately tiny: 4px is enough to read as "this is new content" without
+   turning every tab click into a visible slide. */
+@keyframes sw-swap-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sw-swap { animation: sw-swap-in var(--sw-swap-ms) var(--sw-ease) both; }
+
+/* Native <details> animates nothing: the content box goes from 0 to its full
+   height in a single frame. `interpolate-size` lets height:auto be
+   interpolated, and ::details-content is the box to interpolate — both are
+   Chrome-only today, which is exactly the target here (this is an extension
+   panel, not a website). Browsers without them simply keep the instant open,
+   so there is no fallback to maintain. */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  details::details-content {
+    height: 0;
+    overflow: hidden;
+    transition: height var(--sw-swap-ms) var(--sw-ease), content-visibility var(--sw-swap-ms) allow-discrete;
+  }
+  details[open]::details-content { height: auto; }
+}
+/* The chevron turns with the disclosure rather than snapping to its new angle. */
+details summary svg { transition: transform var(--sw-swap-ms) var(--sw-ease); }
+
+/* Cards and rows: colour changes get a duration so hover reads as a state
+   CHANGE and not as a repaint. Kept to colours — animating layout here would
+   cost a reflow per hover on a grid that is already re-rendering. */
+.sw-hoverable { transition: background-color 160ms var(--sw-ease), border-color 160ms var(--sw-ease), box-shadow 160ms var(--sw-ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-swap { animation: none; }
+  details::details-content { transition: none; }
+  details summary svg { transition: none; }
+  .sw-hoverable { transition: none; }
+}

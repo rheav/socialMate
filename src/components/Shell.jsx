@@ -202,7 +202,7 @@ export default function Shell() {
           onClick={toggleTheme}
           title={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
           aria-label={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
-          className="grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="sw-hoverable grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </button>
@@ -220,7 +220,11 @@ export default function Shell() {
         />
       </div>
 
-      <main className="min-w-0 flex-1 px-4 py-3 space-y-3">
+      {/* Keyed on `tab`, so switching top-level tab remounts this subtree and
+          replays the swap animation. Without the key React reconciles the three
+          branches into the same DOM and the content simply changes underneath
+          you, which is the part that read as abrupt. */}
+      <main key={tab} className="sw-swap min-w-0 flex-1 px-4 py-3 space-y-3">
         {tab === "library" ? (
           <LibraryTool />
         ) : tab === "warm" ? (
@@ -334,7 +338,7 @@ function PlatformPicker({ setPlatform, only = null, describe }) {
             <button
               key={id}
               onClick={() => setPlatform(id)}
-              className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-accent"
+              className="sw-hoverable flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:bg-accent"
             >
               <span
                 className="grid size-10 place-items-center rounded-xl text-white shadow-sm"
@@ -402,8 +406,14 @@ function ResearchTab({ platform, setPlatform, toolId, setToolId }) {
           platform switcher or this sub-nav with it. The key remounts the boundary
           when you switch tool/platform, so a stuck error card can't outlive the
           tool that produced it. */}
+      {/* `key` remounts on every tool/platform change, which is what lets the
+          swap animation replay — a CSS transition cannot fire here because the
+          old subtree is destroyed rather than restyled. It doubles as the error
+          boundary's reset, so a stuck error card can't outlive its tool. */}
       <ErrorBoundary key={`${platform}:${activeId}`}>
-        <Panel platform={platform} />
+        <div className="sw-swap">
+          <Panel platform={platform} />
+        </div>
       </ErrorBoundary>
     </ToolFrame>
   );
@@ -426,7 +436,9 @@ function WarmTab({ platform, setPlatform }) {
   return (
     <ToolFrame title="Plataformas" onBack={() => setPlatform(null)}>
       <ErrorBoundary key={`warm:${platform}`}>
-        <WarmPanel platform={platform} />
+        <div className="sw-swap">
+          <WarmPanel platform={platform} />
+        </div>
       </ErrorBoundary>
     </ToolFrame>
   );

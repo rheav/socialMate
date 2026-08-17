@@ -18,6 +18,29 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.83.0] — 2026-08-17
+
+### Adicionado
+- **Movimento no painel.** Estava tudo brusco: trocar de aba repintava o corpo
+  inteiro em um quadro, um `<details>` pulava aberto e o dropdown aparecia sem
+  dizer de onde veio. Nada aqui é enfeite — cada animação responde "o que mudou,
+  e de onde veio?", que é a pergunta que uma troca instantânea deixa para você
+  resolver sozinho.
+  - **Troca de aba / ferramenta**: fade + 4px de subida (180ms). Usa `key` para
+    remontar — uma transição CSS não dispararia, porque a subárvore antiga é
+    destruída, não reestilizada.
+  - **Dropdown**: cresce a partir da borda do gatilho (antes aparecia centrado
+    em si mesmo, então abrir para baixo e para cima eram indistinguíveis).
+    Fechar é mais rápido que abrir — dispensar deve parecer sair da frente.
+    O chevron do gatilho gira junto.
+  - **Seções recolhíveis** (Peso do TE, legenda): altura animada via
+    `interpolate-size` + `::details-content`.
+  - Uma única curva (`--sw-ease`) para o painel inteiro, para o app se mover
+    como uma coisa só.
+- Tudo entre 140–220ms e **tudo desligado sob `prefers-reduced-motion`**.
+
+---
+
 ## [0.82.1] — 2026-08-17
 
 ### Corrigido
