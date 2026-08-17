@@ -68,6 +68,11 @@ import { downloadPath } from "@/lib/downloadPath";
 // for the full label — a whole word, never an ellipsis. Values are unchanged.
 const SORT_OPTS = [
   { value: "default", label: "Padrão" },
+  // Second, and named the way the CARD names it. This sorted by views-per-
+  // follower all along, but under the label "Views por seguidor" — while the
+  // card printed "352×" beside a trending-up glyph and called it Alcance. Same
+  // number, two names, so the option nobody could find was the headline metric.
+  { value: "vpf", label: "Alcance (×)", short: "Alcance" },
   { value: "views", label: "Visualizações", short: "Visualiz." },
   { value: "likes", label: "Curtidas" },
   { value: "comments", label: "Comentários", short: "Coment." },
@@ -75,7 +80,6 @@ const SORT_OPTS = [
   { value: "saves", label: "Salvamentos", short: "Salvos" },
   { value: "er", label: "TE %" },
   { value: "followers", label: "Seguidores", short: "Segs." },
-  { value: "vpf", label: "Views por seguidor", short: "V/seg." },
   { value: "date", label: "Data" },
 ];
 
@@ -93,7 +97,7 @@ const XLSX_COLS = [
   { key: "shares", label: "Compartilhamentos" },
   { key: "saves", label: "Salvamentos" },
   { key: "er", label: "TE %" },
-  { key: "views_per_follower", label: "Views/seguidor" },
+  { key: "views_per_follower", label: "Alcance (views/seguidor)" },
   { key: "date", label: "Data" },
   { key: "duration", label: "Duração (s)" },
   { key: "location", label: "Local" },

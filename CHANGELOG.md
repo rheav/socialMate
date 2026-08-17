@@ -18,6 +18,19 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.82.1] — 2026-08-17
+
+### Corrigido
+- **Ordenar por alcance estava lá, com outro nome.** O menu dizia "Views por
+  seguidor" enquanto o card imprimia `352×` ao lado do ícone de tendência e
+  chamava de **Alcance** — mesmo número, dois nomes, então a opção não era
+  encontrável. Agora o menu diz `Alcance (×)`, e ela sobe para a SEGUNDA
+  posição, logo abaixo de Padrão, porque é a métrica que lidera o card.
+  A coluna da planilha acompanha: `Alcance (views/seguidor)`.
+  Verificado ao vivo em `#cardreading`: 352 → 45 → 35 → 10 → 8.9 → 8.4 → 6.3.
+
+---
+
 ## [0.82.0] — 2026-08-17
 
 ### Adicionado
