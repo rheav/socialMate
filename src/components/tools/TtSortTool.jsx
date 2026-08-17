@@ -21,6 +21,7 @@ import {
   RotateCw,
   Trash2,
   ChevronsDown,
+  ChevronDown,
   Square,
   Sheet,
   Users,
@@ -425,6 +426,11 @@ export default function TtSortTool() {
   return (
     <div className="space-y-3">
       {banner}
+      {/* TWO rows, not one. Eight controls on a single line squeezed both selects
+          to "P…" and "To…" — the flexible members absorb every icon button's
+          width, and a sorter that cannot show a word is not a sorter. Splitting
+          them gives each select roughly half the row, which reads fully at every
+          panel width the side panel actually gets. */}
       <ToolBar>
         <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
         <ToolSelect
@@ -433,6 +439,9 @@ export default function TtSortTool() {
           onValueChange={setDateRange}
           options={DATE_RANGES.map((r) => ({ value: r.value, label: r.label, short: r.short || r.label }))}
         />
+      </ToolBar>
+
+      <ToolBar>
         <ToolIconButton
           icon={sortDir === "desc" ? ArrowDown : ArrowUp}
           label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
@@ -472,35 +481,50 @@ export default function TtSortTool() {
           label="Tudo"
           hint="Baixar todos os vídeos listados"
           variant="secondary"
+          className="basis-0 grow"
           onClick={downloadAll}
           disabled={!sorted.length}
         />
       </ToolBar>
 
-      {/* ER weights. What counts as engagement differs per niche, and the on-page
-          overlay reads the same stored numbers — TikTok exposes shares AND saves,
-          which is why this row has two terms Instagram's cannot. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="font-medium text-foreground/80">Peso do TE:</span>
-        {[
-          ["like", "curtida"],
-          ["comment", "coment."],
-          ["share", "compart."],
-          ["save", "salvo"],
-        ].map(([k, label]) => (
-          <label key={k} className="flex items-center gap-1">
-            {label}
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={erW[k]}
-              onChange={(e) => setWeight(k, e.target.value)}
-              className="w-11 rounded-md border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
-            />
-          </label>
-        ))}
-      </div>
+      {/* ER weights, folded away. They are a set-once-per-niche setting, not a
+          per-session control — open every time they cost two lines of the panel
+          above the grid, which is the part the user is actually here to read.
+          <details> keeps it zero-JS and remembers nothing, which is right: the
+          numbers themselves are persisted, the disclosure is not. */}
+      <details className="group rounded-lg border border-border bg-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 truncate">
+            Peso do TE
+            <span className="ml-1.5 tabular-nums text-muted-foreground">
+              {erW.like}·{erW.comment}·{erW.share}·{erW.save}
+            </span>
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        {/* TikTok exposes shares AND saves, which is why this has two terms
+            Instagram's cannot. The on-page overlay reads the same stored numbers. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+          {[
+            ["like", "curtida"],
+            ["comment", "coment."],
+            ["share", "compart."],
+            ["save", "salvo"],
+          ].map(([k, label]) => (
+            <label key={k} className="flex items-center gap-1">
+              {label}
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={erW[k]}
+                onChange={(e) => setWeight(k, e.target.value)}
+                className="w-11 rounded-md border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
+              />
+            </label>
+          ))}
+        </div>
+      </details>
 
       {/* flex-wrap, not truncate: when the tally and the toggle can't share a
           line the toggle drops to its own line instead of losing words. */}
