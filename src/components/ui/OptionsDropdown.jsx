@@ -46,7 +46,7 @@ export default function OptionsDropdown({
         title="Opções"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        className="flex items-center rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        className="sw-hoverable flex items-center rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted"
       >
         <Settings size={16} />
       </button>
@@ -58,7 +58,7 @@ export default function OptionsDropdown({
         <div
           role="dialog"
           aria-label="Opções"
-          className="absolute top-full right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card/95 text-card-foreground backdrop-blur-md shadow-xl"
+          className="sw-pop absolute top-full right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card/95 text-card-foreground backdrop-blur-md shadow-xl"
         >
           <div className="max-h-96 overflow-y-auto p-4">
             <Section

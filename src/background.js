@@ -899,11 +899,12 @@ function jsonDataUrl(obj) {
 // every time. The offscreen document HAS URL.createObjectURL, so it fetches and
 // hands back a blob: URL (see fetchToBlobUrl there) and only the bytes exist.
 //
-// TikTok keeps the in-worker path on purpose: its CDN 403s a request without the
-// Referer that the declarativeNetRequest session rule injects, and we could not
-// establish that the rule applies to a fetch issued by our own offscreen document.
-// A miss there is a silent 403, and TikTok images here are thumbnails, so the
-// memory win would be nothing.
+// TikTok used to be excluded here on the suspicion that the declarativeNetRequest
+// Referer rule might not reach a fetch issued by our own offscreen document. It
+// does: a fetch from an extension page returns the real 200 + video/mp4 where
+// chrome.downloads.download() on the same URL returns 403 + text/html. That is
+// the ONLY route that works for TikTok media, so it is no longer an exclusion —
+// it is the reason this function exists.
 
 // downloadId -> blob: URL to release once the item stops being in_progress.
 // chrome.downloads.download resolves when the item is CREATED, so revoking then
@@ -919,10 +920,59 @@ chrome.downloads.onChanged.addListener((delta) => {
   callOffscreen({ action: "revokeBlobUrl", blobUrl }).catch(() => {});
 });
 
+// chrome.downloads.download() RESOLVES WHEN THE ITEM IS CREATED, not when the
+// bytes land — so a server that answers 403 reports success to the caller and
+// leaves an error page on disk under the name we asked for. That is exactly how
+// TikTok videos were arriving as .html: 403, `text/html`, 502 bytes, and a green
+// tick in the panel.
+//
+// So: wait for the item to leave `in_progress` and surface the real failure.
+// The cap exists because this must not outlive a genuinely long download — a
+// rejected request fails within a second or two, so anything still running at
+// the cap is a download that is working, and we let it finish unwatched.
+const DOWNLOAD_VERIFY_MS = 30000;
+function waitForDownload(id) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      chrome.downloads.onChanged.removeListener(onChanged);
+      fn(arg);
+    };
+    const onChanged = (delta) => {
+      if (delta.id !== id || !delta.state || delta.state.current === "in_progress") return;
+      if (delta.state.current === "complete") return finish(resolve);
+      // `delta.error` is only present when the error itself changed in this
+      // event, so read the item for the reason rather than trusting the delta.
+      chrome.downloads
+        .search({ id })
+        .then((items) => finish(reject, new Error((items[0] && items[0].error) || "download interrompido")))
+        .catch(() => finish(reject, new Error("download interrompido")));
+    };
+    const timer = setTimeout(() => finish(resolve), DOWNLOAD_VERIFY_MS);
+    chrome.downloads.onChanged.addListener(onChanged);
+  });
+}
+
+// The worker-side route: fetch the bytes here (the DNR Referer rule DOES apply to
+// a fetch from the service worker) and hand chrome.downloads a data: URL, which
+// it reads out of the string instead of going back to the network. Costs a base64
+// copy of the file, which is why it is the fallback and not the first choice.
+async function downloadFetchedBytes(msg, filename, defaultType) {
+  let res = await fetch(msg.url).catch(() => null);
+  if ((!res || !res.ok) && msg.fallbackUrl) res = await fetch(msg.fallbackUrl).catch(() => null);
+  if (!res || !res.ok) throw new Error("fetch failed " + (res ? res.status : "network"));
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const type = res.headers.get("content-type") || defaultType;
+  const id = await chrome.downloads.download({ url: `data:${type};base64,${bytesToBase64(buf)}`, filename });
+  await waitForDownload(id);
+}
+
 /** Returns false when the offscreen route produced no download — the caller then
  *  falls back to the data: URL path rather than losing the file. */
-async function downloadImageViaOffscreen(msg, filename) {
-  if (isTiktokCdn(msg.url) || isTiktokCdn(msg.fallbackUrl)) return false;
+async function downloadViaOffscreen(msg, filename) {
   try {
     await ensureOffscreen();
     const res = await callOffscreen({
@@ -1161,23 +1211,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (isTiktokCdn(msg.url)) await ensureTiktokReferer();
           const filename = resolveDownloadPath(msg, `media-${Date.now()}`);
           if (msg.kind === "video") {
-            await chrome.downloads.download({ url: msg.url, filename });
+            // A TikTok video CANNOT be fetched by chrome.downloads: that request
+            // is browser-initiated, so our DNR rule never sees it, the CDN
+            // answers 403 with an HTML error body, and Chrome saves that body
+            // under a .html name. An extension-page fetch does carry the header,
+            // so mint a blob there and download the blob instead.
+            //
+            // Everything else keeps the direct download on purpose: it streams to
+            // disk, where the blob route would hold the whole file in memory
+            // first — fine for a 12 MB TikTok clip, not for a long FB video.
+            if (isTiktokCdn(msg.url)) {
+              if (await downloadViaOffscreen(msg, filename)) {
+                sendResponse({ ok: true });
+                return;
+              }
+              // No offscreen document (or it failed): same bytes, via the worker.
+              await downloadFetchedBytes(msg, filename, "video/mp4");
+              sendResponse({ ok: true });
+              return;
+            }
+            const id = await chrome.downloads.download({ url: msg.url, filename });
+            await waitForDownload(id);
             sendResponse({ ok: true });
             return;
           }
-          if (await downloadImageViaOffscreen(msg, filename)) {
+          if (await downloadViaOffscreen(msg, filename)) {
             sendResponse({ ok: true });
             return;
           }
-          let res = await fetch(msg.url).catch(() => null);
-          if ((!res || !res.ok) && msg.fallbackUrl)
-            res = await fetch(msg.fallbackUrl).catch(() => null);
-          if (!res || !res.ok)
-            throw new Error("fetch failed " + (res ? res.status : "network"));
-          const buf = new Uint8Array(await res.arrayBuffer());
-          const type = res.headers.get("content-type") || "image/jpeg";
-          const dataUrl = `data:${type};base64,${bytesToBase64(buf)}`;
-          await chrome.downloads.download({ url: dataUrl, filename });
+          await downloadFetchedBytes(msg, filename, "image/jpeg");
           sendResponse({ ok: true });
         } catch (e) {
           sendResponse({ ok: false, error: e.message });

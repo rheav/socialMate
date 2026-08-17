@@ -5,6 +5,7 @@ import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import useStagger from "@/lib/useStagger";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, fmtCount, filenameFor, extFromUrl } from "@/lib/pinMedia";
@@ -106,6 +107,7 @@ export default function PinBoardTool() {
   }, [send, pullState, applyRecords]);
 
   const sorted = sortRecords(records, sortKey, "desc");
+  const stagger = useStagger(sortKey);
 
   // Per-action status, shared hook: it keeps the failure REASON so the download
   // arrow's tooltip can say why instead of just turning red.
@@ -275,7 +277,7 @@ export default function PinBoardTool() {
       </div>
       {state.error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">{state.error}</div> : null}
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className={"grid grid-cols-3 gap-1.5 " + stagger}>
         {sorted.map((rec) => {
           const card = recordToCard(rec);
           const st = statusOf(statusKey(rec.id));

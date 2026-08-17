@@ -231,7 +231,7 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
           ref={(el) => (rowsRef.current[i] = el)}
           onClick={() => onSeek(c.timestamp?.[0] || 0)}
           title="Ir para este ponto do vídeo"
-          className={`block w-full rounded px-1 py-0.5 text-left break-words transition-colors ${
+          className={`sw-hoverable block w-full rounded px-1 py-0.5 text-left break-words ${
             i === idx ? "bg-primary/25 text-white" : "text-zinc-400 hover:text-zinc-200"
           }`}
         >
@@ -379,7 +379,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
               onClick={() => setOpen((o) => !o)}
               className="mt-0.5 flex items-center gap-1 text-left text-[11px] font-medium text-foreground/80 hover:text-foreground"
             >
-              <ChevronDown size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
+              <ChevronDown size={12} className={`transition-transform duration-[180ms] ease-[var(--sw-ease)] ${open ? "" : "-rotate-90"}`} />
               Transcrição
               {/* Only when the job recorded one. Records made before 0.72 have no
                   language and were decoded as English — labelling those "BR" is why
@@ -596,7 +596,7 @@ export function SavedPanel() {
               onClick={() => setCollapsed((c) => ({ ...c, [p]: !c[p] }))}
               className="flex w-full min-w-0 items-center gap-2 text-left"
             >
-              <ChevronDown size={14} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
+              <ChevronDown size={14} className={`transition-transform duration-[180ms] ease-[var(--sw-ease)] ${open ? "" : "-rotate-90"}`} />
               <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
               <span className="min-w-0 truncate text-sm font-semibold text-foreground">{meta.label}</span>
               <span className="text-[11px] text-muted-foreground">{items.length}</span>

@@ -10,10 +10,10 @@ const SelectTrigger = React.forwardRef(({ className, children, ...props }, ref) 
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors duration-[160ms] data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
+      "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors duration-[160ms] ease-[var(--sw-ease)] data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
       // The chevron turns while the menu is open, so the trigger itself shows
       // the state instead of leaving the popup to carry it alone.
-      "[&>svg]:transition-transform [&>svg]:duration-200 [&>svg]:ease-[cubic-bezier(0.25,0.8,0.25,1)] data-[state=open]:[&>svg]:rotate-180",
+      "[&>svg]:transition-transform [&>svg]:duration-200 [&>svg]:ease-[var(--sw-ease)] data-[state=open]:[&>svg]:rotate-180",
       className
     )}
     {...props}

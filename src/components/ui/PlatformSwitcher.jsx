@@ -30,7 +30,7 @@ export default function PlatformSwitcher({ value, onValueChange, disabled }) {
             disabled={disabled}
             onClick={() => onValueChange(id)}
             className={cn(
-              "grid place-items-center size-7 rounded-lg transition-all duration-200",
+              "grid place-items-center size-7 rounded-lg sw-hoverable",
               "disabled:cursor-not-allowed disabled:opacity-40",
               active
                 ? "platform-glow"

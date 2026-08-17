@@ -34,6 +34,7 @@ import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import useStagger from "@/lib/useStagger";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
@@ -183,6 +184,7 @@ export default function IgSortTool() {
   const scopedAll = showAll ? records : filterBySurface(records, surface);
   const scoped = scopedAll.filter((r) => withinDateRange(r.taken_at, dateRange));
   const sorted = sortRecords(scoped, sortKey, sortDir);
+  const stagger = useStagger(`${sortKey}|${sortDir}|${dateRange}|${showAll}`);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
   // used to share the record's key and so painted the media-download icon red.
@@ -569,7 +571,7 @@ export default function IgSortTool() {
           Role o feed do Instagram para coletar posts e ordená-los aqui.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={"grid grid-cols-2 gap-2 " + stagger}>
           {sorted.map((rec) => {
             const c = recordToCard(rec);
             const st = statusOf(statusKey(c.id));
@@ -669,7 +671,7 @@ export default function IgSortTool() {
                   target="_blank"
                   rel="noreferrer"
                   title="Abrir no Instagram"
-                  className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/65 p-1 text-white transition-colors hover:bg-black/80"
+                  className="sw-hoverable absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/65 p-1 text-white hover:bg-black/80"
                 >
                   <TypeIcon className="size-3.5" />
                 </a>

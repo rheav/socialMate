@@ -18,6 +18,62 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.84.0] — 2026-08-17
+
+### Corrigido
+- **Baixar vídeo do TikTok salvava um `.html` de 502 bytes.** O arquivo era a
+  página de erro 403 da CDN, renomeada pelo Chrome por causa do `content-type`
+  — e o painel ainda marcava sucesso em verde.
+
+  Duas causas, ambas necessárias para o bug aparecer:
+
+  1. `chrome.downloads.download()` é uma requisição iniciada pelo NAVEGADOR, não
+     pela extensão. A regra de sessão do declarativeNetRequest que injeta o
+     `Referer: https://www.tiktok.com/` nunca é aplicada a ela, e sem o Referer
+     a CDN responde 403. Medido lado a lado na MESMA URL: `fetch()` de uma
+     página da extensão devolve `200 video/mp4` com 12,4 MB; `downloads.download()`
+     devolve `403 text/html` com 502 bytes.
+  2. `chrome.downloads.download()` RESOLVE quando o item é CRIADO, não quando os
+     bytes chegam. Por isso o 403 era reportado como `{ ok: true }` e o ícone
+     ficava verde em cima de uma página de erro salva no disco.
+
+  Correção: vídeo do TikTok agora passa pelo documento offscreen — `fetch` ali
+  carrega o Referer, e o `blob:` resultante é o que vai para o download. Se o
+  offscreen não estiver disponível, o worker busca os mesmos bytes e entrega um
+  `data:`. E todo download direto passou a esperar o item sair de `in_progress`,
+  então uma falha do servidor vira erro no painel em vez de tique verde.
+
+  A exclusão do TikTok em `downloadImageViaOffscreen` existia pela suspeita de
+  que a regra não alcançaria um `fetch` do nosso próprio offscreen. Alcança —
+  a suspeita nunca tinha sido testada. A função virou `downloadViaOffscreen` e
+  atende imagem e vídeo.
+
+### Adicionado
+- **Stagger ao reordenar o grid.** Mudar a ordenação reorganizava os cards em um
+  quadro só. Agora eles sobem em ordem de leitura (260ms, atraso de 22ms por
+  card, travado no 12º para uma coleta de 137 não deixar o último esperando três
+  segundos).
+
+  O grid NÃO é remontado: os cards seguram `<img>` que perderiam o cache e
+  buscariam de novo a cada ordenação. Em vez disso o container alterna entre
+  duas keyframes idênticas (`sw-a` / `sw-b`), o que troca o `animation-name` de
+  cada filho e reexecuta a animação nos mesmos nós do DOM — 24/24 `<img>`
+  sobreviveram à inversão de ordem, medido. Um re-render que não muda a ordem
+  (um download terminando) não reanima nada.
+- **Entrada do popup de opções (engrenagem).** O `<Select>` do Radix já se
+  animava; este é escrito à mão e aparecia pronto, sem dizer de onde veio.
+
+### Alterado
+- **Uma curva e uma duração para o painel inteiro.** `transition-all` /
+  `transition-colors` do shadcn carregam o padrão do Tailwind (150ms, outra
+  curva), e `transition-all` ainda anima LAYOUT — largura e padding entravam na
+  transição, a um reflow por quadro. Agora botões, ícones, inputs, switch,
+  abas, segmented, plataformas e o voltar usam `.sw-hoverable`: cor/fundo/borda/
+  sombra em 160ms e `transform` em 110ms, porque um clique precisa acontecer sob
+  o dedo, não correr atrás dele.
+
+---
+
 ## [0.83.0] — 2026-08-17
 
 ### Adicionado

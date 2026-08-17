@@ -576,7 +576,7 @@ export default function WarmTool({ platform }) {
                             setReactions((r) => ({ ...r, [k]: !r[k] }))
                           }
                           className={
-                            "flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors " +
+                            "sw-hoverable flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs " +
                             (on
                               ? "border-transparent bg-primary/12 text-foreground ring-1 ring-primary/40"
                               : "border-border text-muted-foreground hover:bg-accent")

@@ -19,7 +19,7 @@ export default function IconBtn({ children, className, title, ...props }) {
       aria-label={props["aria-label"] ?? title}
       {...props}
       className={cn(
-        "grid size-6 place-items-center rounded-md bg-black/65 text-white transition-colors hover:bg-black/80 disabled:opacity-50",
+        "grid size-6 place-items-center rounded-md bg-black/65 text-white sw-hoverable hover:bg-black/80 disabled:opacity-50",
         className,
       )}
     >

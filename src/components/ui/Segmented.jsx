@@ -98,7 +98,7 @@ export default function Segmented({ value, onChange, items }) {
       <div
         className={cn(
           "pointer-events-none absolute top-1 bottom-1 rounded-md shadow-sm",
-          ready && "transition-[left,width] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)]"
+          ready && "transition-[left,width] duration-300 ease-[var(--sw-ease)]"
         )}
         style={{ left: thumb.left, width: thumb.width, backgroundImage: "var(--sw-grad)" }}
       />
@@ -116,7 +116,7 @@ export default function Segmented({ value, onChange, items }) {
                 // min-w-0 is load-bearing: flex items default to min-width:auto, so
                 // without it the buttons refuse to shrink below their label, `truncate`
                 // never engages and 5 tools overflow the track (clipped last tab).
-                "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200",
+                "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors duration-200 ease-[var(--sw-ease)]",
                 // the icon↔label gap has to go with the label, or a collapsed
                 // (0-width) span would still cost 6px per button.
                 compact ? "gap-0" : "gap-1.5",
@@ -129,7 +129,7 @@ export default function Segmented({ value, onChange, items }) {
               <span
                 ref={(el) => (labelRefs.current[id] = el)}
                 className={cn(
-                  "truncate transition-[max-width,opacity] duration-200 ease-out",
+                  "truncate transition-[max-width,opacity] duration-200 ease-[var(--sw-ease)]",
                   compact ? "max-w-0 opacity-0" : "max-w-full opacity-100"
                 )}
               >

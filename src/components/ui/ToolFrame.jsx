@@ -9,7 +9,7 @@ export default function ToolFrame({ title, onBack, children }) {
     <div className="space-y-3">
       <button
         onClick={onBack}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        className="sw-hoverable flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="size-4" /> {title}
       </button>

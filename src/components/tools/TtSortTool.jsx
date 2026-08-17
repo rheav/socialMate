@@ -37,6 +37,7 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import useStagger from "@/lib/useStagger";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
 import MetricLegend from "@/components/ui/MetricLegend";
@@ -233,6 +234,10 @@ export default function TtSortTool() {
   const scoped = scopedAll.filter((r) => withinDateRange(r.create_time, dateRange));
   // The weights go in so an ER sort orders by the same number the rail prints.
   const sorted = sortRecords(scoped, sortKey, sortDir, erW);
+  // Replay the grid's entrance whenever the ARRANGEMENT changes — not when a
+  // single card's download finishes, which is the other reason this list
+  // re-renders and no reason at all to re-animate 137 tiles.
+  const stagger = useStagger(`${sortKey}|${sortDir}|${dateRange}|${showAll}`);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
   // used to share the record's key and so painted the media-download icon red.
@@ -558,7 +563,7 @@ export default function TtSortTool() {
           Role um perfil / hashtag / feed do TikTok para coletar vídeos e ordená-los aqui.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={"grid grid-cols-2 gap-2 " + stagger}>
           {sorted.map((rec) => {
             const c = recordToCard(rec);
             const st = statusOf(statusKey(c.id));
@@ -630,7 +635,7 @@ export default function TtSortTool() {
                   target="_blank"
                   rel="noreferrer"
                   title="Abrir no TikTok"
-                  className="absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/55 p-1 text-white transition-colors hover:bg-black/80"
+                  className="sw-hoverable absolute right-1.5 top-1.5 grid place-items-center rounded-md bg-black/55 p-1 text-white hover:bg-black/80"
                 >
                   {c.pinned ? <Pin className="size-3.5" /> : <Play className="size-3.5" />}
                 </a>

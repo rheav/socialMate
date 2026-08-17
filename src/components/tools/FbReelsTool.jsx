@@ -18,6 +18,7 @@ import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
+import useStagger from "@/lib/useStagger";
 import IconBtn from "@/components/ui/IconBtn";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
@@ -90,6 +91,7 @@ export default function FbReelsTool() {
   }
 
   const sorted = sortRecords(records, sortKey, sortDir);
+  const stagger = useStagger(`${sortKey}|${sortDir}`);
 
   // Per-action status. The thumbnail is the only action routed through this hook
   // (the card's save button reports through the savedIds mirror instead), so the
@@ -200,7 +202,7 @@ export default function FbReelsTool() {
           Abra a aba Reels de um perfil e toque em <span className="font-medium text-foreground">Coletar tudo</span> para carregar e ordenar os reels aqui.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={"grid grid-cols-2 gap-2 " + stagger}>
           {sorted.map((rec) => {
             const c = recordToCard(rec);
             const st = statusOf(statusKey(c.id));

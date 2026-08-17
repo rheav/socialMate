@@ -248,7 +248,7 @@ export default function FbCommentsTool() {
               aria-label={l}
               aria-pressed={filter === k}
               className={
-                "rounded-md px-2 py-1 text-[11px] font-medium transition-colors " +
+                "sw-hoverable rounded-md px-2 py-1 text-[11px] font-medium " +
                 (filter === k ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground")
               }
             >

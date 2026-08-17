@@ -42,7 +42,7 @@ export default function TabNav({ value, onValueChange, tabs }) {
       <div
         className={cn(
           "pointer-events-none absolute -bottom-px h-0.5 rounded-full",
-          ready && "transition-[left,width] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)]"
+          ready && "transition-[left,width] duration-300 ease-[var(--sw-ease)]"
         )}
         style={{ left: bar.left, width: bar.width, backgroundImage: "var(--sw-grad)" }}
       />
@@ -60,14 +60,14 @@ export default function TabNav({ value, onValueChange, tabs }) {
             aria-label={label}
             aria-pressed={active}
             className={cn(
-              "group relative flex min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-t-lg px-2.5 py-2.5 text-[11px] transition-colors duration-200",
+              "group relative flex min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-t-lg px-2.5 py-2.5 text-[11px] transition-colors duration-200 ease-[var(--sw-ease)]",
               active ? "text-primary" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Icon size={15} className="shrink-0" />
             <span
               className={cn(
-                "overflow-hidden whitespace-nowrap transition-all duration-200 ease-out",
+                "overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-200 ease-[var(--sw-ease)]",
                 active
                   ? "max-w-[72px] opacity-100 ml-1.5"
                   : "max-w-0 opacity-0 group-hover:max-w-[72px] group-hover:opacity-100 group-hover:ml-1.5"
