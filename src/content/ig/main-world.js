@@ -215,31 +215,11 @@
 // draws the same ER the panel sorts by, and the auto-scroll runs in the page.
 // Canonical source, inlined into the capture scripts (see ./README.md).
 
-// ---- date range (item 4) ----
-// A hashtag search is mostly old posts; "what worked this month" is the question
-// worth asking, and sorting alone can't answer it.
-const DATE_RANGES = [
-  { value: "all", label: "Todo o período", days: null },
-  { value: "7d", label: "Últimos 7 dias", days: 7 },
-  { value: "14d", label: "Últimos 14 dias", days: 14 },
-  { value: "30d", label: "Últimos 30 dias", days: 30 },
-  { value: "90d", label: "Últimos 90 dias", days: 90 },
-  { value: "180d", label: "Últimos 180 dias", days: 180 },
-  { value: "1y", label: "Último ano", days: 365 },
-  { value: "2y", label: "Últimos 2 anos", days: 730 },
-];
-
-/**
- * `takenAt` is IG's taken_at — UNIX SECONDS, like the payload gives it. A record
- * whose date never arrived is KEPT: the grid payloads often omit taken_at, and
- * hiding those posts would look like the filter had eaten real results.
- */
-function withinDateRange(takenAt, range, nowSec = Math.floor(Date.now() / 1000)) {
-  const r = DATE_RANGES.find((x) => x.value === range);
-  if (!r || r.days == null) return true;
-  if (typeof takenAt !== "number" || !Number.isFinite(takenAt)) return true;
-  return takenAt >= nowSec - r.days * 86400;
-}
+// DATE_RANGES / withinDateRange / scrollGapMs used to live here. Nothing in them
+// was Instagram — TikTok's createTime is the same unix-seconds stamp and the
+// scroll cadence is the same anti-automation shape — so they moved to
+// ./harvest.js, where the TikTok scripts can inline them without dragging
+// Instagram's ER weights and React prop reader along.
 
 // ---- ER weights (item 5) ----
 // Defaults match IG Sorter's, which is what these numbers were copied from: a
@@ -256,16 +236,6 @@ function normalizeErWeights(w) {
     if (Number.isFinite(n) && n >= 0) out[k] = n;
   }
   return out;
-}
-
-// ---- paced auto-scroll (item 6) ----
-// IG Sorter scrolls to the bottom on a timer: 3 s for the first five, 6 s for the
-// next five, then 10 s. Same shape here — a harvester that keeps a constant fast
-// cadence is the part that reads as automation.
-function scrollGapMs(i) {
-  if (i < 5) return 3000;
-  if (i < 10) return 6000;
-  return 10000;
 }
 
 // ---- React-props media resolution (item 8) ----

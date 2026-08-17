@@ -20,8 +20,14 @@ import {
   Pin,
   RotateCw,
   Trash2,
+  ChevronsDown,
+  Square,
+  Sheet,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
@@ -41,7 +47,18 @@ import {
   filterBySurface,
   engagementRate,
   fmtER,
+  fmtRatio,
+  ttPermalink,
+  TT_ER_WEIGHTS,
+  TT_ER_WEIGHTS_KEY,
+  normalizeTtErWeights,
+  ttViewsPerFollower,
 } from "@/lib/ttMedia";
+// Not "igFilters": the date window and the scroll cadence are platform-neutral —
+// TikTok's createTime is the same unix-seconds stamp Instagram's taken_at is.
+import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
+import { buildXlsx } from "@/lib/xlsx";
+import { downloadPath } from "@/lib/downloadPath";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label — a whole word, never an ellipsis. Values are unchanged.
@@ -53,7 +70,38 @@ const SORT_OPTS = [
   { value: "shares", label: "Compartilhamentos", short: "Compart." },
   { value: "saves", label: "Salvamentos", short: "Salvos" },
   { value: "er", label: "TE %" },
+  { value: "followers", label: "Seguidores", short: "Segs." },
+  { value: "vpf", label: "Views por seguidor", short: "V/seg." },
   { value: "date", label: "Data" },
+];
+
+// TikTok hands the follower count over on every list item (authorStats), so these
+// two columns cost nothing extra — on Instagram the same numbers need a separate
+// enrichment request per post.
+const XLSX_COLS = [
+  { key: "id", label: "ID" },
+  { key: "url", label: "Link" },
+  { key: "username", label: "Perfil" },
+  { key: "followers", label: "Seguidores" },
+  { key: "views", label: "Visualizações" },
+  { key: "likes", label: "Curtidas" },
+  { key: "comments", label: "Comentários" },
+  { key: "shares", label: "Compartilhamentos" },
+  { key: "saves", label: "Salvamentos" },
+  { key: "er", label: "TE %" },
+  { key: "views_per_follower", label: "Views/seguidor" },
+  { key: "date", label: "Data" },
+  { key: "duration", label: "Duração (s)" },
+  { key: "location", label: "Local" },
+  { key: "hashtags", label: "Hashtags" },
+  { key: "caption", label: "Legenda" },
+  { key: "music_title", label: "Áudio" },
+  { key: "music_author", label: "Autor do áudio" },
+  { key: "music_url", label: "Link do áudio" },
+  { key: "bio", label: "Bio" },
+  { key: "subtitle", label: "Legenda automática (VTT)" },
+  { key: "thumb", label: "Miniatura" },
+  { key: "video", label: "Vídeo" },
 ];
 
 // Small icon button overlaid on a card thumbnail.
@@ -66,13 +114,36 @@ export default function TtSortTool() {
   const [surface, setSurface] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const [sortKey, setSortKey] = useState("default");
+  const [dateRange, setDateRange] = useState("all");
   const [sortDir, setSortDir] = useState("desc");
+  const [overlay, setOverlay] = useState(true);
+  const [erW, setErW] = useState(TT_ER_WEIGHTS);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
   // The bridge answers {unchanged:true} when its store hasn't moved since the
   // version we last saw, which makes an idle poll near-free — it otherwise
   // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
   // what Atualizar wants after a clear.
   const sinceRef = useRef(null);
+
+  useEffect(() => {
+    chrome?.storage?.local?.get(["sw_tt_overlay", TT_ER_WEIGHTS_KEY]).then((r) => {
+      if (r?.sw_tt_overlay != null) setOverlay(!!r.sw_tt_overlay);
+      setErW(normalizeTtErWeights(r && r[TT_ER_WEIGHTS_KEY]));
+    });
+  }, []);
+  const toggleOverlay = (v) => {
+    setOverlay(v);
+    chrome?.storage?.local?.set({ sw_tt_overlay: v });
+  };
+  // An empty box is a legitimate keystroke on the way to a number. Writing "" back
+  // through Number() would give 0, which passes the guard and silently ZEROES that
+  // term — so a half-typed weight is held in local state and never persisted.
+  const setWeight = (k, raw) => {
+    if (raw === "") { setErW((w) => ({ ...w, [k]: "" })); return; }
+    const next = normalizeTtErWeights({ ...erW, [k]: raw });
+    setErW(next);
+    chrome?.storage?.local?.set({ [TT_ER_WEIGHTS_KEY]: next });
+  };
 
   const [txMap, setTxMap] = useState({});
   const [savedIds, setSavedIds] = useState({});
@@ -150,8 +221,10 @@ export default function TtSortTool() {
     refresh();
   };
 
-  const scoped = showAll ? records : filterBySurface(records, surface);
-  const sorted = sortRecords(scoped, sortKey, sortDir);
+  const scopedAll = showAll ? records : filterBySurface(records, surface);
+  const scoped = scopedAll.filter((r) => withinDateRange(r.create_time, dateRange));
+  // The weights go in so an ER sort orders by the same number the rail prints.
+  const sorted = sortRecords(scoped, sortKey, sortDir, erW);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
   // used to share the record's key and so painted the media-download icon red.
@@ -176,7 +249,7 @@ export default function TtSortTool() {
     const url = rec.cover || rec.dynamic_cover;
     if (!url) return;
     const ext = extFromUrl(url, "image");
-    // Covers go to miniaturas, not in with the videos.
+    // The -thumb suffix marks the cover; the bucket follows the media kind.
     await run(statusKey(rec.id, "thumb"), () =>
       requireOk({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) }),
     );
@@ -187,6 +260,74 @@ export default function TtSortTool() {
       await downloadRecord(rec);
       await new Promise((r) => setTimeout(r, 400));
     }
+  }
+
+  // Ask the PAGE to scroll so TikTok paginates. The pacing lives there (scrollGapMs
+  // — 3 s, then 6 s, then 10 s) because that is where the scrolling happens; the
+  // panel only says how many rounds. It also has to be the page because TikTok's
+  // grid scroller is <main>, not the document.
+  const [scrolling, setScrolling] = useState(false);
+  async function harvest(rounds) {
+    if (scrolling) {
+      await send({ type: "FBW_TT_SCROLL_STOP" }, { userAction: true }).catch(() => {});
+      setScrolling(false);
+      return;
+    }
+    setScrolling(true);
+    const res = await send({ type: "FBW_TT_SCROLL", rounds }, { userAction: true }).catch(() => null);
+    if (!res) { setScrolling(false); return; }
+    // The page paces itself; this is only the panel's estimate of when it is done.
+    const ms = rounds * 3000 + Math.max(0, rounds - 5) * 3000 + Math.max(0, rounds - 10) * 4000;
+    setTimeout(() => setScrolling(false), ms);
+  }
+
+  function exportXlsx() {
+    const rows = sorted.map((r) => {
+      const er = engagementRate(r, erW);
+      const vpf = ttViewsPerFollower(r);
+      return {
+        id: r.id || null,
+        url: ttPermalink(r),
+        username: r.username || null,
+        followers: r.user_follower_count ?? null,
+        views: r.play_count ?? null,
+        likes: r.digg_count ?? null,
+        comments: r.comment_count ?? null,
+        shares: r.share_count ?? null,
+        saves: r.collect_count ?? null,
+        // Numbers stay numbers so the sheet can sort and sum them — a views column
+        // exported as text is useless, which is the whole reason to export.
+        er: er == null ? null : Math.round(er * 100) / 100,
+        views_per_follower: vpf == null ? null : Math.round(vpf * 100) / 100,
+        date: r.create_time ? new Date(r.create_time * 1000).toISOString().slice(0, 10) : null,
+        duration: r.duration ?? null,
+        location: r.location || null,
+        hashtags: (r.hashtags || []).join(" ") || null,
+        caption: r.desc || null,
+        music_title: r.music?.title || null,
+        music_author: r.music?.author || null,
+        music_url: r.music?.url || null,
+        bio: r.author_bio || null,
+        subtitle: r.subtitle?.url || null,
+        thumb: r.cover || r.dynamic_cover || null,
+        video: r.hd_url || r.video || null,
+      };
+    });
+    const bytes = buildXlsx(XLSX_COLS, rows, "Videos");
+    const url = URL.createObjectURL(
+      new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    chrome.downloads.download({
+      // `surface` is null before the first poll answers, and stays null on a page
+      // that reports none — with "mostrar tudo" the export is still legitimate, so
+      // it needs a name rather than a TypeError that downloads nothing.
+      url,
+      filename: downloadPath("sheet", `tt-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`),
+      saveAs: false,
+      conflictAction: "uniquify",
+    });
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   async function saveToLibrary(rec) {
@@ -286,6 +427,12 @@ export default function TtSortTool() {
       {banner}
       <ToolBar>
         <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SORT_OPTS} />
+        <ToolSelect
+          label="Período"
+          value={dateRange}
+          onValueChange={setDateRange}
+          options={DATE_RANGES.map((r) => ({ value: r.value, label: r.label, short: r.short || r.label }))}
+        />
         <ToolIconButton
           icon={sortDir === "desc" ? ArrowDown : ArrowUp}
           label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
@@ -303,6 +450,23 @@ export default function TtSortTool() {
           variant={clearArmed ? "destructive" : "outline"}
           onClick={onClearTap}
         />
+        <ToolIconButton
+          icon={scrolling ? Square : ChevronsDown}
+          label={scrolling ? "Parar a coleta" : "Coletar (rolar 10×)"}
+          hint={
+            scrolling
+              ? "Parar a rolagem automática"
+              : "Rola a grade em ritmo humano (3 s, depois 6 s, depois 10 s) para o TikTok carregar mais vídeos"
+          }
+          onClick={() => harvest(10)}
+        />
+        <ToolIconButton
+          icon={Sheet}
+          label="Planilha (.xlsx)"
+          hint="Exporta os vídeos listados com seguidores, TE, views por seguidor, áudio e legendas"
+          onClick={exportXlsx}
+          disabled={!sorted.length}
+        />
         <ActionButton
           icon={Download}
           label="Tudo"
@@ -312,6 +476,31 @@ export default function TtSortTool() {
           disabled={!sorted.length}
         />
       </ToolBar>
+
+      {/* ER weights. What counts as engagement differs per niche, and the on-page
+          overlay reads the same stored numbers — TikTok exposes shares AND saves,
+          which is why this row has two terms Instagram's cannot. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="font-medium text-foreground/80">Peso do TE:</span>
+        {[
+          ["like", "curtida"],
+          ["comment", "coment."],
+          ["share", "compart."],
+          ["save", "salvo"],
+        ].map(([k, label]) => (
+          <label key={k} className="flex items-center gap-1">
+            {label}
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={erW[k]}
+              onChange={(e) => setWeight(k, e.target.value)}
+              className="w-11 rounded-md border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums"
+            />
+          </label>
+        ))}
+      </div>
 
       {/* flex-wrap, not truncate: when the tally and the toggle can't share a
           line the toggle drops to its own line instead of losing words. */}
@@ -324,6 +513,13 @@ export default function TtSortTool() {
         </button>
       </div>
 
+      <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <Label htmlFor="tt-overlay" className="min-w-0 cursor-pointer text-xs text-foreground">
+          Sobreposição de estatísticas no TikTok
+        </Label>
+        <Switch id="tt-overlay" className="shrink-0" checked={overlay} onCheckedChange={toggleOverlay} />
+      </div>
+
       {!sorted.length ? (
         <p className="text-sm text-muted-foreground py-8 text-center">
           Role um perfil / hashtag / feed do TikTok para coletar vídeos e ordená-los aqui.
@@ -334,7 +530,7 @@ export default function TtSortTool() {
             const c = recordToCard(rec);
             const st = statusOf(statusKey(c.id));
             const stThumb = statusOf(statusKey(c.id, "thumb"));
-            const er = engagementRate(rec);
+            const er = engagementRate(rec, erW);
             return (
               <div
                 key={c.id}
@@ -437,6 +633,15 @@ export default function TtSortTool() {
                     <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
                       <Zap className="size-3" />
                       {fmtER(er)}
+                    </div>
+                  )}
+                  {/* Creator size, and how far past that audience the video went.
+                      Free on TikTok — authorStats rides along on every list item. */}
+                  {c.followers != null && (
+                    <div className="flex items-center gap-1 text-[11.5px] font-bold leading-none">
+                      <Users className="size-3" />
+                      {fmtCount(c.followers)}
+                      {c.viewsPerFollower != null ? ` · ${fmtRatio(c.viewsPerFollower)}` : ""}
                     </div>
                   )}
                   {c.date && (

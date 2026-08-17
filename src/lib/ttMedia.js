@@ -8,40 +8,42 @@
 
 import { downloadPath, kindFromExt, sanitizeFilenamePart } from "./downloadPath.js";
 import { fmtCount, parseCount } from "./shared/counts.js";
+// The page overlay runs the SAME code: everything below is inlined into
+// src/content/tt/tt-relay.js by scripts/gen-inline.mjs, so the rail on a tile and
+// the rail in this panel can never report different numbers.
+import {
+  TT_ER_WEIGHTS,
+  TT_ER_WEIGHTS_KEY,
+  normalizeTtErWeights,
+  ttEngagementRate,
+  ttViewsPerFollower,
+  fmtRatio,
+  ttPermalink,
+} from "./shared/ttFormat.js";
+import { fmtDate, fmtER } from "./shared/fmt.js";
+export {
+  TT_ER_WEIGHTS,
+  TT_ER_WEIGHTS_KEY,
+  normalizeTtErWeights,
+  ttViewsPerFollower,
+  fmtRatio,
+  ttPermalink,
+  fmtDate,
+  fmtER,
+};
 // parseCount used to be a private copy here that mis-read a lone pt-BR thousands
 // separator ("1.234" is 1234, not 1.234). The shared parser gets that right and
 // knows 14 locale unit words instead of 6.
 export { fmtCount, parseCount };
 
-// ER weights: like 1×, comment & share 4×, save (collect) 2×. Tunable.
-export const ER_WEIGHTS = { like: 1, comment: 4, share: 4, save: 2 };
+// ER weights are a user SETTING now, not a constant — what counts as engagement
+// differs per niche, and the panel and the page overlay have to agree on it. The
+// weights are the argument; ER_WEIGHTS is kept as the legacy alias for the
+// defaults so older callers still resolve.
+export const ER_WEIGHTS = TT_ER_WEIGHTS;
 
-export function engagementRate(rec) {
-  const v = rec.play_count;
-  if (!v || v <= 0) return null;
-  const w = ER_WEIGHTS;
-  const eng =
-    w.like * (rec.digg_count || 0) +
-    w.comment * (rec.comment_count || 0) +
-    w.share * (rec.share_count || 0) +
-    w.save * (rec.collect_count || 0);
-  return (eng / v) * 100;
-}
-
-// Unix seconds → "YYYY-MM-DD" (empty string when missing/invalid).
-export function fmtDate(unixSeconds) {
-  if (!unixSeconds) return "";
-  const d = new Date(unixSeconds * 1000);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-}
-
-// Engagement-rate label. Never collapses to "0.0%".
-export function fmtER(er) {
-  if (er == null) return null;
-  if (er === 0) return "0%";
-  if (er >= 10) return er.toFixed(1) + "%";
-  if (er >= 0.1) return er.toFixed(2) + "%";
-  return Number(er.toPrecision(2)) + "%";
+export function engagementRate(rec, weights) {
+  return ttEngagementRate(rec, weights);
 }
 
 // Compact engagement count for display: 964490 -> "964.5K", 1200000 -> "1.2M".
@@ -58,16 +60,22 @@ const METRIC = {
   shares: (r) => r.share_count,
   saves: (r) => r.collect_count,
   date: (r) => r.create_time,
-  er: engagementRate,
+  // Creator size, and how far past that audience the video travelled. Both ride
+  // along on every TikTok list payload (authorStats) — Instagram needs a separate
+  // enrichment request for the first and cannot sort by the second at all.
+  followers: (r) => r.user_follower_count,
+  vpf: ttViewsPerFollower,
+  er: ttEngagementRate,
 };
 
 // Comparator over TikTok records. Missing metrics always sort last, whatever the
-// direction (pinned-but-statless items don't jump the list).
-export function sortComparator(key, dir = "desc") {
+// direction (pinned-but-statless items don't jump the list). `weights` is threaded
+// through so an ER sort uses the same numbers the visible ER label was drawn from.
+export function sortComparator(key, dir = "desc", weights) {
   const get = METRIC[key] || METRIC.views;
   const sign = dir === "asc" ? 1 : -1;
   return (a, b) => {
-    const av = get(a), bv = get(b);
+    const av = get(a, weights), bv = get(b, weights);
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
@@ -75,9 +83,9 @@ export function sortComparator(key, dir = "desc") {
   };
 }
 
-export function sortRecords(records, key, dir) {
+export function sortRecords(records, key, dir, weights) {
   if (key === "default") return [...records]; // capture order (≈ TikTok's own order)
-  return [...records].sort(sortComparator(key, dir));
+  return [...records].sort(sortComparator(key, dir, weights));
 }
 
 export function recordToCard(rec) {
@@ -91,9 +99,11 @@ export function recordToCard(rec) {
     shares: rec.share_count ?? null,
     saves: rec.collect_count ?? null,
     date: fmtDate(rec.create_time),
+    followers: rec.user_follower_count ?? null,
+    viewsPerFollower: ttViewsPerFollower(rec),
     hasVideo: !!rec.video,
     pinned: !!rec.pinned,
-    permalink: rec.username && rec.id ? `https://www.tiktok.com/@${rec.username}/video/${rec.id}` : null,
+    permalink: ttPermalink(rec),
   };
 }
 
@@ -101,22 +111,23 @@ export function recordToCard(rec) {
 export { sanitizeFilenamePart };
 
 // Bare file name, no folder. Kept separate from the path so the cover-only button
-// can rename it (-thumb) and file it under miniaturas instead of with the media.
+// can rename it (-thumb); the suffix is what marks a cover now that covers
+// share the imagens/ bucket with the full-size images.
 export function baseNameFor(rec, ext, idx) {
   const base = `tt-${sanitizeFilenamePart(rec.username || rec.nickname)}-${rec.id || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
 }
 
 // TikTok downloads are videos, but the cover is fetched through the same namer —
-// so the sub-folder follows the actual media, not the platform default.
+// so the bucket follows the actual media.
 export function filenameFor(rec, ext, idx) {
-  return downloadPath("tiktok", kindFromExt(ext), baseNameFor(rec, ext, idx));
+  return downloadPath(kindFromExt(ext), baseNameFor(rec, ext, idx));
 }
 
-// "Baixar miniatura": the same name with a -thumb suffix, under miniaturas.
+// "Baixar miniatura": the same name with a -thumb suffix.
 export function thumbFilenameFor(rec, ext) {
   const name = baseNameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
-  return downloadPath("tiktok", "thumb", name);
+  return downloadPath("thumb", name);
 }
 
 export function extFromUrl(url, kind) {

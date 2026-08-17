@@ -10,12 +10,13 @@ import { sanitizeFilenamePart } from "./shared/filenames.js";
 // to hand-copy all of it, epoch literal included.
 import {
   engagementRate,
-  fmtDate,
   dateFromPk,
-  fmtER,
   extFromUrl,
   baseNameFor,
 } from "./shared/igFormat.js";
+// The date and ER labels are platform-agnostic and now live in shared/fmt.js —
+// TikTok prints the identical strings from the identical code.
+import { fmtDate, fmtER } from "./shared/fmt.js";
 export { fmtCount };
 export { engagementRate, fmtDate, dateFromPk, fmtER, extFromUrl, baseNameFor };
 
@@ -69,13 +70,13 @@ export { sanitizeFilenamePart };
 
 // A post can be a photo or a video, so the sub-folder follows the actual media.
 export function filenameFor(rec, ext, idx) {
-  return downloadPath("instagram", kindFromExt(ext), baseNameFor(rec, ext, idx));
+  return downloadPath(kindFromExt(ext), baseNameFor(rec, ext, idx));
 }
 
-// "Baixar miniatura": the same name with a -thumb suffix, under miniaturas.
+// "Baixar miniatura": the same name with a -thumb suffix.
 export function thumbFilenameFor(rec, ext) {
   const name = baseNameFor(rec, ext).replace(new RegExp("\\." + ext + "$"), "-thumb." + ext);
-  return downloadPath("instagram", "thumb", name);
+  return downloadPath("thumb", name);
 }
 
 // Scope captured records to a surface. IG's JSON.parse also parses suggested/

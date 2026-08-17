@@ -38,7 +38,10 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
-import { DATE_RANGES, withinDateRange, normalizeErWeights, ER_WEIGHTS, ER_WEIGHTS_KEY } from "@/lib/shared/igFilters.js";
+import { normalizeErWeights, ER_WEIGHTS, ER_WEIGHTS_KEY } from "@/lib/shared/igFilters.js";
+// Date window + scroll cadence are platform-neutral and now live apart from the
+// Instagram-only knobs; the TikTok tool reads the same module.
+import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
 import { buildXlsx } from "@/lib/xlsx.js";
 import { downloadPath } from "@/lib/downloadPath";
 import {
@@ -229,7 +232,7 @@ export default function IgSortTool() {
     const url = rec.image || rec.thumb;
     if (!url) return;
     const ext = extFromUrl(url, "image");
-    // Covers go to miniaturas, not in with the full-size media.
+    // The -thumb suffix marks the cover; the bucket follows the media kind.
     await run(statusKey(id, "thumb"), () =>
       requireOk({ type: "FBW_DL_MEDIA", kind: "image", url, filename: thumbFilenameFor(rec, ext) }),
     );
@@ -370,11 +373,7 @@ export default function IgSortTool() {
       // `surface` is null before the first poll answers, and stays null on a page
       // that reports none — with "mostrar tudo" the export is still legitimate, so
       // it needs a name rather than a TypeError that silently downloads nothing.
-      filename: downloadPath(
-        "instagram",
-        "sheet",
-        `ig-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`,
-      ),
+      filename: downloadPath("sheet", `ig-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`),
       saveAs: false,
       conflictAction: "uniquify",
     });

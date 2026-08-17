@@ -18,6 +18,9 @@ import { sanitizeFilenamePart } from "./filenames.js";
 // The weights live in igFilters (one definition: the panel edits them, the page
 // reads them, and two inlined copies of the same const would not parse).
 import { ER_WEIGHTS } from "./igFilters.js";
+// fmtDate/fmtER used to be declared here. They moved to ./fmt.js — TikTok prints
+// the same two strings, and this file's copy already had a twin in ttMedia.js.
+// Importers take them from there; nothing in this module needs them.
 
 
 export function engagementRate(rec, weights) {
@@ -31,13 +34,6 @@ export function engagementRate(rec, weights) {
     w.comment * (rec.comment_count || 0) +
     w.repost * (rec.repost || 0);
   return (eng / v) * 100;
-}
-
-// Unix seconds → "YYYY-MM-DD" (empty string when missing/invalid).
-export function fmtDate(unixSeconds) {
-  if (!unixSeconds) return "";
-  const d = new Date(unixSeconds * 1000);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
 // IG media ids encode creation time in their high bits (snowflake, epoch below),
@@ -55,16 +51,6 @@ export function dateFromPk(pk) {
   }
 }
 
-// Engagement-rate label. Never collapses to "0.0%": 1 decimal ≥10, 2 decimals
-// ≥0.1, else 2 significant figures (e.g. "0.06%", "0.004%").
-export function fmtER(er) {
-  if (er == null) return null;
-  if (er === 0) return "0%";
-  if (er >= 10) return er.toFixed(1) + "%";
-  if (er >= 0.1) return er.toFixed(2) + "%";
-  return Number(er.toPrecision(2)) + "%";
-}
-
 // Same scrubber as downloadPath.js's, which the fb/tt/pin libs share. It has to be
 // restated here because a module in src/lib/shared/ may not import anything but a
 // sibling — and downloadPath.js is a panel/background module, not an inlinable one.
@@ -78,7 +64,8 @@ export function extFromUrl(url, kind) {
 }
 
 // Bare file name, no folder. Kept separate from the path so the cover-only button
-// can rename it (-thumb) and file it under miniaturas instead of with the media.
+// can rename it (-thumb) — the suffix is what marks a cover now that covers share
+// the imagens/ bucket with the full-size images.
 export function baseNameFor(rec, ext, idx) {
   const base = `ig-${sanitizeFilenamePart(rec.username)}-${rec.code || rec.pk || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
