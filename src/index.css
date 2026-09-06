@@ -1,118 +1,198 @@
-@import "@fontsource/outfit/300.css";
-@import "@fontsource/outfit/400.css";
-@import "@fontsource/outfit/500.css";
-@import "@fontsource/outfit/600.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Light is the default here and `.dark` is the opt-in, the inverse of the app
+   this palette came from (apps/gestao, where dark is the default). The panel
+   follows the OS on first open and remembers your choice after that, so both
+   variants have to be complete either way — only which one is written on `:root`
+   differs, and keeping `.dark` is what lets Shell's toggle, the stored
+   `sw_theme` and the pre-paint in main.jsx stay exactly as they were. */
 @custom-variant dark (&:is(.dark *));
 
-/* Map shadcn tokens → Tailwind utilities. `inline` keeps the var() reference live so
-   the per-platform values we set on <html> at runtime (e.g. --primary, --radius) flow
-   through to bg-primary / rounded-lg / etc. */
+/* ---- Paleta Nord, com a aurora ligada (portada de apps/gestao) ----
+   `fg` e `panel` são as duas cores-base que invertem: todo `text-fg/40`,
+   `bg-panel/[0.05]` e `border-panel/10` resolve por color-mix a partir delas,
+   então trocar essas duas re-tematiza o painel inteiro. Os tokens semânticos do
+   shadcn logo abaixo apontam para esta mesma paleta, e é por isso que a troca
+   re-skinou o painel sem tocar nos componentes: eles já falavam `bg-card`,
+   `text-muted-foreground`, `border-border`.
+
+   O Nord original é cinza-ardósia puro; aqui o chão carrega um índigo leve e os
+   acentos subiram de croma até virarem pastéis. No claro os acentos NÃO são o
+   pastel escurecido — isso vira mostarda e oliva. Eles mantêm o matiz e ganham
+   croma, e o pastel reaparece pelo alpha sobre o papel. Cada acento é um token
+   só: serve de texto, de borda e de fundo translúcido ao mesmo tempo.
+
+   Estes valores VIVEM em @theme (e não em :root) porque é isso que gera as
+   utilidades `text-fg/…`, `bg-panel/…`, `text-amber`; o bloco `.dark` mais
+   abaixo só reescreve as mesmas variáveis. */
+@theme {
+  --color-bg: #f1f4fa;
+  --color-bg-2: #ffffff;
+  --color-fg: #2b3240;
+  --color-panel: #3d4a68; /* índigo, não o quase-preto do Nord: é ele que dá
+                             matiz a toda lavagem `bg-panel/[0.0x]` */
+  --color-scrim: #3d4a68;
+
+  --color-amber: #b3771c; /* palha da estufa — e o calor do aquecedor */
+  --color-amber-soft: #996314;
+  --color-sky: #3f7fbf; /* frost, vidro frio — a cor primária do painel */
+  --color-sky-soft: #35699e;
+  --color-good: #4f8f5f; /* broto */
+  --color-danger: #c2515f; /* terracota desbotada */
+  --color-violet: #8a5fa8; /* dormência */
+  --color-onaccent: #ffffff;
+
+  --radius-card: 1rem;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Tokens semânticos do shadcn, escritos em Nord — claro. */
+:root,
+:root[data-theme="light"] {
+  --background: #f1f4fa;
+  --foreground: #2b3240;
+  --card: #ffffff;
+  --card-foreground: #2b3240;
+  --popover: #ffffff;
+  --popover-foreground: #2b3240;
+  --primary: #3f7fbf;
+  --primary-foreground: #ffffff;
+  --secondary: #e6ecf6;
+  --secondary-foreground: #2b3240;
+  --muted: #e6ecf6;
+  --muted-foreground: #55627d;
+  --accent: #e6ecf6;
+  --accent-foreground: #2b3240;
+  --destructive: #c2515f;
+  --destructive-foreground: #ffffff;
+  --border: color-mix(in oklab, #3d4a68 14%, transparent);
+  --input: color-mix(in oklab, #3d4a68 20%, transparent);
+  --ring: #3f7fbf;
+
+  --radius: 0.75rem;
+
+  /* O sinal de "rodando" do aquecedor. Era um ember laranja próprio; no Nord a
+     cor de calor já existe e é o amber, então a assinatura é a mesma coisa que
+     a paleta — não uma cor extra pendurada nela. */
+  --sw-live: var(--color-amber);
+}
+
+/* Escuro. Só as mesmas variáveis, reescritas — nenhuma regra nova. */
+.dark,
+:root[data-theme="dark"] {
+  --color-bg: #2a2f3c; /* nord0 puxado pro índigo */
+  --color-bg-2: #3b4356; /* nord1 */
+  --color-fg: #eceff4; /* nord6 */
+  --color-panel: #d9e0ee; /* nord4 */
+  --color-scrim: #11141c;
+
+  --color-amber: #f2cf94;
+  --color-amber-soft: #e3ba79;
+  --color-sky: #8ecae6;
+  --color-sky-soft: #7dafd6;
+  --color-good: #b2dba4;
+  --color-danger: #e79aa4;
+  --color-violet: #cbaad9;
+  --color-onaccent: #232833;
+
+  --background: #2a2f3c;
+  --foreground: #eceff4;
+  --card: #363d4e;
+  --card-foreground: #eceff4;
+  --popover: #363d4e;
+  --popover-foreground: #eceff4;
+  --primary: #8ecae6;
+  --primary-foreground: #232833;
+  --secondary: #414a5f;
+  --secondary-foreground: #eceff4;
+  --muted: #363d4e;
+  --muted-foreground: #aeb9cd;
+  --accent: #414a5f;
+  --accent-foreground: #eceff4;
+  --destructive: #e79aa4;
+  --destructive-foreground: #232833;
+  --border: color-mix(in oklab, #d9e0ee 13%, transparent);
+  --input: color-mix(in oklab, #d9e0ee 17%, transparent);
+  --ring: #8ecae6;
+}
+
+/* Mapeamento shadcn → utilidades do Tailwind. `inline` mantém a referência
+   var() viva, então tudo que for reescrito em `.dark` (ou inline no <html>)
+   continua fluindo para bg-card / rounded-lg / etc. */
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-/* Unified brand (unFunnelizer "Smart" identity): azure → seaFoam, one look for
-   every platform. Theme axis is light/dark (not per-social-network). Tokens are
-   shadcn HSL triplets so remapping them re-skins every component at once. */
-:root, :root[data-theme="light"] {
-  --background: 210 40% 98%;      /* #f8fafc */
-  --foreground: 217 33% 17%;      /* #1e293b */
-  --card: 0 0% 100%;              /* #ffffff */
-  --card-foreground: 217 33% 17%;
-  /* Smart-blue primary (azure) — CTAs, switches, focus rings */
-  --primary: 220 97% 61%;         /* #3c7cfc */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 213 100% 96%;
-  --secondary-foreground: 220 50% 30%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%; /* #64748b */
-  --accent: 205 87% 94%;
-  --accent-foreground: 220 50% 30%;
-  --destructive: 0 84% 60%;        /* #ef4444 */
-  --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 91%;           /* #e2e8f0 */
-  --input: 214 32% 89%;
-  --ring: 220 97% 61%;
-  --radius: 0.625rem;
+/* ---- Cor de plataforma ----
+   Cada rede guarda um `#rrggbb` só (lib/platforms.jsx), posto em `--sw-seed`
+   inline. Daí sai `--sw-accent`: o MATIZ é o da marca, a luminância e o croma
+   são os do TEMA. É isso que faz o vermelho do Pinterest e o magenta do
+   Instagram continuarem legíveis no claro e no escuro sem ninguém escolher duas
+   cores — e é o que substituiu os gradientes por rede, que eram a identidade
+   antiga do painel e não existem na linguagem para onde ele migrou.
 
-  --sw-from: #3c7cfc;
-  --sw-to: #59c0e8;
-  --sw-grad: linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%);
-  --sw-glow: rgba(60, 124, 252, 0.5);
-  --sw-wash: radial-gradient(130% 90% at 50% -20%, #f7f7f8 0%, #fcfcfd 55%, #ffffff 82%);
-  /* Smart gradient primary action (Start / primary CTA) */
-  --sw-switch: var(--sw-grad);
-  --sw-action: var(--sw-grad);
-  --sw-action-hover: linear-gradient(135deg, #2f6bea 0%, #46acd6 100%);
-
-  /* ember = the "warming" heat. Reserved for the LIVE/running state only. */
-  --sw-ember: 28 92% 52%;
+   O `min()` no croma segura os neutros: um seed sem croma derivaria com matiz
+   indefinido e sairia rosa. Multiplicar o croma do próprio seed faz cinza sair
+   cinza, enquanto uma cor escolhida de propósito chega no croma cheio do tema. */
+:root {
+  --sw-accent-l: 0.52;
+  --sw-accent-c: 0.15;
 }
-
-/* Dark theme (unFunnelizer "Dark Tech Elegance" surfaces). Applied when the root
-   carries .dark / [data-theme="dark"]; the header toggle sets it, defaulting to
-   the OS preference. */
-/* Dark = "Brute" identity per the unFunnelizer model: red→yellow accents on the
-   dark surfaces (light stays Smart-blue). Text on the Brute gradient is BLACK —
-   the yellow end kills white — so --primary-foreground flips to black here. */
-.dark, :root[data-theme="dark"] {
-  --background: 240 24% 7%;       /* #0f0f14 */
-  --foreground: 240 6% 90%;       /* #e4e4e7 */
-  --card: 240 15% 10%;            /* #16161d */
-  --card-foreground: 240 6% 90%;
-  --primary: 0 100% 65%;          /* #ff4d4d scarlet */
-  --primary-foreground: 0 0% 0%;  /* black on the Brute gradient */
-  --secondary: 240 14% 16%;
-  --secondary-foreground: 240 6% 85%;
-  --muted: 240 13% 14%;
-  --muted-foreground: 218 11% 65%; /* #9ca3af */
-  --accent: 240 14% 17%;
-  --accent-foreground: 240 6% 90%;
-  --destructive: 0 84% 62%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 240 12% 19%;          /* #2a2a35 */
-  --input: 240 12% 22%;
-  --ring: 0 100% 65%;
-
-  --sw-from: #ff4d4d;
-  --sw-to: #f9cb28;
-  --sw-grad: linear-gradient(135deg, #ff4d4d 0%, #f9cb28 100%);
-  --sw-glow: rgba(255, 77, 77, 0.5);
-  --sw-action: var(--sw-grad);
-  --sw-action-hover: linear-gradient(135deg, #ef3d3d 0%, #e6b81f 100%);
-  --sw-wash: radial-gradient(130% 90% at 50% -20%, #16161d 0%, #101017 55%, #0f0f14 82%);
+.dark {
+  --sw-accent-l: 0.82;
+  --sw-accent-c: 0.09;
+}
+[data-sw-seed] {
+  --sw-accent: oklch(
+    from var(--sw-seed) var(--sw-accent-l) min(var(--sw-accent-c), calc(c * 2.5)) h
+  );
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
   }
   /* slightly smaller base so text + density fit the narrow side panel better */
-  html { scroll-behavior: smooth; font-size: 15px; }
+  html {
+    scroll-behavior: smooth;
+    font-size: 15px;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
-    color: hsl(var(--foreground));
+    color: color-mix(in oklab, var(--color-fg) 92%, transparent);
     /* Side panel is user-resizable — fill its width instead of locking to a fixed
        360px (which left a white gap on the right when the panel was wider). */
     width: 100%;
@@ -122,14 +202,36 @@
        (see components/ui/ToolBar.jsx), so 260px is a real supported width. */
     min-width: 260px;
     min-height: 100vh;
-    font-family: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-weight: 300;
-    /* light, airy backdrop; retints per active platform */
-    background: var(--sw-wash) fixed;
-    transition: background 0.3s ease;
+    font-family: var(--font-sans);
+    /* Duas manchas de acento sobre a subida de lightness. Fracas de propósito:
+       o chão precisa ter matiz, não desenho. (A fonte empacotada Outfit saiu
+       junto com os gradientes: a linguagem nova usa a stack do sistema, o que
+       também tirou quatro arquivos de fonte do bundle da extensão.) */
+    background:
+      radial-gradient(
+        80% 55% at 12% 0%,
+        color-mix(in oklab, var(--color-sky) 10%, transparent),
+        transparent 60%
+      ),
+      radial-gradient(
+        70% 50% at 92% 6%,
+        color-mix(in oklab, var(--color-violet) 9%, transparent),
+        transparent 62%
+      ),
+      radial-gradient(
+        120% 120% at 50% 0%,
+        var(--color-bg-2) 0%,
+        var(--color-bg) 55%
+      );
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    transition:
+      background-color 0.4s var(--ease-out-soft),
+      color 0.4s var(--ease-out-soft);
   }
-  /* Unfunnelizer feel: keep everything light, lean on color/size for hierarchy */
-  button, h1, h2, h3, h4, h5, h6 { font-weight: inherit; }
+  ::selection {
+    background: color-mix(in oklab, var(--color-sky) 35%, transparent);
+  }
 
   /* every interactive control gets the hand cursor */
   button:not(:disabled),
@@ -147,44 +249,59 @@
   }
 }
 
-/* ===== gradient helpers (themed via --sw-* vars) ===== */
-.grad-blue { background-image: var(--sw-action); }
-.grad-blue:hover { background-image: var(--sw-action-hover); }
-.grad-blue-text {
-  background: var(--sw-action);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-/* brand-identity gradient (logo squircle) */
-.grad-identity { background-image: var(--sw-grad); }
-/* brand-gradient text — the "socialWarmer" wordmark (per-platform color) */
-.grad-identity-text {
-  background: var(--sw-grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+/* ===== superfícies ===== */
+/* O cartão de vidro do gestao: uma lavagem da cor-painel e uma borda da mesma
+   cor, as duas por alpha — por isso funciona igual sobre o papel claro e sobre
+   o índigo escuro. */
+@utility glass {
+  background: color-mix(in oklab, var(--color-panel) 5%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-panel) 12%, transparent);
+  border-radius: var(--radius-card);
 }
 
-/* active platform logo: gradient fill (via #sw-grad) + themed glow */
-.platform-glow { filter: drop-shadow(0 0 6px var(--sw-glow)); }
-.platform-glow svg { fill: url(#sw-grad); }
+/* Os blocos tipo console — a transcrição corrida e o log do aquecedor — são
+   escuros nos DOIS temas de propósito: é texto de máquina, lido em bloco. O
+   `scrim` do Nord já é essa cor (índigo profundo no claro, quase preto no
+   escuro), e o texto é fixo em nord4 porque `fg` inverte e ficaria preto sobre
+   preto no tema claro. */
+@utility console {
+  background: var(--color-scrim);
+  color: #d9e0ee;
+}
 
-/* themed toggle fill (radix sets data-state on the switch root) */
-.sw-switch[data-state="checked"] { background-image: var(--sw-switch); }
+@utility section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
-/* ===== live/running ember signature ===== */
+/* ===== live/running ===== */
 /* heat pulse on the status chip while a run is live */
 @keyframes sw-ember-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--sw-ember) / 0.45); }
-  50% { box-shadow: 0 0 0 5px hsl(var(--sw-ember) / 0); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--sw-live) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
 }
-.ember-pulse { animation: sw-ember-pulse 1.9s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.ember-pulse {
+  animation: sw-ember-pulse 1.9s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
 /* thin animated heat line under the header while running */
-@keyframes sw-heat-slide { from { background-position: 0 0; } to { background-position: 200% 0; } }
+@keyframes sw-heat-slide {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
 .heat-bar {
   height: 2px;
-  background: linear-gradient(90deg, transparent, hsl(var(--sw-ember)), transparent);
+  background: linear-gradient(90deg, transparent, var(--sw-live), transparent);
   background-size: 200% 100%;
   animation: sw-heat-slide 2.2s linear infinite;
 }
@@ -251,10 +368,10 @@
   max-width: min(100%, 15rem);
   z-index: 40;
   padding: 0.3rem 0.45rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: calc(var(--radius) - 4px);
-  background: hsl(var(--card));
-  color: hsl(var(--card-foreground));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--card-foreground);
   box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.35);
   font-size: 11px;
   font-weight: 400;
@@ -315,12 +432,22 @@
   .sw-tips .sw-tip::after { transition: none; }
 }
 
-/* themed scrollbars */
-* { scrollbar-width: thin; scrollbar-color: var(--sw-from) transparent; }
+/* Barras de rolagem: a mesma cor-painel por alpha que desenha as bordas e as
+   lavagens, em vez do gradiente da marca que existia aqui. Discretas nos dois
+   temas sem precisar de dois valores. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-panel) 15%, transparent) transparent;
+}
 *::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--sw-action); border-radius: 4px; }
-.log-scroll::-webkit-scrollbar-thumb { background: #475569; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-panel) 18%, transparent);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-panel) 28%, transparent);
+}
 
 /* ============================================================================
    MOTION
@@ -338,7 +465,7 @@
    at the end (the arrival reads as settling rather than stopping).
    ============================================================================ */
 :root {
-  --sw-ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --sw-ease: var(--ease-out-soft);
   --sw-swap-ms: 180ms;
   --sw-hover-ms: 160ms;
   /* A press has to land under the finger, not catch up to it. */

@@ -6,6 +6,7 @@ import { sendBg } from "@/lib/bg";
 import { chunkIndexAt, centerScrollTop } from "@/lib/playhead.js";
 import { fbCardLink } from "@/lib/shared/fbPermalink.js";
 import { usePlayhead } from "@/lib/usePlayhead.js";
+import { transcriptMetaChips, fmtClock } from "@/lib/transcriptMeta.js";
 import {
   recordedTranscriptLanguageShort,
   readStoredTranscriptLanguage,
@@ -49,12 +50,6 @@ function dl(platform, name, text) {
 }
 
 // "0:07" — the timestamp on each karaoke line, and what a click on it seeks to.
-function fmtClock(s) {
-  if (typeof s !== "number" || !Number.isFinite(s)) return "";
-  const x = Math.max(0, Math.floor(s));
-  return `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`;
-}
-
 // Same prefixes the media downloaders already stamp on their files (ig-, tt-, pin-),
 // so a transcript is recognisable as belonging to its video once both are on disk.
 // `dl()` defaults an unknown platform to facebook, so this map does too.
@@ -171,10 +166,10 @@ function ReloadHint() {
   const needsReload = useFlag("fbw_need_reload");
   if (!needsReload) return null;
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-amber-400/10 border border-amber-400/30 px-2.5 py-2 text-[11px] text-amber-700">
+    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg bg-amber/10 border border-amber/30 px-2.5 py-2 text-[11px] text-amber">
       <span className="min-w-0 flex-1 break-words">Esta aba ainda não está vinculada — recarregue-a para capturar o vídeo aqui.</span>
       <button
-        className="flex-none rounded-md bg-amber-500 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-600"
+        className="flex-none rounded-md bg-amber px-2 py-1 text-[11px] font-medium text-onaccent hover:bg-amber-soft"
         onClick={() => hasStorage() && chrome.runtime.sendMessage({ type: "FBW_RELOAD_TAB" })}
       >
         Recarregar aba
@@ -223,7 +218,7 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
   return (
     <div
       ref={boxRef}
-      className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200"
+      className="console max-h-44 overflow-y-auto rounded-md p-2 text-[11px] leading-relaxed"
     >
       {chunks.map((c, i) => (
         <button
@@ -232,10 +227,10 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
           onClick={() => onSeek(c.timestamp?.[0] || 0)}
           title="Ir para este ponto do vídeo"
           className={`sw-hoverable block w-full rounded px-1 py-0.5 text-left break-words ${
-            i === idx ? "bg-primary/25 text-white" : "text-zinc-400 hover:text-zinc-200"
+            i === idx ? "bg-sky/25 text-[#eceff4]" : "text-[#d9e0ee]/60 hover:text-[#d9e0ee]"
           }`}
         >
-          <span className="mr-1.5 tabular-nums text-[10px] text-zinc-500">
+          <span className="mr-1.5 tabular-nums text-[10px] text-[#d9e0ee]/45">
             {fmtClock(c.timestamp?.[0])}
           </span>
           {(c.text || "").trim()}
@@ -258,6 +253,10 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
     share: n(raw.share),
   };
   const hasCounts = c.like || c.comment || c.share || c.views;
+  // Second strip line: what we know about the POST, under how it performed. Only
+  // what was actually captured — a Facebook record usually contributes a duration
+  // and nothing else, so this is often one chip, or absent entirely.
+  const meta = transcriptMetaChips(it);
   // Karaoke only for THIS card, and only when the tab is playing THIS video. The
   // id travels with every tick precisely so a reel change can't scrub the wrong
   // transcript. No chunks (an old record) → the plain text view, unchanged.
@@ -294,19 +293,19 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
         });
   return (
     <div className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
-      <div className="relative aspect-[3/4] bg-zinc-900">
+      <div className="relative aspect-[3/4] console">
         {srcUrl ? (
           <a href={srcUrl} target="_blank" rel="noreferrer" title="Abrir o reel original" className="block h-full w-full">
             {it.thumb ? (
               <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
             ) : (
-              <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">abrir reel</div>
+              <div className="grid h-full w-full place-items-center text-[10px] text-[#d9e0ee]/45">abrir reel</div>
             )}
           </a>
         ) : it.thumb ? (
           <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
         ) : (
-          <div className="grid h-full w-full place-items-center text-[10px] text-zinc-500">sem prévia</div>
+          <div className="grid h-full w-full place-items-center text-[10px] text-[#d9e0ee]/45">sem prévia</div>
         )}
         {/* actions on the thumbnail */}
         <div className="absolute right-1.5 top-1.5 flex gap-1">
@@ -327,7 +326,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
             title={saved ? "Remover dos salvos" : "Salvar"}
             className="grid size-6 place-items-center rounded-md bg-black/70 text-white hover:bg-black/85"
           >
-            {saved ? <BookmarkCheck size={13} className="text-amber-400" /> : <Bookmark size={13} />}
+            {saved ? <BookmarkCheck size={13} className="text-amber" /> : <Bookmark size={13} />}
           </button>
           {onDelete && (
             <button
@@ -339,13 +338,40 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
             </button>
           )}
         </div>
-        {/* counts strip */}
-        {hasCounts && (
-          <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-x-2 gap-y-0.5 bg-gradient-to-t from-black/75 to-transparent px-2 pb-1.5 pt-4 text-[10px] font-medium text-white">
-            {c.like && <span>👍 {c.like}</span>}
-            {c.comment && <span>💬 {c.comment}</span>}
-            {c.views && <span>👁 {c.views}</span>}
-            {c.share && <span>↗ {c.share}</span>}
+        {/* counts strip. A gradient alone does not carry text over a thumbnail:
+            its top is transparent by definition, so exactly the rows that sit
+            highest — and, since the metadata line landed, that is most of the
+            strip — were reading against whatever the frame happened to be. Bright
+            faces and burnt-in captions won. So: a solid scrim under the text, with
+            a short gradient above it so the panel still fades into the image
+            instead of cutting it with a hard edge. No backdrop blur — the panel
+            scrolls a dozen of these at once and the page overlay already measured
+            what that costs (68 ms → 8 ms per frame after removal). */}
+        {(hasCounts || meta.length > 0) && (
+          <div className="absolute inset-x-0 bottom-0">
+            <div className="h-5 bg-gradient-to-t from-black/75 to-transparent" />
+            <div
+              className="flex flex-col gap-0.5 bg-black/75 px-2 pb-1.5 pt-0.5 text-[10px] font-medium text-white"
+              style={{ textShadow: "0 1px 2px rgba(0,0,0,.55)" }}
+            >
+              {hasCounts && (
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                  {c.like && <span>👍 {c.like}</span>}
+                  {c.comment && <span>💬 {c.comment}</span>}
+                  {c.views && <span>👁 {c.views}</span>}
+                  {c.share && <span>↗ {c.share}</span>}
+                </div>
+              )}
+              {meta.length > 0 && (
+                <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-normal text-white/85">
+                  {meta.map((m) => (
+                    <span key={m.key} title={m.title}>
+                      {m.icon} {m.text}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -394,7 +420,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
               (karaoke ? (
                 <KaraokeTranscript chunks={it.chunks} t={playhead.tick.t} onSeek={(t) => playhead.seek(it.videoId, t)} />
               ) : (
-                <div className="max-h-44 overflow-y-auto rounded-md bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-200 break-words whitespace-pre-wrap">
+                <div className="max-h-44 overflow-y-auto rounded-md console p-2 text-[11px] leading-relaxed  break-words whitespace-pre-wrap">
                   {it.text}
                 </div>
               ))}

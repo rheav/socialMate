@@ -59,7 +59,7 @@ function CommentRow({ c }) {
       }
     >
       <div className="mb-0.5 flex items-center gap-1.5">
-        {c.is_reply && <CornerDownRight className="size-3 flex-none text-sky-400/70" />}
+        {c.is_reply && <CornerDownRight className="size-3 flex-none text-sky/70" />}
         {prof ? (
           <a href={prof} target="_blank" rel="noreferrer" className="truncate text-[12px] font-semibold text-foreground hover:underline">
             {c.author?.name || "desconhecido"}
@@ -67,11 +67,11 @@ function CommentRow({ c }) {
         ) : (
           <span className="truncate text-[12px] font-semibold text-foreground">{c.author?.name || "desconhecido"}</span>
         )}
-        {c.badges?.length ? <BadgeCheck className="size-3 flex-none text-amber-500" /> : null}
+        {c.badges?.length ? <BadgeCheck className="size-3 flex-none text-amber" /> : null}
         {c.time_relative && <span className="flex-none text-[10px] text-muted-foreground">· {c.time_relative}</span>}
         {c.reactions > 0 && (
-          <span className="ml-auto flex flex-none items-center gap-0.5 text-[11px] font-semibold text-rose-500">
-            <Heart className="size-3 fill-rose-500" /> {fmtCount(c.reactions)}
+          <span className="ml-auto flex flex-none items-center gap-0.5 text-[11px] font-semibold text-danger">
+            <Heart className="size-3 fill-danger" /> {fmtCount(c.reactions)}
           </span>
         )}
       </div>
@@ -257,7 +257,7 @@ export default function FbCommentsTool() {
           ))}
         </div>
         <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-          {active.scraping && <Loader2 className="size-3 shrink-0 animate-spin text-sky-500" />}
+          {active.scraping && <Loader2 className="size-3 shrink-0 animate-spin text-sky" />}
           {rows.length} exibidos · {active.count}{active.scraping ? "…" : " no total"}
         </span>
       </div>

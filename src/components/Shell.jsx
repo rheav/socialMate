@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Flame, Library as LibraryIcon, Moon, Search as SearchIcon, Sun } from "lucide-react";
-import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
+import { ChevronRight, Flame, Library as LibraryIcon, Search as SearchIcon, Settings } from "lucide-react";
+import { PLATFORMS, PLATFORM_ORDER, platformAccent } from "@/lib/platforms";
 import { workspaceToolsForPlatform, getTool } from "@/lib/tools";
 import { detectActivePlatform, hasChromeTabs } from "@/lib/tabs";
 import {
@@ -13,7 +13,9 @@ import {
   withToolId,
   withTab,
 } from "@/lib/navState";
+import { DEFAULT_UI_PREFS, UI_PREFS_KEY, normalizeUiPrefs, resolveTab, visibleTabs } from "@/lib/uiPrefs";
 import Segmented from "@/components/ui/Segmented";
+import OptionsModal from "@/components/ui/OptionsModal";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import ToolFrame from "@/components/ui/ToolFrame";
 import PlatformSwitcher from "@/components/ui/PlatformSwitcher";
@@ -21,10 +23,10 @@ import LibraryTool from "@/components/tools/LibraryTool";
 
 const THEME_KEY = "sw_theme";
 
-// NOTE: do NOT retint the UI per platform. The panel keeps ONE identity (Smart blue
-// in light, Brute red→yellow in dark) on every platform — see index.css :root/.dark.
-// `PLATFORMS[p].theme` exists but is intentionally NOT applied to <html>; it is only
-// read inline for the small per-platform icon tiles on the Home picker.
+// NOTE: do NOT retint the UI per platform. The panel keeps ONE identity — the
+// Nord `sky` — on every platform; see index.css :root/.dark. A platform's own
+// colour appears only on its tile in the Home picker and on the selected glyph,
+// through `platformAccent()`: the brand hue, the theme's lightness and chroma.
 
 // Light/dark theme: toggle the `.dark` class on <html>. Defaults to the OS
 // preference until the user picks, then persists their choice.
@@ -69,17 +71,65 @@ function useTheme() {
     chrome.storage.onChanged.addListener(onCh);
     return () => chrome.storage.onChanged.removeListener(onCh);
   }, []);
-  const toggle = () => {
-    const next = theme === "dark" ? "light" : "dark";
+  // Takes the theme to switch TO. It used to be a flip, because the only caller
+  // was a two-state header button; the Opções modal names both themes instead, so
+  // picking the one already active must be a no-op rather than a toggle.
+  const choose = (next) => {
+    if (next !== "dark" && next !== "light") return;
     setTheme(next);
     applyTheme(next);
     try {
       chrome?.storage?.local?.set({ [THEME_KEY]: next });
     } catch {
-      /* the toggle still applied locally; only the cross-window sync is lost */
+      /* the choice still applied locally; only the cross-window sync is lost */
     }
   };
-  return [theme, toggle];
+  return [theme, choose];
+}
+
+// The icon each top-level tab wears. The tab LIST itself lives in lib/uiPrefs.js,
+// which is pure — icons are React, so they are mapped back in here.
+const TAB_ICONS = { research: SearchIcon, warm: Flame, library: LibraryIcon };
+
+// Panel-wide preferences (today: whether the Aquecer tab is shown). Stored and
+// followed exactly like the theme — the panel is per-window, so a switch flipped
+// in one window must reach the others without reopening them.
+function useUiPrefs() {
+  const [prefs, setPrefsState] = useState(DEFAULT_UI_PREFS);
+  useEffect(() => {
+    (async () => {
+      if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+      try {
+        const r = await chrome.storage.local.get(UI_PREFS_KEY);
+        setPrefsState(normalizeUiPrefs(r?.[UI_PREFS_KEY]));
+      } catch {
+        /* defaults already applied */
+      }
+    })();
+  }, []);
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.onChanged) return;
+    const onCh = (changes, area) => {
+      if (area !== "local" || !changes[UI_PREFS_KEY]) return;
+      setPrefsState(normalizeUiPrefs(changes[UI_PREFS_KEY].newValue));
+    };
+    chrome.storage.onChanged.addListener(onCh);
+    return () => chrome.storage.onChanged.removeListener(onCh);
+  }, []);
+  // Takes an updater, like setState, so a toggle never overwrites a sibling key
+  // it read before another window changed it.
+  const setPrefs = useCallback((update) => {
+    setPrefsState((prev) => {
+      const next = normalizeUiPrefs(typeof update === "function" ? update(prev) : update);
+      try {
+        chrome?.storage?.local?.set({ [UI_PREFS_KEY]: next });
+      } catch {
+        /* applied locally; only the cross-window sync is lost */
+      }
+      return next;
+    });
+  }, []);
+  return [prefs, setPrefs];
 }
 
 // Two top-level tabs: Warmer and Library.
@@ -139,7 +189,9 @@ export default function Shell() {
 
   useFollowActiveTab(ready, ownWindowId, setNav);
 
-  const [theme, toggleTheme] = useTheme();
+  const [theme, setTheme] = useTheme();
+  const [prefs, setPrefs] = useUiPrefs();
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   const setPlatform = useCallback((p) => setNav((n) => withPlatform(n, p)), []);
   const setToolId = useCallback(
@@ -168,7 +220,10 @@ export default function Shell() {
 
   if (!ready) return null;
 
-  const { tab, platform } = nav;
+  const { platform } = nav;
+  // The stored tab can name one that is switched off — hiding the warmer while
+  // standing in it, or a panel opened in another window after the switch.
+  const tab = resolveTab(nav.tab, prefs);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -188,23 +243,30 @@ export default function Shell() {
             aria-label="Início — socialMate"
             className="flex min-w-0 shrink-0 items-center gap-2.5"
           >
-            <div className="grad-identity grid size-7 shrink-0 place-items-center rounded-[9px]">
-              <Flame className="size-[15px] text-white" fill="currentColor" strokeWidth={1.5} />
+            <div className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-primary">
+              <Flame
+                className="size-[15px] text-primary-foreground"
+                fill="currentColor"
+                strokeWidth={1.5}
+              />
             </div>
-            <h1 className="truncate text-[15px] font-semibold grad-identity-text tracking-tight @max-[308px]/toolbar:hidden">
+            <h1 className="truncate text-[15px] font-semibold tracking-tight text-fg/90 @max-[308px]/toolbar:hidden">
               socialMate
             </h1>
           </button>
           {/* always-visible platform nav — also shows which platform the panel follows */}
           <PlatformSwitcher value={platform} onValueChange={pickPlatform} />
         </div>
+        {/* One button, not two: the theme moved into Opções with the rest of the
+            panel's settings, so the header keeps only the way in. */}
         <button
-          onClick={toggleTheme}
-          title={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
-          aria-label={theme === "dark" ? "Mudar para claro" : "Mudar para escuro"}
+          onClick={() => setOptionsOpen(true)}
+          title="Opções"
+          aria-label="Opções"
+          aria-haspopup="dialog"
           className="sw-hoverable grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          <Settings className="size-4" />
         </button>
       </header>
 
@@ -212,11 +274,11 @@ export default function Shell() {
         <Segmented
           value={tab}
           onChange={setTab}
-          items={[
-            { id: "research", label: "Pesquisa", Icon: SearchIcon },
-            { id: "warm", label: "Aquecer", Icon: Flame },
-            { id: "library", label: "Arquivo", Icon: LibraryIcon },
-          ]}
+          items={visibleTabs(prefs).map((t) => ({
+            id: t.id,
+            label: t.label,
+            Icon: TAB_ICONS[t.id],
+          }))}
         />
       </div>
 
@@ -238,6 +300,15 @@ export default function Shell() {
           />
         )}
       </main>
+
+      <OptionsModal
+        open={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        prefs={prefs}
+        setPrefs={setPrefs}
+        theme={theme}
+        setTheme={setTheme}
+      />
     </div>
   );
 }
@@ -327,12 +398,12 @@ function PlatformPicker({ setPlatform, only = null, describe }) {
   const ids = only ? PLATFORM_ORDER.filter((id) => only.includes(id)) : PLATFORM_ORDER;
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">
         Escolha uma plataforma
       </p>
       <div className="space-y-2">
         {ids.map((id) => {
-          const { name, Glyph, theme } = PLATFORMS[id];
+          const { name, Glyph } = PLATFORMS[id];
           const blurb = describe(id);
           return (
             <button
@@ -340,9 +411,12 @@ function PlatformPicker({ setPlatform, only = null, describe }) {
               onClick={() => setPlatform(id)}
               className="sw-hoverable flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:bg-accent"
             >
+              {/* The platform's hue, graded by the theme — a flat wash and a
+                  matching glyph rather than the brand gradient this tile used to
+                  carry (see platformAccent). */}
               <span
-                className="grid size-10 place-items-center rounded-xl text-white shadow-sm"
-                style={{ backgroundImage: theme["--sw-grad"] }}
+                className="grid size-10 place-items-center rounded-xl border border-[color-mix(in_oklab,var(--sw-accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--sw-accent)_14%,transparent)] text-[var(--sw-accent)]"
+                {...platformAccent(id)}
               >
                 <Glyph width={20} height={20} />
               </span>

@@ -1,0 +1,29 @@
+{
+  "n_fft": 7680,
+  "chunk_size": 261120,
+  "short_length": 12000,
+  "multi_length": 300000,
+  "probe_channels": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "probe_bins": [
+    0,
+    1,
+    2,
+    3,
+    31,
+    256,
+    1024,
+    3071
+  ],
+  "probe_frames": [
+    0,
+    1,
+    37,
+    128,
+    255
+  ]
+}

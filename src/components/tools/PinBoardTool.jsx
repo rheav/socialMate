@@ -227,7 +227,7 @@ export default function PinBoardTool() {
         <div className="text-[11px] text-muted-foreground">
           superfície: {ctx.surface?.kind} · pasta: {ctx.board?.id || "—"} · pins: {ctx.board?.pin_count ?? "—"} · subpastas: {ctx.sections?.length ?? 0}
         </div>
-        {ctx.error ? <div className="mt-1 text-[11px] text-red-600">{ctx.error}</div> : null}
+        {ctx.error ? <div className="mt-1 text-[11px] text-danger">{ctx.error}</div> : null}
       </div>
 
       {/* `dense`: three labelled buttons AND a select. At the ordinary threshold
@@ -275,7 +275,7 @@ export default function PinBoardTool() {
         {state.harvesting ? " · em andamento" : state.done ? " · concluído" : ""}
         {state.hitCap ? ` · parado no limite de ${MAX_PAGES} páginas — colete novamente para mais` : ""}
       </div>
-      {state.error ? <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">{state.error}</div> : null}
+      {state.error ? <div className="rounded-md bg-danger/10 px-3 py-2 text-[11px] text-danger">{state.error}</div> : null}
 
       <div className={"grid grid-cols-3 gap-1.5 " + stagger}>
         {sorted.map((rec) => {
@@ -295,7 +295,7 @@ export default function PinBoardTool() {
                   errorOf(statusKey(rec.id)),
                 )}
               >
-                <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
+                <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
               </IconBtn>
               <IconBtn
                 onClick={() => save(rec)}
@@ -311,9 +311,9 @@ export default function PinBoardTool() {
                   className={
                     "size-3.5 " +
                     (stSave === "error"
-                      ? "text-red-400"
+                      ? "text-danger"
                       : savedIds[rec.id]
-                        ? "fill-current text-amber-300"
+                        ? "fill-current text-amber"
                         : "")
                   }
                 />

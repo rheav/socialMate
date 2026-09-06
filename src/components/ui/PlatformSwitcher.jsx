@@ -1,24 +1,19 @@
 import { cn } from "@/lib/utils";
-import { PLATFORMS, PLATFORM_ORDER } from "@/lib/platforms";
+import { PLATFORMS, PLATFORM_ORDER, platformAccent } from "@/lib/platforms";
 
-// Top-right platform picker. Active logo fills with the azure→seafoam gradient
-// (via the shared <linearGradient> def below) and glows; inactive logos are muted
-// gray and lift on hover. Brand marks only — no labels.
+// Top-right platform picker. The active logo is filled with its OWN brand hue,
+// graded to the theme (see platformAccent), on a wash of the same colour;
+// inactive logos are muted and lift on hover. Brand marks only — no labels.
+//
+// It used to paint the active glyph with the panel's gradient through a shared
+// <linearGradient> def, which meant every network looked the same when selected
+// and nothing looked like itself. The def is gone: a flat fill needs no SVG
+// plumbing, and the colour now says WHICH network is active.
 export default function PlatformSwitcher({ value, onValueChange, disabled }) {
   return (
     // shrink-0: the switcher is the header's payload — the wordmark next to it
     // is what gives way when the panel narrows, never these four targets.
     <div className="flex shrink-0 items-center gap-1.5">
-      {/* one shared gradient def for all active glyphs */}
-      <svg width="0" height="0" className="absolute" aria-hidden="true">
-        <defs>
-          <linearGradient id="sw-grad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="var(--sw-from)" />
-            <stop offset="100%" stopColor="var(--sw-to)" />
-          </linearGradient>
-        </defs>
-      </svg>
-
       {PLATFORM_ORDER.map((id) => {
         const { name, Glyph } = PLATFORMS[id];
         const active = value === id;
@@ -33,17 +28,14 @@ export default function PlatformSwitcher({ value, onValueChange, disabled }) {
               "grid place-items-center size-7 rounded-lg sw-hoverable",
               "disabled:cursor-not-allowed disabled:opacity-40",
               active
-                ? "platform-glow"
-                : "text-muted-foreground/70 opacity-70 hover:opacity-100 hover:text-foreground hover:bg-primary/5"
+                ? "bg-[color-mix(in_oklab,var(--sw-accent)_14%,transparent)] text-[var(--sw-accent)]"
+                : "text-muted-foreground/70 opacity-70 hover:bg-panel/[0.07] hover:text-foreground hover:opacity-100"
             )}
+            {...(active ? platformAccent(id) : {})}
             aria-pressed={active}
             aria-label={name}
           >
-            <Glyph
-              width={17}
-              height={17}
-              style={active ? { fill: "url(#sw-grad)" } : undefined}
-            />
+            <Glyph width={17} height={17} fill="currentColor" />
           </button>
         );
       })}

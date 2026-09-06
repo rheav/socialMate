@@ -262,7 +262,7 @@ export default function IgStoriesTool() {
                             <Download
                               className={
                                 "size-3.5 " +
-                                (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")
+                                (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")
                               }
                             />
                           )}
@@ -276,7 +276,7 @@ export default function IgStoriesTool() {
                           target="_blank"
                           rel="noreferrer"
                           title={`Link (arraste para cima): ${c.links[0]}`}
-                          className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded bg-sky-500/90 px-1 py-0.5 text-[9px] font-semibold text-white hover:bg-sky-500"
+                          className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded bg-sky/90 px-1 py-0.5 text-[9px] font-semibold text-onaccent hover:bg-sky"
                         >
                           <Link2 className="size-2.5" /> link
                         </a>

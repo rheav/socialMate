@@ -41,10 +41,10 @@ export default function TabNav({ value, onValueChange, tabs }) {
     <div ref={trackRef} className="relative flex w-full min-w-0 items-stretch gap-0.5 border-b border-border">
       <div
         className={cn(
-          "pointer-events-none absolute -bottom-px h-0.5 rounded-full",
+          "pointer-events-none absolute -bottom-px h-0.5 rounded-full bg-sky",
           ready && "transition-[left,width] duration-300 ease-[var(--sw-ease)]"
         )}
-        style={{ left: bar.left, width: bar.width, backgroundImage: "var(--sw-grad)" }}
+        style={{ left: bar.left, width: bar.width }}
       />
       {tabs.map(({ id, label, Icon }) => {
         const active = value === id;
@@ -61,7 +61,7 @@ export default function TabNav({ value, onValueChange, tabs }) {
             aria-pressed={active}
             className={cn(
               "group relative flex min-w-0 shrink-0 cursor-pointer items-center justify-center rounded-t-lg px-2.5 py-2.5 text-[11px] transition-colors duration-200 ease-[var(--sw-ease)]",
-              active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              active ? "text-fg [&_svg]:text-sky" : "text-fg/45 hover:text-fg/85"
             )}
           >
             <Icon size={15} className="shrink-0" />

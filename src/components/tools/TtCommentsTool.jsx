@@ -261,7 +261,7 @@ export default function TtCommentsTool() {
             {copied ? "Copiado" : "Copiar"}
           </button>
           <button
-            className={"inline-flex items-center gap-1 underline " + (exportErr ? "text-red-400" : "")}
+            className={"inline-flex items-center gap-1 underline " + (exportErr ? "text-danger" : "")}
             onClick={exportJson}
           >
             <Download className="size-3" /> {exportErr ? "Erro" : "JSON"}

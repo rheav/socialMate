@@ -1,7 +1,7 @@
 {
   "name": "social-mate",
   "private": true,
-  "version": "0.84.0",
+  "version": "0.89.0",
   "type": "module",
   "description": "Multi-platform (Facebook / Instagram / TikTok) research + warming Chrome extension (side panel, CRXJS + React + shadcn).",
   "scripts": {
@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
-    "@fontsource/outfit": "^5.2.8",
     "@huggingface/transformers": "^3.8.1",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-select": "^2.2.6",
@@ -27,6 +26,7 @@
     "franc-min": "^6.2.0",
     "idb-keyval": "^6.2.5",
     "lucide-react": "^1.17.0",
+    "onnxruntime-web": "1.22.0-dev.20250409-89f8206ba4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwind-merge": "^3.6.0",

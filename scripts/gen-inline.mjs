@@ -48,6 +48,7 @@ const TARGETS = {
   "src/content/fb/photos-scrape.js": ["src/lib/shared/fbPhotoIds.js"],
   "src/content/ig/bridge.js": [
     "src/lib/shared/counts.js",
+    "src/lib/shared/igCode.js",
     "src/lib/shared/igSurface.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/filenames.js",
@@ -58,8 +59,15 @@ const TARGETS = {
     "src/lib/shared/igFormat.js",
     "src/lib/shared/overlayUi.js",
     "src/lib/shared/txLang.js",
+    "src/lib/shared/igPlayerHost.js",
   ],
-  "src/content/ig/main-world.js": ["src/lib/shared/igFilters.js", "src/lib/shared/igEnrich.js", "src/lib/shared/igSurface.js"],
+  "src/content/ig/main-world.js": [
+    "src/lib/shared/igCode.js",
+    "src/lib/shared/igFilters.js",
+    "src/lib/shared/igEnrich.js",
+    "src/lib/shared/igSurface.js",
+    "src/lib/shared/igPlayerHost.js",
+  ],
   // The MAIN-world TikTok capture maps payloads; the isolated bridge maps the SSR
   // blob AND draws the overlays, so it needs the formatting half as well.
   "src/content/tt/tt-capture.js": ["src/lib/shared/ttItems.js"],
@@ -72,6 +80,7 @@ const TARGETS = {
     "src/lib/shared/ttItems.js",
     "src/lib/shared/fmt.js",
     "src/lib/shared/ttFormat.js",
+    "src/lib/shared/ttPlayerHost.js",
   ],
 };
 

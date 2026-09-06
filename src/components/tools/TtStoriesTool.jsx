@@ -106,6 +106,12 @@ export default function TtStoriesTool() {
       caption: item.desc || null,
       author: { name: item.reel_owner || item.username || "desconhecido", url: item.username ? `https://www.tiktok.com/@${item.username}` : null },
       thumb: item.cover || item.dynamic_cover || null,
+      // A story record is the same shape as any other captured item (tt-capture
+      // only stamps __kind on it), so it carries these too. Public counts are the
+      // part a story does not have.
+      takenAt: item.create_time ?? null,
+      followers: item.user_follower_count ?? null,
+      durationS: item.duration ?? null,
     }).catch(() => {});
     setTxMap((m) => ({ ...m, [item.id]: "running" }));
   }
@@ -198,7 +204,7 @@ export default function TtStoriesTool() {
 
                   <div className="absolute left-1 top-1 flex flex-col gap-1">
                     <IconBtn title={statusTitle("Baixar HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
-                      {st === "downloading" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />}
+                      {st === "downloading" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />}
                     </IconBtn>
                     {(item.video || item.subtitle) && (
                       <IconBtn
@@ -206,11 +212,11 @@ export default function TtStoriesTool() {
                         onClick={() => transcribe(item)}
                         disabled={txMap[item.id] === "running"}
                       >
-                        {txMap[item.id] === "running" ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className={"size-3.5 " + (txMap[item.id] === "done" ? "text-emerald-400" : "")} />}
+                        {txMap[item.id] === "running" ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className={"size-3.5 " + (txMap[item.id] === "done" ? "text-good" : "")} />}
                       </IconBtn>
                     )}
                     <IconBtn title={savedIds[item.id] ? "Salvo" : "Salvar na biblioteca"} onClick={() => save(item)}>
-                      <Bookmark className={"size-3.5 " + (savedIds[item.id] ? "fill-yellow-400 text-yellow-400" : "")} />
+                      <Bookmark className={"size-3.5 " + (savedIds[item.id] ? "fill-amber text-amber" : "")} />
                     </IconBtn>
                   </div>
 

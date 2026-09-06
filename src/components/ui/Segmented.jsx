@@ -10,10 +10,15 @@ const ICON_GAP = 6; // gap-1.5 between icon and label
 const BTN_GAP = 4; // gap-1 between buttons
 const TRACK_PAD = 8; // p-1 on the track
 
-// Segmented control with a single accent-gradient thumb that FLOWS between
-// options — the thumb's left/width transition (liquid slide) instead of snapping.
-// The gradient is the themed accent (Smart blue in light, Brute red→yellow in
-// dark), so switching tabs reads as one continuous motion of the brand color.
+// Segmented control with a single thumb that FLOWS between options — the thumb's
+// left/width transition (liquid slide) instead of snapping.
+//
+// The thumb is the `sky` wash the migrated design language uses for a chosen tab
+// (a 15% bath of the accent with a 30% ring), not the solid brand gradient it
+// used to be: at panel width a tab is nearly as wide as the panel, and a solid
+// accent block that size reads as a filled button rather than as a selection.
+// The label stays in full `fg` — sky as TEXT does not clear AA over its own wash
+// in the light theme — and it is the ICON that takes the accent.
 //
 // Narrow panels: TikTok has FIVE tools, and pt-BR labels ("Comentários",
 // "Playlists") are long. Rather than clip the last tab, the control measures
@@ -94,13 +99,16 @@ export default function Segmented({ value, onChange, items }) {
     // however many tools a platform grows. The carriers are absolutely
     // positioned, so they add no flex item and no `gap`: every button keeps the
     // exact geometry the thumb measures.
-    <div ref={trackRef} className="sw-tips relative flex min-w-0 items-center gap-1 rounded-lg bg-muted p-1">
+    <div
+      ref={trackRef}
+      className="sw-tips relative flex min-w-0 items-center gap-1 rounded-lg bg-panel/[0.05] p-1 ring-1 ring-panel/10 ring-inset"
+    >
       <div
         className={cn(
-          "pointer-events-none absolute top-1 bottom-1 rounded-md shadow-sm",
+          "pointer-events-none absolute top-1 bottom-1 rounded-md bg-sky/15 ring-1 ring-sky/30 ring-inset",
           ready && "transition-[left,width] duration-300 ease-[var(--sw-ease)]"
         )}
-        style={{ left: thumb.left, width: thumb.width, backgroundImage: "var(--sw-grad)" }}
+        style={{ left: thumb.left, width: thumb.width }}
       />
       {items.map(({ id, label, Icon }) => {
         const active = value === id;
@@ -120,9 +128,7 @@ export default function Segmented({ value, onChange, items }) {
                 // the icon↔label gap has to go with the label, or a collapsed
                 // (0-width) span would still cost 6px per button.
                 compact ? "gap-0" : "gap-1.5",
-                active
-                  ? "text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                active ? "text-fg [&_svg]:text-sky" : "text-fg/45 hover:text-fg/85"
               )}
             >
               <Icon size={13} strokeWidth={active ? 2.25 : 1.75} className="shrink-0" />

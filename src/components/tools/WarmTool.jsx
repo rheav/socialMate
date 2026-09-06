@@ -804,11 +804,11 @@ export default function WarmTool({ platform }) {
               opportunity — without it a single long token widens the panel. */}
           <div
             ref={logRef}
-            className="log-scroll rounded-lg bg-zinc-900 text-zinc-200 p-2.5 text-[11px] font-mono leading-relaxed h-52 overflow-y-auto break-words whitespace-pre-wrap"
+            className="console log-scroll rounded-lg p-2.5 text-[11px] font-mono leading-relaxed h-52 overflow-y-auto break-words whitespace-pre-wrap"
           >
             {(status.log || []).map((e, i) => (
               <div key={i}>
-                <span className="text-zinc-500">{fmtClock(e.t)}</span> {e.msg}
+                <span className="text-[#d9e0ee]/45">{fmtClock(e.t)}</span> {e.msg}
               </div>
             ))}
           </div>
@@ -829,7 +829,7 @@ export default function WarmTool({ platform }) {
             icon={Play}
             label="Iniciar"
             size="default"
-            className="h-9 basis-0 grow grad-blue border-0 text-primary-foreground shadow-md"
+            className="h-9 basis-0 grow shadow-sm"
             onClick={start}
           />
         ) : (
@@ -887,13 +887,13 @@ function StatusChip({ running, paused, halted, onBreak }) {
     );
   if (onBreak)
     return (
-      <span className="rounded-full bg-sky-400/15 px-2.5 py-1 text-[11px] font-medium text-sky-600">
+      <span className="rounded-full bg-sky/15 px-2.5 py-1 text-[11px] font-medium text-sky">
         em pausa
       </span>
     );
   if (paused)
     return (
-      <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-[11px] font-medium text-amber-600">
+      <span className="rounded-full bg-amber/15 px-2.5 py-1 text-[11px] font-medium text-amber">
         pausado
       </span>
     );
@@ -901,13 +901,13 @@ function StatusChip({ running, paused, halted, onBreak }) {
     <span
       className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
       style={{
-        background: "hsl(var(--sw-ember) / 0.12)",
-        color: "hsl(var(--sw-ember) / 0.95)",
+        background: "color-mix(in oklab, var(--sw-live) 14%, transparent)",
+        color: "var(--sw-live)",
       }}
     >
       <span
         className="ember-pulse h-1.5 w-1.5 rounded-full"
-        style={{ background: "hsl(var(--sw-ember))" }}
+        style={{ background: "var(--sw-live)" }}
       />
       em execução
     </span>
@@ -928,9 +928,9 @@ function outcomeLabel(outcome) {
 function SummaryCard({ summary, onDismiss }) {
   const ok = summary.outcome === "complete";
   const badge = ok
-    ? "bg-emerald-500/10 text-emerald-600"
+    ? "bg-good/10 text-good"
     : summary.outcome === "abandoned"
-      ? "bg-amber-400/15 text-amber-600"
+      ? "bg-amber/15 text-amber"
       : (summary.outcome || "").startsWith("halt")
         ? "bg-destructive/10 text-destructive"
         : "bg-muted text-muted-foreground";
@@ -978,7 +978,7 @@ function Counter({ label, value }) {
   return (
     <Card>
       <CardContent className="p-2 text-center">
-        <div className="truncate text-xl font-normal grad-blue-text leading-tight">
+        <div className="truncate text-xl font-semibold leading-tight text-primary">
           {value}
         </div>
         <div className="truncate text-[10px] text-muted-foreground" title={label}>{label}</div>

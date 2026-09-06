@@ -10,6 +10,8 @@ import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
 import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
 
+import { createVoiceJobs } from "./lib/voiceJobs.js";
+
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
 const NEED_RELOAD_KEY = "fbw_need_reload"; // panel hint: active FB tab has no live content script
@@ -609,6 +611,48 @@ function parseWebVtt(raw) {
   return { text: chunks.map((c) => c.text).join(" ").replace(/\s+/g, " ").trim(), chunks };
 }
 
+/**
+ * The scraped-metadata half of a transcript record, as a patch.
+ *
+ * Both write sites below (caption-first and Whisper) file the same fields, and
+ * they were two hand-kept copies of one list — adding a field meant remembering
+ * to add it twice, and a record written down the caption path would silently lack
+ * whatever the other path had learned to store.
+ *
+ * Every value is omitted when absent rather than written as null, because
+ * `mergeMeta` reads a null as "I didn't see it" and would leave the previous
+ * value in place anyway; omitting says the same thing with less noise.
+ */
+function transcriptMetaPatch(meta = {}) {
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const {
+    thumb, counts, author, caption, platform, sourceUrl,
+    // The link SHAPE the post used. Without it a Library card cannot tell a
+    // correct /watch/?v= (a real video post) from a legacy reel record — see
+    // fbCardLink in src/lib/shared/fbPermalink.js.
+    videoKind,
+  } = meta;
+  // The post's own metadata, all of it already in the caller's hand: Instagram
+  // reads taken_at / video_duration / follower_count off the payloads it already
+  // parses, and Facebook's durationHint is the honest duration the content script
+  // measured on the DOM video. None of this costs a request.
+  const takenAt = num(meta.takenAt);
+  const followers = num(meta.followers);
+  const durationS = num(meta.durationS) ?? num(meta.durationHint);
+  return {
+    ...(thumb ? { thumb } : {}),
+    ...(counts ? { counts } : {}),
+    ...(author ? { author } : {}),
+    ...(caption ? { caption } : {}),
+    ...(platform ? { platform } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(videoKind ? { videoKind } : {}),
+    ...(takenAt ? { takenAt } : {}),
+    ...(followers ? { followers } : {}),
+    ...(durationS && durationS > 0 ? { durationS } : {}),
+  };
+}
+
 async function runTranscription(videoId, tabId, meta = {}) {
   const language = normalizeTranscriptLanguage(meta.language);
   // Caption-first: if the platform already ships an ASR/subtitle track (TikTok
@@ -616,7 +660,6 @@ async function runTranscription(videoId, tabId, meta = {}) {
   // faster/cheaper. Whisper stays the fallback when no caption URL is present.
   if (meta.captionUrl) {
     const id = videoId;
-    const { thumb, counts, author, caption, platform, sourceUrl, videoKind } = meta;
     // NOT the user's BR/EN pick: Whisper never runs on this path, so the text is
     // whatever language TikTok wrote its own subtitle track in. null when the track
     // is neither of ours — and cleared rather than inherited, so an earlier Whisper
@@ -625,12 +668,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     await putTranscript(id, {
       status: "running", error: null, source: "caption",
       language: captionLang,
-      ...(thumb ? { thumb } : {}), ...(counts ? { counts } : {}), ...(author ? { author } : {}),
-      ...(caption ? { caption } : {}), ...(platform ? { platform } : {}), ...(sourceUrl ? { sourceUrl } : {}),
-      // The link SHAPE the post used. Without it a Library card cannot tell a
-      // correct /watch/?v= (a real video post) from a legacy reel record — see
-      // fbCardLink in src/lib/shared/fbPermalink.js.
-      ...(videoKind ? { videoKind } : {}),
+      ...transcriptMetaPatch(meta),
     }, { clear: ["language"] });
     try {
       if (isTiktokCdn(meta.captionUrl)) await ensureTiktokReferer();
@@ -696,18 +734,11 @@ async function runTranscription(videoId, tabId, meta = {}) {
     });
     return;
   }
-  const { thumb, counts, author, caption, platform, sourceUrl, videoKind } = meta;
   await putTranscript(id, {
     status: "running",
     error: null,
     language,
-    ...(thumb ? { thumb } : {}),
-    ...(counts ? { counts } : {}),
-    ...(author ? { author } : {}),
-    ...(caption ? { caption } : {}),
-    ...(platform ? { platform } : {}),
-    ...(sourceUrl ? { sourceUrl } : {}),
-    ...(videoKind ? { videoKind } : {}),
+    ...transcriptMetaPatch(meta),
   });
   try {
     await ensureOffscreen();
@@ -993,6 +1024,25 @@ async function downloadViaOffscreen(msg, filename) {
 }
 
 
+// Voice extraction is a download job; it never writes to the transcript library.
+const voiceJobs = createVoiceJobs({
+  ensureOffscreen,
+  callOffscreen,
+  notifyTab,
+  download: (options) => chrome.downloads.download(options),
+  trackDownload: (id, url) => {
+    blobUrlByDownloadId.set(id, url);
+    // A tiny MP3 can finish before the onChanged listener sees its mapping.
+    chrome.downloads.search({ id }).then((items) => {
+      if (items[0]?.state !== "in_progress" && blobUrlByDownloadId.get(id) === url) {
+        blobUrlByDownloadId.delete(id);
+        callOffscreen({ action: "revokeBlobUrl", blobUrl: url }).catch(() => {});
+      }
+    }).catch(() => {});
+  },
+  release: (blobUrl) => callOffscreen({ action: "revokeBlobUrl", blobUrl }),
+});
+
 // ---- message router (content + panel) ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ignore messages addressed to the offscreen document
@@ -1085,6 +1135,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return false;
     }
+    case "FBW_EXTRACT_VOICE": {
+      voiceJobs.start(msg, sender.tab?.id).then(sendResponse, (e) => sendResponse({ ok: false, error: e.message }));
+      return true;
+    }
+    case "FBW_CANCEL_VOICE": {
+      voiceJobs.cancel(msg.jobId, sender.tab?.id).then(sendResponse, (e) => sendResponse({ ok: false, error: e.message }));
+      return true;
+    }
+    case "FBW_GET_VOICE_STATUS": {
+      sendResponse({ job: voiceJobs.status(sender.tab?.id) });
+      return false;
+    }
+    case "FBW_VOICE_PROGRESS": {
+      if (sender.url === chrome.runtime.getURL(OFFSCREEN_PATH)) voiceJobs.progress(msg);
+      return false;
+    }
+    case "FBW_VOICE_COMPLETE": {
+      if (sender.url === chrome.runtime.getURL(OFFSCREEN_PATH))
+        voiceJobs.complete(msg).catch((e) => console.error("[fbw] voice download:", e));
+      return false;
+    }
     case "FBW_TRANSCRIBE": {
       runTranscription(msg.videoId, sender.tab?.id, {
         thumb: msg.thumb,
@@ -1094,6 +1165,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         platform: msg.platform,
         sourceUrl: msg.sourceUrl,
         videoKind: msg.videoKind,
+        // Post metadata the caller already had — see transcriptMetaPatch.
+        takenAt: msg.takenAt,
+        followers: msg.followers,
+        durationS: msg.durationS,
         language: msg.language,
         mediaUrl: msg.mediaUrl,
         captionUrl: msg.captionUrl, // caption-first (TikTok subtitleInfos webvtt)

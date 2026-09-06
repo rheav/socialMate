@@ -826,6 +826,18 @@ function sameCapture(a, b) {
       caption: grabCaption(container),
       sourceUrl: currentSourceUrl(container, videoEl),
       videoKind: currentVideoKind(container, videoEl),
+      // The one piece of post metadata Facebook gives up for free. It is read off
+      // the DOM video, NOT from `durationHint`: that hint is deliberately withheld
+      // for permalink ids (it must never cross to a same-length neighbour), so a
+      // reel opened on its own page would have carried no duration at all.
+      // Everything else the Library line would like — post date, view count,
+      // follower count — is genuinely absent here: verified live on a reel that
+      // the embedded JSON we already walk has no creation_time and an `owner` of
+      // just `{__typename, id}`, and that the DOM carries no date element either.
+      durationS:
+        videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 1
+          ? Math.round(videoEl.duration * 10) / 10
+          : null,
     };
   }
   // A scrape you can trust. A reel page updates location.href ~150-175 ms BEFORE
@@ -1546,6 +1558,7 @@ function boundMediaIsStale({ floating, connected, railRect, boundRect }, slack =
           caption: msg.caption,
           sourceUrl: msg.sourceUrl,
           videoKind: msg.videoKind,
+          durationS: msg.durationS,
           language: msg.language,
         },
       })

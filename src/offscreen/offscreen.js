@@ -6,6 +6,8 @@
 // because *.fbcdn.net is in host_permissions, fetches here bypass CORS.
 
 import { get as idbGet, set as idbSet } from "idb-keyval";
+import { serialQueue } from "../lib/serialQueue.js";
+import { createVoiceSeparator } from "./voiceSeparation.js";
 import { whisperTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { txProgressPercent, whisperInferRatio } from "@/lib/transcriptionProgress.js";
 
@@ -322,16 +324,37 @@ async function spamScore(text) {
 
 // ---- ffmpeg mux (lazy) ----
 let ffmpeg = null;
+let ffmpegLoading = null;
+const queueFfmpeg = serialQueue();
 async function getFfmpeg() {
   if (ffmpeg) return ffmpeg;
-  const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-  ffmpeg = new FFmpeg();
-  await ffmpeg.load({
-    coreURL: chrome.runtime.getURL("ffmpeg/ffmpeg-core.js"),
-    wasmURL: chrome.runtime.getURL("ffmpeg/ffmpeg-core.wasm"),
-  });
-  return ffmpeg;
+  if (!ffmpegLoading) ffmpegLoading = (async () => {
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+    const fm = new FFmpeg();
+    try {
+      await fm.load({
+        coreURL: chrome.runtime.getURL("ffmpeg/ffmpeg-core.js"),
+        wasmURL: chrome.runtime.getURL("ffmpeg/ffmpeg-core.wasm"),
+      });
+      ffmpeg = fm;
+      return fm;
+    } catch (e) { fm.terminate(); throw e; }
+  })().finally(() => { ffmpegLoading = null; });
+  return ffmpegLoading;
 }
+
+const voiceSeparator = createVoiceSeparator({
+  getFfmpeg,
+  queueFfmpeg,
+  resetFfmpeg: (fm) => { fm.terminate(); if (ffmpeg === fm) ffmpeg = null; },
+  registerBlob: (blob) => {
+    const url = URL.createObjectURL(blob);
+    liveBlobUrls.add(url);
+    pinnedBlobUrls.add(url);
+    setTimeout(() => unpinBlobUrl(url), 5 * 60 * 1000);
+    return url;
+  },
+});
 
 async function muxDownload(videoUrl, audioUrl, videoId) {
   // fbcdn track URLs are signed and expire. Unchecked, a 403 fed an HTML error
@@ -430,6 +453,7 @@ function releaseRuntimes() {
   if (inFlight > 0) return;
   // Defer while a download still holds one of our blob URLs — releasing revokes it.
   if (pinnedBlobUrls.size > 0) return scheduleIdleRelease();
+  voiceSeparator.release();
   try { txWorker?.terminate(); } catch { /* ignore */ }
   try { relWorker?.terminate(); } catch { /* ignore */ }
   try { ffmpeg?.terminate?.(); } catch { /* ignore */ }
@@ -473,6 +497,27 @@ async function job(sendResponse, run) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== "offscreen") return false;
 
+  if (msg.action === "separateVocals") {
+    if (voiceSeparator.busy()) {
+      sendResponse({ success: false, error: "Já existe uma extração em andamento." });
+      return false;
+    }
+    // Immediate acknowledgement; the terminal event owns the download. Do not
+    // hold a response port open throughout a multi-minute inference.
+    job((result) => {
+      chrome.runtime.sendMessage({ type: "FBW_VOICE_COMPLETE", jobId: msg.jobId, videoId: msg.videoId,
+        ...result, cancelled: result.error === "extração cancelada" }).catch(() => {});
+    }, () => voiceSeparator.run(msg));
+    sendResponse({ success: true, started: true });
+    return false;
+  }
+  if (msg.action === "abortSeparation") {
+    voiceSeparator.abort(msg.jobId);
+    // job() owns inFlight: its finally decrements once when abort settles it.
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (msg.action === "transcribeFromAudioUrl") {
     job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl, msg.language, msg.videoId));
     return true;
@@ -508,7 +553,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.action === "muxDownload") {
-    job(sendResponse, () => muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId));
+    job(sendResponse, () => queueFfmpeg(() => muxDownload(msg.videoUrl, msg.audioUrl, msg.videoId)));
     return true;
   }
   if (msg.action === "fetchToBlobUrl") {

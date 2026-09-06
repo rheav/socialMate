@@ -35,6 +35,7 @@ import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
+import useStoredFlag from "@/lib/useStoredFlag";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
@@ -98,18 +99,11 @@ export default function IgSortTool() {
     chrome.storage?.local?.set?.({ [ER_WEIGHTS_KEY]: next });
   };
   const [sortDir, setSortDir] = useState("desc");
-  const [overlay, setOverlay] = useState(true);
+  // The Opções modal toggles this same key, so it is read through the shared hook
+  // rather than latched at mount — otherwise turning the overlay off there left
+  // this switch showing "ligado" until the tool remounted.
+  const [overlay, toggleOverlay] = useStoredFlag("sw_ig_overlay");
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
-
-  useEffect(() => {
-    chrome?.storage?.local?.get("sw_ig_overlay").then((r) => {
-      if (r?.sw_ig_overlay != null) setOverlay(!!r.sw_ig_overlay);
-    });
-  }, []);
-  const toggleOverlay = (v) => {
-    setOverlay(v);
-    chrome?.storage?.local?.set({ sw_ig_overlay: v });
-  };
 
   // Live mirrors of the shared stores: transcript status per post (spinner /
   // green / red on the card button; green opens the transcript) and saved ids
@@ -428,7 +422,14 @@ export default function IgSortTool() {
         like: rec.like_count ?? null,
         comment: rec.comment_count ?? null,
         views: rec.play_count ?? null,
+        share: rec.repost ?? null,
       },
+      // The same post metadata the page overlay forwards, so a reel transcribed
+      // from this pane gets the same Library card as one transcribed from the
+      // page. It is all already in `rec` — no request is made for it.
+      takenAt: rec.taken_at ?? null,
+      followers: rec.user_follower_count ?? null,
+      durationS: rec.duration ?? null,
     });
     setTxMap((m) => ({ ...m, [id]: "running" })); // optimistic; store listener corrects
   }
@@ -601,7 +602,7 @@ export default function IgSortTool() {
                   >
                     <Bookmark
                       className={
-                        "size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")
+                        "size-3.5 " + (savedIds[c.id] ? "fill-amber text-amber" : "")
                       }
                     />
                   </IconBtn>
@@ -613,7 +614,7 @@ export default function IgSortTool() {
                     <Download
                       className={
                         "size-3.5 " +
-                        (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")
+                        (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")
                       }
                     />
                   </IconBtn>
@@ -626,9 +627,9 @@ export default function IgSortTool() {
                       className={
                         "size-3.5 " +
                         (stThumb === "done"
-                          ? "text-emerald-400"
+                          ? "text-good"
                           : stThumb === "error"
-                            ? "text-red-400"
+                            ? "text-danger"
                             : "")
                       }
                     />
@@ -654,9 +655,9 @@ export default function IgSortTool() {
                           className={
                             "size-3.5 " +
                             (txMap[c.id] === "done"
-                              ? "text-emerald-400"
+                              ? "text-good"
                               : txMap[c.id] === "error"
-                                ? "text-red-400"
+                                ? "text-danger"
                                 : "")
                           }
                         />
@@ -677,7 +678,7 @@ export default function IgSortTool() {
                 </a>
 
                 {/* stat rail — right side, subtle blue glow */}
-                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
+                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
                   {c.views != null && (
                     <div className="flex items-center gap-1 text-[14px] font-extrabold leading-none">
                       <Eye className="size-3.5" />
@@ -745,7 +746,7 @@ export default function IgSortTool() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-              <FileText className="size-4 text-emerald-500" />
+              <FileText className="size-4 text-good" />
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">
                 @{txModal.username} · {txModal.id}
               </span>

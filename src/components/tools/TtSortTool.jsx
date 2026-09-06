@@ -38,6 +38,7 @@ import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
+import useStoredFlag from "@/lib/useStoredFlag";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import IconBtn from "@/components/ui/IconBtn";
 import MetricLegend from "@/components/ui/MetricLegend";
@@ -125,7 +126,8 @@ export default function TtSortTool() {
   const [sortKey, setSortKey] = useState("default");
   const [dateRange, setDateRange] = useState("all");
   const [sortDir, setSortDir] = useState("desc");
-  const [overlay, setOverlay] = useState(true);
+  // Same key the Opções modal writes — see IgSortTool for why it is a hook.
+  const [overlay, toggleOverlay] = useStoredFlag("sw_tt_overlay");
   const [erW, setErW] = useState(TT_ER_WEIGHTS);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
   // The bridge answers {unchanged:true} when its store hasn't moved since the
@@ -135,15 +137,10 @@ export default function TtSortTool() {
   const sinceRef = useRef(null);
 
   useEffect(() => {
-    chrome?.storage?.local?.get(["sw_tt_overlay", TT_ER_WEIGHTS_KEY]).then((r) => {
-      if (r?.sw_tt_overlay != null) setOverlay(!!r.sw_tt_overlay);
+    chrome?.storage?.local?.get(TT_ER_WEIGHTS_KEY).then((r) => {
       setErW(normalizeTtErWeights(r && r[TT_ER_WEIGHTS_KEY]));
     });
   }, []);
-  const toggleOverlay = (v) => {
-    setOverlay(v);
-    chrome?.storage?.local?.set({ sw_tt_overlay: v });
-  };
   // An empty box is a legitimate keystroke on the way to a number. Writing "" back
   // through Number() would give 0, which passes the guard and silently ZEROES that
   // term — so a half-typed weight is held in local state and never persisted.
@@ -398,7 +395,13 @@ export default function TtSortTool() {
         like: rec.digg_count ?? null,
         comment: rec.comment_count ?? null,
         views: rec.play_count ?? null,
+        share: rec.share_count ?? null,
       },
+      // Same post metadata the page overlay forwards, so a video transcribed from
+      // this pane gets the same Library card as one transcribed from the page.
+      takenAt: rec.create_time ?? null,
+      followers: rec.user_follower_count ?? null,
+      durationS: rec.duration ?? null,
     });
     setTxMap((m) => ({ ...m, [rec.id]: "running" }));
   }
@@ -591,10 +594,10 @@ export default function TtSortTool() {
                     title={savedIds[c.id] ? "Salvo — toque para remover" : "Salvar na biblioteca"}
                     onClick={() => saveToLibrary(rec)}
                   >
-                    <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
+                    <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-amber text-amber" : "")} />
                   </IconBtn>
                   <IconBtn title={statusTitle("Baixar vídeo", st, errorOf(statusKey(c.id)))} onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
-                    <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
+                    <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
                   </IconBtn>
                   <IconBtn
                     title={statusTitle("Baixar miniatura", stThumb, errorOf(statusKey(c.id, "thumb")))}
@@ -604,7 +607,7 @@ export default function TtSortTool() {
                     <ImageDown
                       className={
                         "size-3.5 " +
-                        (stThumb === "done" ? "text-emerald-400" : stThumb === "error" ? "text-red-400" : "")
+                        (stThumb === "done" ? "text-good" : stThumb === "error" ? "text-danger" : "")
                       }
                     />
                   </IconBtn>
@@ -623,7 +626,7 @@ export default function TtSortTool() {
                       {txMap[c.id] === "running" ? (
                         <Loader2 className="size-3.5 animate-spin" />
                       ) : (
-                        <FileText className={"size-3.5 " + (txMap[c.id] === "done" ? "text-emerald-400" : txMap[c.id] === "error" ? "text-red-400" : "")} />
+                        <FileText className={"size-3.5 " + (txMap[c.id] === "done" ? "text-good" : txMap[c.id] === "error" ? "text-danger" : "")} />
                       )}
                     </IconBtn>
                   )}
@@ -641,7 +644,7 @@ export default function TtSortTool() {
                 </a>
 
                 {/* stat rail — right side, blue glow */}
-                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
+                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
                   {/* REACH LEADS, and it is graded. Views say how big the number
                       is; reach says whether the FORMAT worked, independent of how
                       big the account already was — the question you are scanning a
@@ -737,7 +740,7 @@ export default function TtSortTool() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-              <FileText className="size-4 text-emerald-500" />
+              <FileText className="size-4 text-good" />
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">
                 @{txModal.username} · {txModal.id}
               </span>

@@ -192,7 +192,7 @@ export default function FbReelsTool() {
       </div>
 
       {!onReelsTab && (
-        <div className="rounded-md bg-amber-500/10 text-amber-700 text-[11px] px-3 py-2">
+        <div className="rounded-md bg-amber/10 text-amber text-[11px] px-3 py-2">
           Abra a aba <span className="font-semibold">Reels</span> do perfil no Facebook e toque em Coletar tudo.
         </div>
       )}
@@ -223,7 +223,7 @@ export default function FbReelsTool() {
                     title={savedIds[c.id] ? "Salvo — toque para remover" : "Salvar na biblioteca"}
                     onClick={() => saveToLibrary(rec)}
                   >
-                    <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-yellow-400 text-yellow-400" : "")} />
+                    <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-amber text-amber" : "")} />
                   </IconBtn>
                   <IconBtn
                     title={statusTitle("Baixar miniatura", st, errorOf(statusKey(c.id)))}
@@ -233,13 +233,13 @@ export default function FbReelsTool() {
                     {st === "downloading" ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (
-                      <ImageDown className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
+                      <ImageDown className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
                     )}
                   </IconBtn>
                 </div>
 
                 {/* stat rail — right side, subtle blue glow */}
-                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky-400/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
+                <div className="absolute bottom-9 right-1.5 flex flex-col items-end gap-0.5 rounded-lg border border-sky/30 bg-black/60 px-2 py-1.5 text-white shadow-[0_0_10px_rgba(56,130,246,0.28)]">
                   <div className="flex items-center gap-1 text-[14px] font-extrabold leading-none">
                     <Eye className="size-3.5" />
                     {c.views != null ? fmtCount(c.views) : "—"}

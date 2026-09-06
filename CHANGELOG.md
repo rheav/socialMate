@@ -18,6 +18,307 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.89.0] — 2026-09-05
+
+### Adicionado
+- **Extrair voz dos reels do Instagram**: modelo MDX Voc_FT local, com WebGPU e
+  fallback WASM, gera um MP3 `*-voz.mp3` em `Downloads/social-mate/`.
+- Percentual no botão do vídeo e cancelamento ao tocar novamente no mesmo botão.
+  Workers e blobs são liberados ao terminar; resultados atrasados de jobs
+  cancelados não iniciam downloads.
+
+### Alterado
+- Removido o toast de extração: progresso, resultado e erros ficam no botão do vídeo.
+
+---
+
+## [0.88.1] — 2026-08-31
+
+### Alterado
+- **O ícone da extensão em Nord**, para casar com o painel de 0.88.0: quadrado no
+  `sky` (#8ECAE6, o mesmo token `primary`) e chama no `onaccent` (#232833) — o
+  mesmo quadrado de identidade que o cabeçalho desenha. Saíram o gradiente
+  azul→seafoam do fundo e o verniz branco por cima dele; o núcleo interno virou
+  `sky-soft` e a fagulha, `onaccent`. Geometria intacta.
+  Fonte em `public/icon.svg`, PNGs regerados por `node scripts/gen-icons.mjs`
+  (16/32/48/128/256).
+
+---
+
+## [0.88.0] — 2026-08-31
+
+### Alterado
+- **O painel veste a linguagem visual do app de gestão** (`apps/gestao`): paleta
+  Nord com chão índigo, acentos pastéis no escuro e os mesmos matizes com croma
+  cheio no claro. Migração de tema, não de componentes — o painel já falava
+  `bg-card`, `text-muted-foreground`, `border-border` (101, 54 e 41 usos), então
+  trocar os tokens re-skinou quase tudo sem tocar nos componentes.
+
+  O que mudou de fato:
+  - **Tokens em hex + `color-mix`**, não mais triplas HSL. Duas cores-base
+    (`--color-fg`, `--color-panel`) que invertem, e todo o resto sai delas por
+    alpha (`text-fg/45`, `bg-panel/[0.05]`, `border-panel/10`), mais os cinco
+    acentos do Nord: `sky`, `amber`, `good`, `danger`, `violet`.
+  - **Claro continua o padrão** e `.dark` continua sendo a classe (o inverso do
+    gestão, que é escuro-primeiro). O painel segue o SO na primeira abertura e a
+    escolha em Opções manda depois — nada mudou nessa mecânica.
+  - **Fim dos gradientes.** Eram a identidade antiga (azul→seafoam no claro,
+    vermelho→amarelo no escuro) e a linguagem nova não tem nenhum. O primário
+    virou o `sky` chapado: logo, trilho do Segmented, sublinhado do TabNav,
+    switches e botões.
+  - **Cada rede ganhou cor própria** no lugar do gradiente por marca: o hex da
+    marca entra em `oklch(from … )` mantendo o MATIZ e tomando luminância e croma
+    do TEMA (`platformAccent()` + `[data-sw-seed]`). É o mesmo truque de cor de
+    coluna do gestão — o magenta do Instagram e o vermelho do Pinterest
+    continuam reconhecíveis e legíveis nos dois temas, sem duas cores por rede.
+  - **Aba escolhida** no padrão do gestão: banho de `sky/15` com aro `sky/30`,
+    rótulo em `fg` cheio e o ícone aceso — em vez do retângulo sólido, que na
+    largura do painel lia como botão preenchido, não como seleção.
+  - **77 classes de paleta cruas** (`text-red-400`, `bg-emerald-500/10`,
+    `text-amber-700`…) remapeadas para os acentos do tema, então erro, sucesso e
+    aviso passam a inverter junto com o resto. Preenchimentos sólidos de acento
+    ganharam `text-onaccent`: branco sobre o `amber` pastel do escuro era
+    ilegível.
+  - **Blocos de console** (transcrição corrida, log do aquecedor) viraram um
+    utilitário `console` sobre o `scrim` — escuros nos dois temas de propósito,
+    porque são texto de máquina.
+  - **Fonte do sistema** no lugar da Outfit empacotada: −4 arquivos de fonte no
+    bundle da extensão, e é a stack que o gestão usa.
+  - `input`, `select` e `button` adotaram as medidas de lá (h-8/h-7,
+    `rounded-lg`, anel de foco de 3px, press que afunda 1px).
+
+  Sobrevivem intactos os sistemas que são do painel e não existem no gestão: as
+  bolhas de dica em CSS (`.sw-tips`), o colapso por container query do ToolBar, o
+  stagger da grade e o piso de 260px. O sinal de "rodando" do aquecedor deixou de
+  ter cor própria: virou o `amber`, que é a cor de calor da paleta.
+
+  Fora de escopo: as sobreposições desenhadas nas páginas do Instagram, TikTok e
+  Pinterest mantêm o vidro preto próprio.
+
+---
+
+## [0.87.0] — 2026-08-31
+
+### Alterado
+- **Todas as opções do painel num modal só** (engrenagem no cabeçalho →
+  **Opções**), no lugar do menuzinho suspenso da versão anterior. Antes cada
+  ajuste morava na tela que por acaso precisava dele: o tema no cabeçalho, as
+  sobreposições no toolbar de cada ferramenta Ordenar, o idioma de transcrição na
+  aba Arquivo — e a sobreposição do Pinterest não tinha interruptor nenhum, só
+  dava para mudar editando o storage.
+
+  O modal reúne:
+  - **Painel** — Mostrar Aquecer · Tema (Claro/Escuro).
+  - **Sobreposições nas páginas** — Instagram · TikTok · **Pinterest** (novo).
+  - **Transcrição** — idioma padrão das próximas transcrições.
+
+  O botão de tema saiu do cabeçalho (que agora tem só a engrenagem); a chave é a
+  mesma, então quem já estava no escuro continua no escuro.
+
+  O que NÃO foi para lá: a engrenagem do aquecedor (ritmo, limites, captura
+  automática). Aquilo configura a sessão que você vai rodar e pertence ao
+  formulário que a roda.
+
+- **Os interruptores de sobreposição das ferramentas e os do modal são o mesmo
+  interruptor.** Antes o toolbar lia a chave só na montagem, então desligar pelo
+  outro lado deixava o switch mentindo até a ferramenta remontar; agora ambos
+  usam `useStoredFlag`, que segue `storage.onChanged`. Verificado nos dois
+  sentidos no painel aberto, sem remontar nada.
+
+---
+
+## [0.86.0] — 2026-08-31
+
+### Adicionado
+- **Configurações do painel** (engrenagem no cabeçalho, ao lado do tema) com o
+  primeiro interruptor: **Mostrar Aquecer**. Desligado, a aba do aquecedor some
+  da navegação em todas as janelas — e nada é apagado: sessões, ritmo, limites e
+  a plataforma em que você estava continuam salvos e voltam ao religar.
+  Se a aba for escondida enquanto ela está aberta, o painel cai em Pesquisa em vez
+  de ficar numa aba sem volta (`resolveTab` em `src/lib/uiPrefs.js`).
+  Preferências ficam em `sw_ui_prefs` e seguem `storage.onChanged`, como o tema.
+
+### Corrigido
+- **O rail flutuante não aparecia no modal de post** — abrir um post a partir da
+  grade deixava o player sem estatísticas, salvar, baixar nem transcrever, mesmo
+  com o tile atrás dele todo anotado.
+
+  Causa: as duas metades não se falavam. O mundo MAIN carimba o player com o **pk**
+  lido das props do React; a grade, porém, é capturada por um payload que manda só
+  o **shortcode**, então `lite()` gravava `pk: ""` e a busca do bridge
+  (comparação de string inteira) não achava registro nenhum.
+
+  Correção: `src/lib/shared/igCode.js` — shortcode e pk são a mesma coisa em
+  base64url (`3964608873797160540` ⇄ `DcFHsPsCo5c`, verificado ao vivo nos dois
+  sentidos), então o registro passa a nascer com os dois nomes e `igRefMatches`
+  compara reduzindo ambos os lados ao pk (tolerando o formato `<pk>_<dono>` do
+  campo `id`, que antes ia inteiro para `pk` e dava 404 na URL de enriquecimento).
+
+  Efeito colateral bem-vindo: com pk, o enriquecimento por mídia
+  (`/api/v1/media/<pk>/info/`) volta a rodar para os registros vindos da grade —
+  as **visualizações** que ficavam em branco agora aparecem. Medido com a extensão
+  recarregada: grade 24/24 rails, todos com views; modal 1 rail (era 0).
+
+---
+
+## [0.85.2] — 2026-08-31
+
+### Corrigido
+- **Os overlays de estatísticas do Instagram apareciam dentro do CARTÃO DE
+  PERFIL** — aquele popover que abre ao passar o mouse sobre um @usuário no feed
+  ou nos comentários. O cartão traz as três últimas publicações da conta como
+  miniaturas de 120x120 com link permanente real (`/p/<code>/`), então a
+  varredura de tiles do `renderOverlays` casava com elas e desenhava um rail
+  inteiro (views, curtidas, comentários, ER, data) sobre cada miniatura — maior
+  que a própria miniatura, cobrindo o cartão que o usuário queria ler.
+
+  Causa: a varredura aceitava QUALQUER `a[href*="/p/"]` com mais de 80x80,
+  sem perguntar em que superfície o link estava.
+
+  Correção: `onIgRailSurface()` em `src/lib/shared/igPlayerHost.js` — um rail só
+  é desenhado dentro de `main` ou de `[role="dialog"]`. Medido ao vivo em
+  `/p/<code>/` → hover no autor (2026-08-31): as miniaturas do cartão têm
+  `closest("main")` E `closest('[role=dialog]')` nulos, enquanto toda superfície
+  legítima responde a um dos dois — grade de perfil/explore e o player de
+  `/reels/` ficam dentro de `<main>`, e o modal de post é um portal próprio em
+  `[role="dialog"]` (fora de `<main>`, por isso exigir só `main` mataria o rail
+  do modal). Tamanho não serve de critério: numa janela estreita os tiles reais
+  encolhem para perto dos mesmos 120px.
+
+  Verificado no navegador com a extensão recarregada: grade de perfil 36 tiles /
+  36 rails, cartão de perfil 3 miniaturas / 0 rails, com os MESMOS códigos já
+  presentes no cache — ou seja, o filtro é de superfície, não falta de dados.
+
+---
+
+## [0.85.1] — 2026-08-25
+
+### Corrigido
+- **O rail flutuante do TikTok (salvar / baixar / transcrever / comentários /
+  curtir) aparecia em páginas de GRADE**, encostado na direita da janela, em
+  `/search/video?q=…`, num perfil, em qualquer lista de tiles.
+
+  Causa: `maintainOverlay` decidia se havia player com
+
+  ```js
+  const onVideo = /\/video\/\d+/.test(path) || path.startsWith("/foryou")
+               || path === "/" || !!centered;
+  ```
+
+  `centered` é só o `<video>` mais centralizado da página, e um tile de grade
+  toca uma prévia muda — grande o bastante para passar do piso de 120px. Um único
+  tile tocando bastava. Medido ao vivo na grade de `#auralytrend`: 1 `<video>` na
+  página, dentro de um tile que já tinha o próprio rail, e o rail flutuante em
+  x=1454.
+
+  E não era só poluição visual: os botões agem sobre `currentRecord(centered)`,
+  então "Baixar" ali baixava o tile que por acaso estivesse mais perto do meio da
+  tela.
+
+  Correção: a decisão virou estrutural, igual à do Instagram — um tile está
+  embrulhado no permalink do próprio post, um player nunca está
+  (`src/lib/shared/ttPlayerHost.js`, 10 testes; verificado ao vivo que os dois
+  `<video>` de uma página `/video/` não têm âncora de permalink acima).
+  De quebra, a guarda do rail de estatísticas deixou de usar `a[data-sw-id]` —
+  aquilo é anotação NOSSA, presente só em tiles que já ganharam rail, então um
+  tile ainda sem registro capturado passava como se fosse player.
+
+---
+
+## [0.85.0] — 2026-08-25
+
+### Adicionado
+- **Segunda linha nos cards de Biblioteca → Transcrições: os dados do post.**
+  Sob os números de desempenho (👍 💬 👁 ↗) agora vem o que se sabe da
+  publicação — 📅 data, ⏱ duração, 👤 seguidores do autor e 📈 alcance
+  (visualizações ÷ seguidores). Cada chip só aparece quando aquele dado existe
+  de verdade; um card sem nada a acrescentar continua com uma linha só.
+
+  **Nenhuma requisição nova.** Tudo já estava na mão de quem captura:
+
+  - **Instagram** — `taken_at`, `video_duration`, `media_repost_count` e o
+    `follower_count` já unido ao registro. O rail na página desenha esses campos
+    há tempos; `ovlTranscribe` (e o painel, em `IgSortTool`) simplesmente nunca
+    os encaminhava. Reposts passam a preencher `counts.share`, que o card já
+    sabia mostrar.
+  - **Facebook** — a duração honesta, lida do `<video>` do DOM em `grabMeta`, e
+    não de `durationHint`: aquela dica é retida de propósito para ids vindos de
+    permalink, então um reel aberto na própria página não trazia duração alguma.
+    Data da publicação, visualizações e seguidores **não existem** ali sem uma
+    requisição nova — verificado ao vivo num reel: o JSON embutido que já
+    percorremos não tem `creation_time`, seu `owner` é só `{__typename, id}`, e
+    o DOM não traz nenhum elemento de data. Por isso a linha do Facebook mostra
+    a duração e para, em vez de inventar precisão que não temos.
+
+  - **TikTok** — `createTime`, `duration` e o `followerCount` do autor, que já
+    vêm no mesmo payload que o painel usa para ordenar. É a única das três em que
+    a linha fica completa dos quatro chips, porque o alcance precisa de
+    visualizações E seguidores. Vale para os três pontos que pedem transcrição:
+    o rail na página, a aba Ordenar e a aba Stories.
+
+  A escolha dos chips virou um módulo puro e testado
+  (`src/lib/transcriptMeta.js`, 13 testes), inclusive o cuidado com registros
+  anteriores ao schema 2 — eles guardam contagens como texto já formatado
+  ("101,2 mil"), que não divide, então o chip de alcance some em vez de imprimir
+  `NaN`.
+
+### Alterado
+- **A faixa de números nos cards ganhou fundo próprio.** Era um gradiente
+  `from-black/80 to-transparent`, e um gradiente por definição tem o topo
+  transparente — justo as linhas mais altas ficavam lendo contra o que houvesse
+  no frame. Rosto claro ou legenda queimada no vídeo venciam o texto, e ficou
+  pior quando a segunda linha entrou. Agora é um bloco sólido sob o texto, com
+  um gradiente curto acima para não cortar a imagem com uma borda dura, mais um
+  `text-shadow` leve. Sem `backdrop-filter`: o painel rola uma dúzia desses ao
+  mesmo tempo e o overlay da página já mediu o preço disso (68 ms → 8 ms por
+  quadro depois de remover).
+- Os dois pontos onde `background.js` grava a metadata de um registro (caminho
+  de legenda e caminho Whisper) eram duas cópias da mesma lista de campos, à mão.
+  Viraram `transcriptMetaPatch()` — acrescentar um campo agora é um lugar só, e
+  um registro escrito pelo caminho de legenda deixa de perder o que o outro
+  aprendeu a guardar.
+
+---
+
+## [0.84.1] — 2026-08-25
+
+### Corrigido
+- **Abrir um post a partir de uma grade do Instagram enchia a tela de overlays
+  duplicados por cima do modal.** Reproduzido em
+  `/explore/search/keyword/?q=%23auralytrend` → clique em qualquer resultado
+  (`/p/DbrWBt5v4Tu/`): 25 caixas de métricas e 25 pilhas de botões apareciam
+  sobre a legenda, os comentários e o campo de comentar — e, como
+  `.sw-acts` é `pointer-events:auto`, elas ainda roubavam os cliques do modal.
+
+  Causa: quem é "o player" era decidido só pela ROTA. `main-world.js`
+  (`annotateReelPlayer`) e `bridge.js` (`renderOverlays`) testavam
+  `/^\/(reels?|p)\//` e então tratavam TODO vídeo com mais de 200px como player.
+  Isso só vale quando a página do post é aberta sozinha: clicar num resultado de
+  grade empurra `/p/<code>/` mas **mantém a grade montada atrás do modal**. Medido
+  ao vivo: 25 hosts marcados, 24 deles tiles de 279×372 e um único player real.
+  Cada tile ganhava um SEGUNDO rail dentro de `#sw-ig-layer`, que é
+  `position:fixed` com `z-index:2147483000` — acima do próprio diálogo do
+  Instagram. 75 nós fantasma, com números de outro post ao lado do vídeo.
+
+  Segundo vazamento, na mesma tela: fechar o modal não limpava nada.
+  `syncIgLayer()` só removia rail de host desconectado, e os tiles continuam
+  conectados — sobravam 72 nós órfãos (12 ainda visíveis) flutuando sobre a
+  grade, por cima dos rails corretos dos tiles.
+
+  Correção: a decisão virou **estrutural, não de rota**, num único módulo testado
+  (`src/lib/shared/igPlayerHost.js`, inlinado nos dois mundos): um tile está
+  sempre embrulhado no próprio permalink `<a>`, o player nunca está. O mundo MAIN
+  para de marcar tiles antes da caminhada cara pelos props do React (deixa de
+  rodar para ~24 caixas por segundo), o bridge repete o teste por conta própria
+  (o mundo MAIN sobrevive a um reload da extensão e o isolado não), e a camada
+  passa a ser **reconciliada** contra o conjunto de players de cada passada em vez
+  de só receber `append` — inclusive quando nada é construído, que era exatamente
+  o caso do modal fechado. Medido depois: 25 → 1 host marcado, 75 → 3 nós na
+  camada, 72 → 0 órfãos; player em tela cheia `/reels/`, `/p/` direto e modal de
+  perfil seguem com o rail.
+
+---
+
 ## [0.84.0] — 2026-08-17
 
 ### Corrigido

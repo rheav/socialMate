@@ -278,7 +278,7 @@ export default function FbPhotosTool() {
           button: a photo whose GraphQL row was never captured has no full image,
           and the tool will not hand over its square crop instead. */}
       {stats.pending ? (
-        <div className="rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700">
+        <div className="rounded-md bg-amber/10 px-3 py-2 text-[11px] text-amber">
           {stats.pending} de {stats.total} foto(s) sem a imagem inteira — ficam de fora do ZIP (e listadas nele em{" "}
           {UNRESOLVED_ENTRY}). Colete de novo para tentar resolvê-las.
         </div>
@@ -314,13 +314,13 @@ export default function FbPhotosTool() {
       </div>
 
       {state.error ? (
-        <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">{state.error}</div>
+        <div className="rounded-md bg-danger/10 px-3 py-2 text-[11px] text-danger">{state.error}</div>
       ) : null}
       {zip.error ? (
-        <div className="rounded-md bg-red-500/10 px-3 py-2 text-[11px] text-red-700">ZIP: {zip.error}</div>
+        <div className="rounded-md bg-danger/10 px-3 py-2 text-[11px] text-danger">ZIP: {zip.error}</div>
       ) : null}
       {zip.note ? (
-        <div className="rounded-md bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700">{zip.note}</div>
+        <div className="rounded-md bg-amber/10 px-3 py-2 text-[11px] text-amber">{zip.note}</div>
       ) : null}
       {zip.running || zip.bytes ? (
         <div className="text-[11px] text-muted-foreground">
@@ -345,11 +345,11 @@ export default function FbPhotosTool() {
               <img src={rec.thumb} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
             ) : null}
             {rec.full ? (
-              <span className="absolute right-1 top-1 rounded bg-emerald-500/85 px-1 text-[9px] font-semibold text-white">
+              <span className="absolute right-1 top-1 rounded bg-good/85 px-1 text-[9px] font-semibold text-onaccent">
                 {rec.width && rec.height ? `${rec.width}×${rec.height}` : "inteira"}
               </span>
             ) : (
-              <span className="absolute right-1 top-1 rounded bg-amber-500/90 px-1 text-[9px] font-semibold text-white">
+              <span className="absolute right-1 top-1 rounded bg-amber/90 px-1 text-[9px] font-semibold text-onaccent">
                 sem original
               </span>
             )}

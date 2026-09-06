@@ -222,7 +222,7 @@ export default function TtCollectionsTool() {
                             {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
                             <div className="absolute left-1 top-1 flex flex-col gap-1">
                               <IconBtn title={statusTitle("Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
-                                <Download className={"size-3.5 " + (st === "done" ? "text-emerald-400" : st === "error" ? "text-red-400" : "")} />
+                                <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
                               </IconBtn>
                               <IconBtn
                                 title={statusTitle(
@@ -237,9 +237,9 @@ export default function TtCollectionsTool() {
                                   className={
                                     "size-3.5 " +
                                     (stSave === "error"
-                                      ? "text-red-400"
+                                      ? "text-danger"
                                       : savedIds[item.id]
-                                        ? "fill-current text-amber-300"
+                                        ? "fill-current text-amber"
                                         : "")
                                   }
                                 />

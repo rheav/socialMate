@@ -43,21 +43,30 @@ const MODE = {
   A: { id: "A", label: "Palavra-chave", Icon: Search },
 };
 
-// Brand gradient per platform, used ONLY for the small platform tiles on the Home
-// picker (Shell.jsx reads `theme["--sw-grad"]` inline).
+// A semente de cor de cada rede: UM hex, o matiz da marca.
 //
-// The panel's own identity is deliberately NOT per-platform — one identity on every
-// platform (Smart blue in light, Brute red→yellow in dark), defined in
-// index.css :root/.dark. Nothing here is applied to <html>; an earlier version tried
-// that and was reverted in 0.64.1. Everything the old NEUTRAL bundle carried
-// (--sw-action/--sw-switch/--sw-wash/--radius/--primary/--ring) plus --sw-from/
-// --sw-to/--sw-glow was never read off this object and has been removed.
-const THEMES = {
-  facebook: { "--sw-grad": "linear-gradient(135deg, #3c7cfc 0%, #59c0e8 100%)" },
-  instagram: { "--sw-grad": "linear-gradient(135deg, #f58529 0%, #dd2a7b 55%, #8134af 100%)" },
-  tiktok: { "--sw-grad": "linear-gradient(135deg, #25f4ee 0%, #fe2c55 100%)" },
-  pinterest: { "--sw-grad": "linear-gradient(135deg, #e60023 0%, #ff5a5f 100%)" },
+// Era um gradiente por rede aqui. A linguagem para onde o painel migrou
+// (apps/gestao) não tem gradiente nenhum — tem acentos chapados — então o hex
+// entra na fórmula de acento do index.css (`[data-sw-seed]`), que fica com o
+// MATIZ da marca e toma a luminância e o croma do TEMA. É o que faz o vermelho
+// do Pinterest e o magenta do Instagram continuarem legíveis no claro e no
+// escuro sem ninguém escolher duas cores para cada rede.
+//
+// Nada aqui é aplicado ao <html>: a identidade do painel é uma só (o `sky` do
+// Nord); a semente só tinge o ponto/realce da rede que está selecionada.
+const SEEDS = {
+  facebook: "#1877f2",
+  instagram: "#dd2a7b",
+  tiktok: "#fe2c55",
+  pinterest: "#e60023",
 };
+
+/** Props para tingir um nó com o acento da rede — `style` + o atributo que a
+ *  regra `[data-sw-seed]` procura. */
+export function platformAccent(id) {
+  const seed = SEEDS[id];
+  return seed ? { "data-sw-seed": "", style: { "--sw-seed": seed } } : {};
+}
 
 // Per-platform support. `modes` order = tab order. `defaultMode` selected on switch.
 // `keywordPlaceholder` tunes the Mode A input copy per platform.
@@ -71,7 +80,7 @@ export const PLATFORMS = {
     defaultMode: "C",
     modes: [MODE.C, { ...MODE.A, label: "Hashtag" }],
     keywordPlaceholder: "ex.: tarotreading",
-    theme: THEMES.facebook,
+    seed: SEEDS.facebook,
   },
   instagram: {
     id: "instagram",
@@ -84,7 +93,7 @@ export const PLATFORMS = {
       { ...MODE.A, label: "Hashtag" },
     ],
     keywordPlaceholder: "ex.: tarot  ou  #tarotreading",
-    theme: THEMES.instagram,
+    seed: SEEDS.instagram,
   },
   tiktok: {
     id: "tiktok",
@@ -96,7 +105,7 @@ export const PLATFORMS = {
       { ...MODE.A, label: "Pesquisa" },
     ],
     keywordPlaceholder: "ex.: tarot  ou  #tarottok",
-    theme: THEMES.tiktok,
+    seed: SEEDS.tiktok,
   },
   pinterest: {
     id: "pinterest",
@@ -106,7 +115,7 @@ export const PLATFORMS = {
     defaultMode: null,
     modes: [],
     keywordPlaceholder: "ex.: tiragem de tarot",
-    theme: THEMES.pinterest,
+    seed: SEEDS.pinterest,
   },
 };
 

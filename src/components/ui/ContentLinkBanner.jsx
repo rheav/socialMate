@@ -36,7 +36,7 @@ export default function ContentLinkBanner({
       className={cn(
         "space-y-2 rounded-lg border px-3 py-2.5",
         noTab
-          ? "border-amber-400/40 bg-amber-400/10 text-amber-700"
+          ? "border-amber/40 bg-amber/10 text-amber"
           : "border-destructive/40 bg-destructive/10 text-destructive",
         className,
       )}
