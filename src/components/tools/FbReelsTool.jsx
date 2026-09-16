@@ -15,7 +15,7 @@ import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
-import { sortRecords, recordToCard, filenameFor, fmtCount } from "@/lib/fbReels";
+import { sortRecords, recordToCard, filenameFor, fmtCount, fullResThumb } from "@/lib/fbReels";
 import { startPolling } from "@/lib/poll";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
@@ -101,8 +101,15 @@ export default function FbReelsTool() {
 
   async function downloadThumb(rec) {
     if (!rec.thumb) return;
+    // The card renders the grid's own 540x960 crop (cheap for a 2-col panel), but
+    // what gets SAVED is the native 1080x1920 frame — see lib/shared/fbReelThumb.js.
     await run(statusKey(rec.id), () =>
-      requireOk({ type: "FBW_DL_MEDIA", kind: "image", url: rec.thumb, filename: filenameFor(owner, rec.id) }),
+      requireOk({
+        type: "FBW_DL_MEDIA",
+        kind: "image",
+        url: fullResThumb(rec.thumb),
+        filename: filenameFor(owner, rec.id),
+      }),
     );
   }
 

@@ -17,8 +17,11 @@ import { downloadPath, sanitizeFilenamePart } from "./downloadPath.js";
 // src/lib/shared/README.md). Re-exported here so every existing caller and test
 // keeps its import path.
 import { parseCount, COUNT_UNITS } from "./shared/counts.js";
+// Same story for the cover-URL rewrite: reels-capture.js and inject.js inline it,
+// the panel imports it, one tested definition serves all three.
+import { fullResThumb } from "./shared/fbReelThumb.js";
 
-export { parseCount, COUNT_UNITS };
+export { parseCount, COUNT_UNITS, fullResThumb };
 
 const METRIC = {
   views: (r) => r.views,

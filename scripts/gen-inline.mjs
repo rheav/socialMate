@@ -32,7 +32,10 @@ const TARGETS = {
     "src/lib/shared/counts.js",
     "src/lib/shared/fbCommentParse.js",
   ],
-  "src/content/fb/reels-capture.js": ["src/lib/shared/counts.js"],
+  "src/content/fb/reels-capture.js": [
+    "src/lib/shared/counts.js",
+    "src/lib/shared/fbReelThumb.js",
+  ],
   "src/content/fb/feed-filter.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/fbCounts.js",
@@ -44,6 +47,7 @@ const TARGETS = {
     "src/lib/shared/captureIdentity.js",
     "src/lib/shared/txLang.js",
     "src/lib/shared/railTarget.js",
+    "src/lib/shared/fbReelThumb.js",
   ],
   "src/content/fb/photos-scrape.js": ["src/lib/shared/fbPhotoIds.js"],
   "src/content/ig/bridge.js": [

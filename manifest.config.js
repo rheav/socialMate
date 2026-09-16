@@ -6,9 +6,9 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "0.89.0",
+  version: "0.95.0",
   version_name:
-    "0.89.0 — extrair voz dos reels",
+    "0.95.0 — Limite do Arquivo configurável",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
@@ -52,7 +52,15 @@ export default defineManifest({
     "*://*.pinterest.com/*",
     // Pin images are downloaded by fetching them in the SW (FBW_DL_MEDIA kind:"image").
     "*://*.pinimg.com/*",
+    // The socialMate hub (~/Code/apps/socialmate-hub): where the Arquivo is
+    // pushed so it outlives the local caps. Any OTHER host the user points the
+    // sync at is asked for at runtime — see optional_host_permissions.
+    "https://socialmate.rheav.dev/*",
   ],
+  // Only requested when someone changes the hub URL in Opções, from the click
+  // that changes it. Shipping "https://*/*" as a granted permission would mean
+  // the extension asks for the whole web at install time to serve one setting.
+  optional_host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   content_scripts: [
     {
       matches: [

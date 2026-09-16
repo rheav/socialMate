@@ -9,6 +9,22 @@ import { DOWNLOAD_ROOT, downloadPath, underDownloadRoot } from "./lib/downloadPa
 import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
 import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
+import { idsOverCap, readTranscriptCap } from "./lib/transcriptCap.js";
+import { bytesToBase64, isDataThumb, toDurableThumb } from "./lib/thumbCache.js";
+import { RECOVER_GAP_MS, recoverableRecords, resolveFreshThumb } from "./lib/thumbRecover.js";
+import {
+  SYNC_KEY,
+  SYNC_QUEUE_KEY,
+  SYNC_STATE_KEY,
+  backoffDelay,
+  batchRecords,
+  isRetryable,
+  isSyncConfigured,
+  isSyncReady,
+  pingSync,
+  postSync,
+  syncSettings,
+} from "./lib/syncClient.js";
 
 import { createVoiceJobs } from "./lib/voiceJobs.js";
 
@@ -230,6 +246,26 @@ chrome.storage.onChanged.addListener((changes, area) => {
 //
 // Now every write goes through FBW_SAVED_TOGGLE below, serialized here. The cap
 // stays a single owner too: capping in every writer would have meant ten copies.
+// ---- durable thumbnails ----------------------------------------------------
+// Every record that reaches storage passes through here. The platforms hand out
+// SIGNED thumbnail URLs (`oe=` on fbcdn/cdninstagram, `x-expires=` on tiktokcdn)
+// that die in days, which is why an Arquivo card that looked fine on Monday was a
+// broken-image icon by Friday — the record was intact, the LINK had expired. The
+// bytes are fetched once and stored as a small `data:` URL instead, which is what
+// Facebook's transcription rail always did (it canvases a frame off the <video>).
+//
+// Failure keeps the original URL: it may still render in a page context, and the
+// Arquivo's recovery pass can ask the platform for a fresh one later.
+async function durableThumb(url) {
+  if (!url || isDataThumb(url)) return url || null;
+  try {
+    if (isTiktokCdn(url)) await ensureTiktokReferer();
+    return await toDurableThumb(url);
+  } catch {
+    return url;
+  }
+}
+
 const SAVED_KEY = "fbw_saved";
 const SAVED_CAP = 300;
 
@@ -271,10 +307,13 @@ function toggleSaved(entry) {
       delete map[id];
       saved = false;
     } else {
-      map[id] = entry;
+      // Inside the queue on purpose: un-saving must not pay for a thumbnail
+      // fetch, and only this branch knows the entry is actually being stored.
+      map[id] = { ...entry, thumb: await durableThumb(entry.thumb) };
       saved = true;
     }
     await chrome.storage.local.set({ [SAVED_KEY]: capMap(map) });
+    if (saved) queueForSync("saved", id).catch(() => {});
     return saved;
   });
 }
@@ -283,15 +322,17 @@ function toggleSaved(entry) {
 // warming) must not toggle a record off just because it was already there. Merges
 // by default so an existing record's transcript text/chunks survive a metadata
 // refresh.
-function upsertSaved(entry, merge = true) {
+async function upsertSaved(entry, merge = true) {
+  const e = entry && entry.thumb ? { ...entry, thumb: await durableThumb(entry.thumb) } : entry;
   return queueSavedWrite(async () => {
-    if (!entry || !entry.videoId) throw new Error("entrada inválida");
-    const id = String(entry.videoId);
+    if (!e || !e.videoId) throw new Error("entrada inválida");
+    const id = String(e.videoId);
     const r = await chrome.storage.local.get(SAVED_KEY);
     const map = r[SAVED_KEY] || {};
-    map[id] = merge ? { ...map[id], ...entry, videoId: id } : entry;
+    map[id] = merge ? { ...map[id], ...e, videoId: id } : e;
     if (!map[id].updatedAt) map[id].updatedAt = Date.now();
     await chrome.storage.local.set({ [SAVED_KEY]: capMap(map) });
+    queueForSync("saved", id).catch(() => {});
     return true;
   });
 }
@@ -312,6 +353,232 @@ function removeSaved(ids) {
     return removed;
   });
 }
+
+// ---- thumbnail recovery ----------------------------------------------------
+// The repair pass for records already in storage with a dead link. Routes and
+// their limits are documented in lib/thumbRecover.js; this is just the driver:
+// one request at a time, a per-platform gap between them, and the result written
+// back as `data:` bytes so the card can never rot again.
+//
+// A recovered thumbnail does NOT bump updatedAt — the Arquivo is ordered by it,
+// and repairing a picture is not the user editing the record. That is why this
+// patches the maps directly instead of going through putTranscript/upsertSaved.
+let thumbSweep = { running: false, done: 0, total: 0, fixed: 0, failed: 0 };
+
+function patchThumbs(key, patches) {
+  const queue = key === TRANSCRIPTS_KEY ? queueTranscriptWrite : queueSavedWrite;
+  return queue(async () => {
+    const r = await chrome.storage.local.get(key);
+    const map = r[key] || {};
+    let n = 0;
+    for (const [id, thumb] of Object.entries(patches)) {
+      if (!map[id] || !thumb) continue;
+      map[id] = { ...map[id], thumb };
+      n += 1;
+    }
+    if (n) {
+      await chrome.storage.local.set({ [key]: map });
+      queueForSync(key === TRANSCRIPTS_KEY ? "transcripts" : "saved", Object.keys(patches)).catch(() => {});
+    }
+    return n;
+  });
+}
+
+function reportThumbSweep() {
+  // No panel open is the normal case for a long sweep — ignore the "receiving
+  // end does not exist" that follows.
+  chrome.runtime.sendMessage({ type: "FBW_THUMB_PROGRESS", ...thumbSweep }).catch(() => {});
+}
+
+async function recoverThumbs({ brokenIds } = {}) {
+  if (thumbSweep.running) return { ok: true, ...thumbSweep };
+  const broken = new Set((brokenIds || []).map(String));
+  const stores = [
+    [TRANSCRIPTS_KEY, await getTranscripts()],
+    [SAVED_KEY, (await chrome.storage.local.get(SAVED_KEY))[SAVED_KEY] || {}],
+  ];
+  const jobs = [];
+  for (const [key, map] of stores)
+    for (const rec of recoverableRecords(Object.values(map), { brokenIds: broken }))
+      jobs.push({ key, rec });
+
+  thumbSweep = { running: jobs.length > 0, done: 0, total: jobs.length, fixed: 0, failed: 0 };
+  if (!jobs.length) return { ok: true, ...thumbSweep };
+
+  (async () => {
+    let batch = {};
+    let batchKey = null;
+    const flush = async () => {
+      if (batchKey && Object.keys(batch).length) await patchThumbs(batchKey, batch);
+      batch = {};
+      batchKey = null;
+    };
+    for (const { key, rec } of jobs) {
+      try {
+        const fresh = await resolveFreshThumb(rec);
+        const data = fresh ? await durableThumb(fresh) : null;
+        // durableThumb hands the URL back when the bytes could not be fetched;
+        // storing that would just be the same dead link under a new signature.
+        if (data && isDataThumb(data)) {
+          if (batchKey && batchKey !== key) await flush();
+          batchKey = key;
+          batch[String(rec.videoId)] = data;
+          thumbSweep.fixed += 1;
+        } else {
+          thumbSweep.failed += 1; // deleted, private, or not embeddable
+        }
+      } catch {
+        thumbSweep.failed += 1;
+      }
+      thumbSweep.done += 1;
+      if (Object.keys(batch).length >= 4) await flush();
+      reportThumbSweep();
+      // An MV3 worker dies after 30s with no extension API call, and fetch is not
+      // one. This is the keep-alive; the sweep is also resumable (a record whose
+      // link is still dead comes back in the next pass), so a death mid-run costs
+      // at most the batch that had not been flushed.
+      await chrome.runtime.getPlatformInfo().catch(() => {});
+      await new Promise((r) => setTimeout(r, RECOVER_GAP_MS[rec.platform] ?? 1000));
+    }
+    await flush();
+    thumbSweep.running = false;
+    reportThumbSweep();
+  })();
+
+  return { ok: true, ...thumbSweep };
+}
+
+// ---- hub sync --------------------------------------------------------------
+// One-way push of both stores to the socialMate hub. The rules live in
+// lib/syncClient.js; this is the part that touches storage and the network.
+//
+// The QUEUE IS PERSISTED (fbw_sync_queue). A service worker dies after 30s idle,
+// and a record that was only in a variable would never be sent — the user would
+// see it in the panel and never in the hub, with nothing to explain the gap.
+//
+// Deletes are deliberately NOT pushed. The local stores are capped (20
+// transcriptions, 300 saved) and drop their oldest as they fill; forwarding that
+// eviction would make the hub just as forgetful, which is the opposite of why it
+// exists.
+const SYNC_DEBOUNCE_MS = 4000;
+let syncTimer = null;
+let syncing = false;
+
+async function readSyncSettings() {
+  const r = await chrome.storage.local.get(SYNC_KEY);
+  return syncSettings(r[SYNC_KEY]);
+}
+
+async function setSyncState(patch) {
+  const r = await chrome.storage.local.get(SYNC_STATE_KEY);
+  const next = { ...(r[SYNC_STATE_KEY] || {}), ...patch };
+  await chrome.storage.local.set({ [SYNC_STATE_KEY]: next });
+  return next;
+}
+
+function scheduleSync(delay = SYNC_DEBOUNCE_MS) {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    flushSync().catch(() => {});
+  }, delay);
+}
+
+// Called from every write path. Cheap and silent when sync is off: the ids are
+// still recorded, so switching it on later sends what happened in the meantime.
+async function queueForSync(kind, ids) {
+  const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String);
+  if (!list.length) return;
+  const r = await chrome.storage.local.get(SYNC_QUEUE_KEY);
+  const queue = r[SYNC_QUEUE_KEY] || {};
+  const bucket = { ...(queue[kind] || {}) };
+  for (const id of list) bucket[id] = 1;
+  await chrome.storage.local.set({ [SYNC_QUEUE_KEY]: { ...queue, [kind]: bucket } });
+  scheduleSync();
+}
+
+async function storeFor(kind) {
+  const key = kind === "transcripts" ? TRANSCRIPTS_KEY : SAVED_KEY;
+  const r = await chrome.storage.local.get(key);
+  return r[key] || {};
+}
+
+/**
+ * Send everything the queue names. Ids that no longer exist locally are dropped
+ * from the queue rather than retried forever (a record deleted before its first
+ * sync has nothing to send).
+ */
+async function flushSync({ attempt = 0, manual = false } = {}) {
+  if (syncing) return { ok: true, skipped: "busy" };
+  const settings = await readSyncSettings();
+  // A manual push only needs an address and a token: the switch in Opções governs
+  // whether the worker sends BY ITSELF, not whether the user may ask for it.
+  if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+  if (!manual && !isSyncReady(settings)) return { ok: false, error: "envio automático desligado" };
+
+  const r = await chrome.storage.local.get(SYNC_QUEUE_KEY);
+  const queue = r[SYNC_QUEUE_KEY] || {};
+  const kinds = ["transcripts", "saved"];
+  const plan = [];
+  for (const kind of kinds) {
+    const ids = Object.keys(queue[kind] || {});
+    if (!ids.length) continue;
+    const map = await storeFor(kind);
+    const records = ids.map((id) => map[id]).filter(Boolean);
+    if (records.length) plan.push({ kind, ids, records });
+    else queue[kind] = {}; // every id is gone locally
+  }
+  if (!plan.length) {
+    await chrome.storage.local.set({ [SYNC_QUEUE_KEY]: queue });
+    return { ok: true, sent: 0 };
+  }
+
+  syncing = true;
+  await setSyncState({ running: true, error: null });
+  let sent = 0;
+  try {
+    for (const { kind, ids, records } of plan) {
+      for (const batch of batchRecords(records)) {
+        await postSync(settings, { [kind]: batch });
+        sent += batch.length;
+      }
+      // Cleared only after the whole kind landed: a half-sent kind that cleared
+      // its queue would lose the rest on the next flush.
+      for (const id of ids) delete queue[kind][id];
+    }
+    await chrome.storage.local.set({ [SYNC_QUEUE_KEY]: queue });
+    await setSyncState({ running: false, lastOkAt: Date.now(), lastSent: sent, error: null, pending: 0 });
+    return { ok: true, sent };
+  } catch (e) {
+    const status = e?.status || 0;
+    const pending = kinds.reduce((n, k) => n + Object.keys(queue[k] || {}).length, 0);
+    await chrome.storage.local.set({ [SYNC_QUEUE_KEY]: queue });
+    await setSyncState({ running: false, error: String(e?.message || e), pending });
+    // A wrong token or a malformed body fails the same way forever; only retry
+    // what another attempt could fix.
+    if (isRetryable(status) && attempt < 4) scheduleSync(backoffDelay(attempt));
+    return { ok: false, error: String(e?.message || e), status };
+  } finally {
+    syncing = false;
+  }
+}
+
+/** "Sincronizar tudo": queue every record in both stores, then flush. */
+async function syncAll() {
+  for (const kind of ["transcripts", "saved"]) {
+    const map = await storeFor(kind);
+    await queueForSync(kind, Object.keys(map));
+  }
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  return flushSync({ manual: true });
+}
+
+// A queue that survived the worker's death (or the browser's) gets one attempt on
+// the way up, before anything else asks for it.
+chrome.runtime.onStartup?.addListener(() => scheduleSync(8000));
 
 // initial paint (SW may spin up mid-session)
 syncBadge();
@@ -465,7 +732,8 @@ async function getTranscripts() {
   const r = await chrome.storage.local.get(TRANSCRIPTS_KEY);
   return r[TRANSCRIPTS_KEY] || {};
 }
-const TRANSCRIPTS_CAP = 20;
+// The cap is a SETTING now (Opções → Arquivo), not a constant — see
+// lib/transcriptCap.js for why it exists at all and what "unlimited" costs.
 // Every transcript write queues behind the previous one. The store is one MAP
 // with four writers — the job runner, the metadata backfill, the page's instant
 // "running" card and the Library's delete — each doing get → mutate → set. Two of
@@ -474,7 +742,11 @@ const TRANSCRIPTS_CAP = 20;
 // saved store was fixed this way first; the queue is shared now (lib/serialQueue).
 const queueTranscriptWrite = serialQueue();
 
-function putTranscript(videoId, patch, opts = {}) {
+async function putTranscript(videoId, patch, opts = {}) {
+  // Before the queue, not inside it: a thumbnail fetch inside the serial write
+  // would stall every other writer behind the network.
+  const p = patch && patch.thumb ? { ...patch, thumb: await durableThumb(patch.thumb) } : patch;
+  const cap = await readTranscriptCap();
   return queueTranscriptWrite(async () => {
     const all = await getTranscripts();
     // mergeMeta, not a spread: a later write that scraped nothing must not erase
@@ -484,18 +756,18 @@ function putTranscript(videoId, patch, opts = {}) {
     // `opts.clear` extends that list for a writer that KNOWS a stored value no
     // longer describes the record (the caption path and `language`).
     all[videoId] = {
-      ...mergeMeta(all[videoId] || {}, patch, { clear: ["error", ...(opts.clear || [])] }),
+      ...mergeMeta(all[videoId] || {}, p, { clear: ["error", ...(opts.clear || [])] }),
       videoId,
       updatedAt: Date.now(),
     };
-    // Rolling history: keep the newest TRANSCRIPTS_CAP records. Thumbs make each
-    // record 10-20KB, and the Library reads the whole map on every change.
-    const ids = Object.keys(all);
-    if (ids.length > TRANSCRIPTS_CAP) {
-      ids.sort((a, b) => (all[b].updatedAt || 0) - (all[a].updatedAt || 0));
-      for (const id of ids.slice(TRANSCRIPTS_CAP)) delete all[id];
-    }
+    // Rolling history, newest kept. Thumbs make each record 6–20KB and the
+    // Library reads the whole map on every change, which is the cost the user
+    // is choosing when they raise this.
+    for (const id of idsOverCap(all, cap)) delete all[id];
     await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
+    // The hub gets a copy. Fire-and-forget: a backend that is down or unset must
+    // never make a local write look like it failed.
+    queueForSync("transcripts", videoId).catch(() => {});
     return all[videoId];
   });
 }
@@ -909,15 +1181,8 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 // Service workers have no URL.createObjectURL, so JSON files go out as a data:
 // URL. It must be built through TextEncoder — btoa() alone throws on the emoji in
 // comment text, which would silently lose exactly the exports worth reading.
-// Bytes -> base64, chunked to keep String.fromCharCode off the argument-count
-// limit. Was written out twice (here and the FBW_DL_MEDIA image path).
-function bytesToBase64(bytes) {
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK)
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  return btoa(bin);
-}
+// Bytes -> base64 lives in lib/thumbCache.js now — the thumbnail cache needs the
+// same encoder, and this was already the second copy.
 
 function jsonDataUrl(obj) {
   const bytes = new TextEncoder().encode(JSON.stringify(obj, null, 2));
@@ -1222,6 +1487,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "FBW_SAVED_UPSERT": {
       upsertSaved(msg.entry, msg.merge !== false)
         .then(() => sendResponse({ ok: true, saved: true }))
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    // panel → bg: repair the records whose signed thumbnail URL has expired.
+    // `brokenIds` is what the panel watched fail in an <img>, which catches the
+    // links that died without an expiry stamp.
+    case "FBW_THUMB_RECOVER": {
+      recoverThumbs({ brokenIds: msg.brokenIds })
+        .then(sendResponse)
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    // A panel opened mid-sweep has missed the progress messages so far.
+    case "FBW_THUMB_STATUS": {
+      sendResponse({ ok: true, ...thumbSweep });
+      return false;
+    }
+    // panel → bg: hub sync. Push-only; see the notes above flushSync.
+    case "FBW_SYNC_PING": {
+      (async () => {
+        try {
+          const settings = msg.settings ? syncSettings(msg.settings) : await readSyncSettings();
+          const r = await pingSync(settings);
+          sendResponse({ ok: true, ...r });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e?.message || e), status: e?.status || 0 });
+        }
+      })();
+      return true;
+    }
+    case "FBW_SYNC_ALL": {
+      syncAll()
+        .then(sendResponse)
+        .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    case "FBW_SYNC_NOW": {
+      flushSync({ manual: true })
+        .then(sendResponse)
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
       return true;
     }

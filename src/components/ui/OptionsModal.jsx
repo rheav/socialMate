@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Moon, Sun, X } from "lucide-react";
+import { Cloud, Moon, Sun, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import useStoredFlag from "@/lib/useStoredFlag";
+import { useSyncSettings } from "@/lib/useSyncSettings";
+import {
+  TRANSCRIPT_CAP_KEY,
+  TRANSCRIPT_CAP_OPTIONS,
+  normalizeTranscriptCap,
+  readTranscriptCap,
+  writeTranscriptCap,
+} from "@/lib/transcriptCap";
 import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
 import {
   TRANSCRIPT_LANGUAGE_KEY,
@@ -123,6 +131,10 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
             />
           </Section>
 
+          <ArchiveSection />
+
+          <HubSection />
+
           <Section
             title="Transcrição"
             hint="Idioma das PRÓXIMAS transcrições. As já feitas guardam o idioma com que foram geradas."
@@ -211,5 +223,155 @@ function TxLanguageChoice() {
       onChange={(v) => writeStoredTranscriptLanguage(v).then(setLang)}
       options={TX_LANG_OPTIONS.map((o) => ({ value: o.value, label: o.short }))}
     />
+  );
+}
+
+// ---- Acervo (hub) ----
+// The local Arquivo is capped on purpose (20 transcrições, 300 salvos), so the
+// hub is where the history actually lives. Three controls, in the order someone
+// sets them up: where, the key, and then the switch — with "testar" between the
+// key and the switch because a token typed wrong is the only failure that looks
+// exactly like everything working.
+function HubSection() {
+  const { settings, state, ready, save, ensureHost, ping, syncAll } = useSyncSettings();
+  const [busy, setBusy] = useState(null);
+  const [result, setResult] = useState(null);
+
+  if (!ready) return null;
+
+  const run = async (kind, fn) => {
+    setBusy(kind);
+    setResult(null);
+    try {
+      setResult(await fn());
+    } catch (e) {
+      setResult({ ok: false, error: String(e?.message || e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const test = () =>
+    run("ping", async () => {
+      // The permission has to be asked for from this click; see useSyncSettings.
+      if (!(await ensureHost(settings.url))) return { ok: false, error: "permissão negada para esse endereço" };
+      const r = await ping();
+      return r?.ok
+        ? { ok: true, note: `${r.counts?.transcripts ?? 0} transcrições e ${r.counts?.saved ?? 0} salvos no acervo` }
+        : { ok: false, error: r?.status === 401 ? "token recusado" : r?.error || "sem resposta" };
+    });
+
+  const pushAll = () =>
+    run("all", async () => {
+      if (!(await ensureHost(settings.url))) return { ok: false, error: "permissão negada para esse endereço" };
+      const r = await syncAll();
+      return r?.ok ? { ok: true, note: `${r.sent ?? 0} registros enviados` } : { ok: false, error: r?.error || "falhou" };
+    });
+
+  return (
+    <Section
+      title="Acervo (backend)"
+      hint="O Arquivo local é limitado — 20 transcrições e 300 salvos, e cada um carrega a miniatura. O acervo guarda tudo: nada expira, 'limpar tudo' não chega lá e sobrevive a reinstalar a extensão. O envio é só de ida; apagar aqui não apaga lá."
+    >
+      <label className="block py-1">
+        <span className="text-[11px] text-muted-foreground">Endereço</span>
+        <input
+          value={settings.url}
+          onChange={(e) => save({ url: e.target.value })}
+          placeholder="https://socialmate.rheav.dev"
+          spellCheck={false}
+          className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+        />
+      </label>
+      <label className="block py-1">
+        <span className="text-[11px] text-muted-foreground">Token de sincronização</span>
+        <input
+          type="password"
+          value={settings.token}
+          onChange={(e) => save({ token: e.target.value })}
+          placeholder="SYNC_TOKEN do servidor"
+          spellCheck={false}
+          className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+        />
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2 py-1.5">
+        <button
+          onClick={test}
+          disabled={busy != null || !settings.url || !settings.token}
+          className="sw-hoverable flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          <Cloud className="size-3" /> {busy === "ping" ? "testando…" : "testar conexão"}
+        </button>
+        <button
+          onClick={pushAll}
+          disabled={busy != null || !settings.enabled}
+          title={settings.enabled ? "Enviar tudo o que já está no Arquivo" : "Ligue o envio automático primeiro"}
+          className="sw-hoverable rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {busy === "all" ? "enviando…" : "sincronizar tudo"}
+        </button>
+      </div>
+
+      <Row
+        id="opt-sync-enabled"
+        label="Enviar automaticamente"
+        hint="Cada transcrição e cada vídeo salvo sobem para o acervo logo depois de serem gravados aqui."
+        checked={settings.enabled}
+        onChange={(v) => save({ enabled: v })}
+      />
+
+      {result && (
+        <p className={result.ok ? "text-[11px] text-good" : "text-[11px] text-destructive"}>
+          {result.ok ? result.note : result.error}
+        </p>
+      )}
+      {!result && state?.error && <p className="text-[11px] text-destructive">último envio: {state.error}</p>}
+      {!result && !state?.error && state?.lastOkAt && (
+        <p className="text-[11px] text-muted-foreground">
+          último envio: {new Date(state.lastOkAt).toLocaleString()} ({state.lastSent ?? 0} registros)
+        </p>
+      )}
+    </Section>
+  );
+}
+
+// ---- Arquivo ----
+// How many transcriptions to keep. It used to be 20, hard-coded, and the number
+// was never the point: the store is one object re-serialized on every write,
+// with a thumbnail inside every record, so the cap is what keeps a write cheap.
+// Whose ceiling that should be is the user's call — so it is a setting, with the
+// cost of "sem limite" stated instead of discovered.
+function ArchiveSection() {
+  const [cap, setCap] = useState(null);
+
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    readTranscriptCap().then(setCap).catch(() => {});
+    const onCh = (c, area) => {
+      if (area === "local" && c[TRANSCRIPT_CAP_KEY]) setCap(normalizeTranscriptCap(c[TRANSCRIPT_CAP_KEY].newValue));
+    };
+    chrome.storage.onChanged?.addListener(onCh);
+    return () => chrome.storage.onChanged?.removeListener(onCh);
+  }, []);
+
+  if (cap === null) return null;
+  const current = TRANSCRIPT_CAP_OPTIONS.find((o) => o.value === cap);
+
+  return (
+    <Section
+      title="Arquivo"
+      hint="Quantas transcrições ficam guardadas aqui. As mais antigas saem primeiro quando o limite é atingido — e o que já subiu para o acervo NÃO é apagado de lá."
+    >
+      <div className="flex items-center justify-between gap-3 py-1.5">
+        <span className="text-sm text-foreground">Máximo de transcrições</span>
+        <Choice
+          value={cap}
+          onChange={(v) => writeTranscriptCap(v).then(() => setCap(normalizeTranscriptCap(v)))}
+          options={TRANSCRIPT_CAP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+        />
+      </div>
+      {current?.hint && <p className="text-[11px] leading-relaxed text-muted-foreground">{current.hint}</p>}
+    </Section>
   );
 }

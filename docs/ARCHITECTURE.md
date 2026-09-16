@@ -80,6 +80,11 @@ pane wipes the captures of all four TT panes.
 `FBW_SAVED_UPSERT` (insert-or-refresh, never removes — the auto-capture path) and
 `FBW_SAVED_REMOVE` (`{id}` or `{ids}`).
 
+Thumbnail repair: `FBW_THUMB_RECOVER` (`{brokenIds}`) starts the sweep,
+`FBW_THUMB_STATUS` reads it, and the worker broadcasts `FBW_THUMB_PROGRESS`.
+Hub sync: `FBW_SYNC_PING` (config check), `FBW_SYNC_ALL` (push both stores),
+`FBW_SYNC_NOW` (drain the queue).
+
 Panel code talks to the worker through `src/lib/bg.js` (`sendBg` / `requireOk`),
 which reads `chrome.runtime.lastError` and surfaces `.ok` — the per-pane `bg()`
 helpers it replaced did neither, so a failed download reported success.
@@ -125,6 +130,9 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_nav3` / `sw_nav2` | Shell (300 ms debounce) | nav state; v2 is legacy, still read forever |
 | `sw_theme` | Shell | light/dark |
 | `sw_ig_overlay` / `sw_pin_overlay` | IgSortTool / pin-api | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
+| `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
+| `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |
+| `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, pending }`, read by Opções |
 | IndexedDB `emb:<djb2>:<len>` | offscreen, idb-keyval | MiniLM embedding cache |
 
 Downloads: one authority, `src/lib/downloadPath.js` →
@@ -289,6 +297,29 @@ restored empty on every navigation until `serializeLedger`/`restoreLedger`
 - `PLATFORM_HOST[*].re` must stay in lockstep with the manifest globs — a wider
   regex makes the panel adopt a tab with no content script, and `sendMessage`
   fails silently ("Lendo a página…" forever).
+
+---
+
+### Thumbnails are BYTES, not links (0.92.0)
+
+Every platform hands out a **signed, expiring** thumbnail URL — `oe=<hex>` on
+fbcdn/cdninstagram (days), `x-expires=` on tiktokcdn (~48 h measured). Stored as a
+link, a card is a broken image by the end of the week. `background.durableThumb()`
+fetches the bytes once and stores a 180 px WebP `data:` URL
+(`lib/thumbCache.js`); because the worker is the ONLY writer of both maps, every
+write site is covered. **Never store a remote thumbnail URL from a content script
+and expect it to survive.** Pinterest's `i.pinimg.com` is the one unsigned host.
+
+Repair for records already stored: `lib/thumbRecover.js` — IG `/p/<code>/embed/
+captioned/` (works logged out), FB `/plugins/video.php?href=` (needs the session,
+and a non-embeddable video answers with a ~59 KB shell), TikTok `/oembed?url=`.
+
+### Hub sync is one-way, and deletes do not travel (0.93.0)
+
+`~/Code/apps/socialmate-hub` holds the history the capped local stores cannot.
+The extension pushes; the hub never writes back. A local delete or a cap eviction
+is NOT forwarded — forwarding it would make the hub as forgetful as the panel,
+which is the whole reason it exists.
 
 ---
 

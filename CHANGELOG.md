@@ -18,6 +18,207 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.95.0] — 2026-09-16
+
+### Adicionado
+- **O limite de 20 transcrições virou configuração** (`Opções → Arquivo`): 20, 50,
+  100, 300 ou **sem limite**. O número nunca foi o ponto — o store é **um objeto
+  só**, reserializado a cada escrita e relido por todo painel e overlay que o
+  observa, com a miniatura dentro de cada registro (6–20KB). O teto é o que
+  mantém uma escrita barata; de quem é esse teto passou a ser decisão sua, com o
+  custo de "sem limite" dito na tela em vez de descoberto no uso.
+  Um valor corrompido na storage cai para o padrão (20), **nunca** para
+  ilimitado: uma chave quebrada não pode remover em silêncio a proteção de toda
+  escrita. Teto rígido de 2000.
+  E vale lembrar: o que já subiu para o acervo **não** é apagado quando um
+  registro sai daqui — é exatamente para isso que ele existe.
+
+---
+
+## [0.94.1] — 2026-09-16
+
+### Corrigido
+- **Vídeos do Instagram continuavam sem miniatura mesmo depois de "recuperar
+  miniaturas".** O embed do Instagram (`/p/<code>/embed/captioned/`) responde
+  *"O link desta foto ou vídeo pode estar quebrado ou o post pode ter sido
+  removido"* para posts que estão **públicos e no ar** — 6 de 6 reportados. O
+  resolvedor lia esse vazio como "post removido" e parava ali.
+  Agora a recuperação é uma **cadeia de rotas, não uma só**: embed primeiro
+  (240KB) e, se ele não trouxer nada, a **página do post** (`/p/<code>/`, 737KB),
+  cujo `og:image` é renderizado no servidor e público — é o que todo preview de
+  link do mundo lê. Medido nos 6 códigos: 6/6 recuperados, imagens de 35–45KB.
+  Uma rota que falha também não esconde mais a seguinte: o erro só sobe se
+  **nenhuma** responder.
+
+---
+
+## [0.94.0] — 2026-09-15
+
+### Adicionado
+- **Botão `enviar ao acervo` nas duas abas do Arquivo** (Transcrições e Salvos).
+  O painel é por instalação — o acervo não é —, então o envio tem que ser dado na
+  máquina que guarda a coleção de verdade, não escondido dentro de Opções.
+- O envio manual agora **funciona com o automático desligado**: `enabled` passou a
+  significar "o worker manda sozinho", e apertar o botão já é a permissão
+  (`isSyncConfigured` × `isSyncReady`). Antes, um acervo configurado com o
+  automático off recusava também o clique.
+
+### Infraestrutura
+- Acervo no ar em **https://socialmate.rheav.dev** (EasyPanel `my-projects/socialmate-hub`,
+  repo `rheav/socialmate-hub`, volume `socialmate-hub-data` em `/app/data`,
+  autoDeploy por webhook de push).
+
+---
+
+## [0.93.0] — 2026-09-15
+
+### Adicionado
+- **Acervo no servidor (socialMate hub).** O Arquivo local é limitado de
+  propósito — 20 transcrições e 300 salvos, cada um carregando a miniatura em
+  base64 —, então a extensão descarta o próprio histórico enquanto trabalha.
+  Agora cada transcrição e cada vídeo salvo também sobem para um backend próprio
+  (`~/Code/apps/socialmate-hub`, Express + SQLite, gerado do starter
+  `mini-backend`), onde nada expira, "limpar tudo" não chega e uma reinstalação
+  não zera nada.
+  - **Envio é só de ida.** A extensão continua sendo a fonte da verdade; o
+    servidor não edita registro nenhum, e **apagar aqui não apaga lá** — o teto
+    local é justamente o motivo do acervo existir.
+  - **Fila persistida** (`fbw_sync_queue`): um service worker morre depois de 30s
+    parado, e um registro que só existisse numa variável nunca seria enviado.
+  - **Id estável `<plataforma>:<videoId>`** e última-escrita-vence pelo
+    `updatedAt` da extensão: duas máquinas convergem para uma linha só e uma
+    instalação desatualizada não regride o registro.
+  - **Lotes por tamanho serializado, não por contagem**: 25 registros de texto é
+    um request pequeno, 25 com miniatura de 200KB é um de 5MB. Corte em 4MB.
+  - Retry com backoff (2s→30s) só para o que outra tentativa resolve: 401 e 400
+    falham igual para sempre.
+  - `Opções → Acervo (backend)`: endereço, token, **testar conexão** e
+    **sincronizar tudo**. Um endereço diferente do que vem no manifesto pede a
+    permissão de host na hora do clique (Chrome exige gesto do usuário) em vez de
+    falhar depois com um erro com cara de CORS.
+- **Painel web por rede social** (no mesmo servidor): grade de cards com
+  miniatura e métricas, abas Transcrições/Salvos, filtro por plataforma, busca em
+  legenda/autor/transcrição (feita em SQLite, não no navegador) e leitor de
+  transcrição com `copiar`/`.txt`/`.srt` — os mesmos arquivos que a extensão
+  exporta. Mesma paleta Nord do painel lateral.
+
+---
+
+## [0.92.0] — 2026-09-15
+
+### Corrigido
+- **Os vídeos salvos perdiam a miniatura depois de alguns dias.** O registro
+  estava intacto — o LINK é que morria. Facebook, Instagram e TikTok entregam a
+  miniatura numa URL **assinada e com validade**, e era ela que ficava gravada:
+  `oe=<hex>` + `oh=` no fbcdn/cdninstagram (poucos dias) e
+  `x-expires=` + `x-signature=` no tiktokcdn (~48h medidos). Passado o prazo a CDN
+  responde **403** e o card vira o ícone de imagem quebrada, para sempre. O trilho
+  de transcrição do Facebook nunca teve o problema porque ele desenha um quadro do
+  `<video>` num canvas e grava um `data:` URL; todo o resto guardava a URL.
+  Agora **o background materializa a miniatura na escrita**: baixa os bytes uma vez
+  e grava WebP de 180px (`lib/thumbCache.js`). Como ele é o único escritor dos dois
+  mapas, os dez pontos de escrita ficaram cobertos de uma vez — painéis, overlays de
+  página e o trilho de transcrição. Falha na rede mantém a URL antiga em vez de
+  apagar a miniatura.
+- **Instagram preferia a URL do JSON ao quadro do vídeo** (`grabThumb` em
+  `content/ig/bridge.js` só canvasava quando não havia registro capturado), que é
+  exatamente por que a aba Transcrições do print estava vazia — os cards eram de
+  `2026-09-08`, já fora da validade.
+
+### Adicionado
+- **"recuperar miniaturas (n)"** no Arquivo (Transcrições e Salvos): repara os
+  registros que já estão gravados com link morto. Rotas verificadas ao vivo
+  (`lib/thumbRecover.js`):
+  - **Instagram** — `/p/<code>/embed/captioned/` → `display_url`. Responde 200 até
+    **deslogado**, sem `x-ig-app-id` e sem `pk`: basta o shortcode, que todo
+    registro carrega.
+  - **Facebook** — `/plugins/video.php?href=<permalink>` → primeira imagem
+    `t15.*`/`t51.*` (o bucket `t39.30808-1` é o avatar do autor e aparece quatro
+    vezes na marcação). **Parcial por natureza**: um vídeo sem incorporação pública
+    devolve um shell de ~59KB sem imagem — 2 de 4 registros testados voltaram.
+  - **TikTok** — `/oembed?url=<permalink>` → `thumbnail_url`. JSON público, sem
+    autenticação.
+  - **Pinterest** — `i.pinimg.com` **não é assinado**, nunca expirou; a recuperação
+    só rebaixa os bytes para `data:`.
+  A varredura é sequencial, com intervalo por plataforma (1,2s IG / 1,5s FB /
+  0,8s TT), escreve em lotes de 4 e **não mexe no `updatedAt`** — recuperar uma
+  imagem não é editar o registro, e o Arquivo é ordenado por ele. Um `<img>` que
+  falha ao carregar marca o registro como quebrado, o que pega os links que morrem
+  sem carimbo de validade.
+  Medido neste install: **9 de 9 recuperadas**, miniaturas de 6 a 16KB.
+
+---
+
+## [0.91.0] — 2026-09-07
+
+### Adicionado
+- **Ordenação na aba Salvos**, a mesma linha de controle das abas de pesquisa
+  (`Ordenar por` + inverter). Ordena dentro de cada plataforma, porque a grade é
+  agrupada por rede — uma ordem única com os cabeçalhos no meio não se enxerga.
+  Critérios: visualizações, curtidas, comentários, data do post e "salvo em";
+  `Padrão` é a ordem em que você salvou. Registros anteriores ao schema 2 guardam
+  contagens já formatadas ("8,3 mil") e agora ordenam pelo valor, não no fim da
+  lista.
+- **"limpar" por rede social** no cabeçalho de cada grupo: apaga só os salvos
+  daquela plataforma e não toca nas outras. Dois toques para confirmar, como o
+  "limpar tudo" da linha de cima.
+
+### Alterado
+- **Um grupo colapsado continua colapsado na próxima abertura do painel.** O
+  estado morava em `useState` e o painel é montado do zero toda vez que a barra
+  lateral abre, então todo grupo voltava aberto. Vai para
+  `fbw_saved_collapsed` — só as plataformas FECHADAS são gravadas, então "tudo
+  aberto" é o objeto vazio, e a mudança chega às outras janelas do painel pelo
+  `storage.onChanged`.
+
+---
+
+## [0.90.1] — 2026-09-07
+
+### Corrigido
+- **Salvar um post deixou de dizer que está transcrevendo.** Os cards de
+  Transcrições e os de Salvos são o mesmo componente sobre dois stores, e ele lia
+  "sem texto" como "job em andamento". Vale para `fbw_transcripts`, onde todo
+  registro existe porque um job o criou; não vale para `fbw_saved`, onde um post
+  salvo da grade nunca pediu transcrição alguma — e ficava para sempre sob
+  "transcrevendo…" sem nada rodando por trás. Agora a decisão é do chamador
+  (`isTranscribing`, testada): no Salvos só um transcript favoritado com
+  `status: "running"` conta.
+- **Um card salvo sem transcrição diz "sem transcrição"** em vez de terminar na
+  legenda e deixar o motivo para adivinhação. Transcrever continua sendo uma ação
+  do post (o ⧉ do card o abre).
+
+---
+
+## [0.90.0] — 2026-09-06
+
+### Adicionado
+- **Botão de miniatura em cada reel da grade do perfil**: um rail no canto
+  superior direito de cada tile baixa a capa daquele reel, sem depender do
+  download em lote. O arquivo sai como `social-mate/imagens/fb-<perfil>-<id>.jpg`,
+  o mesmo destino e nome do botão "Baixar miniaturas dos reels" e do painel.
+
+### Corrigido
+- **A grade de reels de um perfil numérico deixou de ser invisível para a
+  extensão.** `/profile.php?id=…&sk=owner_reels` tem caminho `/profile.php`, então
+  os testes que procuravam `reels_tab` ou `/reels` no caminho falhavam: o botão de
+  lote não aparecia e o Reels Sort do painel recebia lista vazia nessa URL. As três
+  formas da grade (`sk=owner_reels`, `sk=reels_tab`, `/<perfil>/reels`) passam por
+  uma única checagem testada, `isReelsGridUrl`.
+
+### Alterado
+- **As miniaturas de reel deixaram de ir para uma subpasta por perfil.** O botão
+  de lote criava `social-mate/imagens/<perfil>/reel_<id>.jpg`; agora os três
+  caminhos (tile, lote, painel) gravam direto em `social-mate/imagens/` como
+  `fb-<perfil>-<id>.jpg` — o nome já diz de quem é.
+- **As capas de reel agora são salvas em 1080x1920**, não nos 540x960 que a grade
+  pinta — vale para os dois downloads em lote e para o botão novo. O `oh` da fbcdn
+  assina `stp` e `cstp` (mexer neles dá 403), mas `ctp` é um corte livre do cliente:
+  removê-lo entrega o quadro nativo. Isso vale para capas de reel (`t15.5256-10`) e
+  não para as fotos de perfil em `t39` — lá o corte é assinado.
+
+---
+
 ## [0.89.0] — 2026-09-05
 
 ### Adicionado

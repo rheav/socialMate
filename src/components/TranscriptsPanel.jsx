@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink } from "lucide-react";
+import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink, ArrowDown, ArrowUp } from "lucide-react";
 import { downloadPath } from "@/lib/downloadPath";
 import { fmtCount } from "@/lib/igMedia";
 import { sendBg } from "@/lib/bg";
@@ -17,9 +17,16 @@ import {
 import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
 import { removalFailed } from "@/lib/transcriptStore.js";
 import { advanceTxProgress } from "@/lib/transcriptionProgress.js";
+import { isTranscribing } from "@/lib/transcriptCardState.js";
+import { SAVED_SORT_OPTS, sortSavedRecords } from "@/lib/savedSort.js";
+import { ToolBar, ToolSelect, ToolIconButton } from "@/components/ui/ToolBar.jsx";
+import { useThumbRecovery } from "@/lib/useThumbRecovery.js";
+import { useSyncSettings } from "@/lib/useSyncSettings.js";
+import { CloudUpload, ImageOff } from "lucide-react";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
+const COLLAPSE_KEY = "fbw_saved_collapsed";
 
 const hasStorage = () => typeof chrome !== "undefined" && !!chrome?.storage?.local;
 
@@ -106,6 +113,50 @@ function useTxProgress() {
     return () => chrome.runtime.onMessage.removeListener(onMsg);
   }, []);
   return progress;
+}
+
+// Which platform groups in Salvos are folded shut.
+//
+// In storage, not component state: this panel is mounted fresh every time the
+// side panel is opened, so a fold kept in useState came back open on the next
+// visit — which is the one thing a fold is for. Every panel window reads the
+// same key, so folding Facebook in one folds it in all of them.
+//
+// Only the SHUT platforms are written. "Everything open" is therefore the empty
+// object (and the default for a key that was never set), and a platform that
+// stops appearing in the Library leaves nothing behind in storage.
+function useCollapsedGroups() {
+  const [collapsed, setCollapsed] = useState({});
+
+  useEffect(() => {
+    if (!hasStorage()) return;
+    const load = () =>
+      chrome.storage.local.get(COLLAPSE_KEY, (r) => {
+        const v = r[COLLAPSE_KEY];
+        setCollapsed(v && typeof v === "object" && !Array.isArray(v) ? v : {});
+      });
+    load();
+    const onChange = (c, area) => { if (area === "local" && c[COLLAPSE_KEY]) load(); };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
+
+  // Optimistic: the group folds now and storage catches up. The write is built
+  // from the current value rather than inside the state updater, which React may
+  // call more than once per change — a persist in there would fire twice.
+  const toggle = (platform) => {
+    const next = { ...collapsed };
+    if (next[platform]) delete next[platform];
+    else next[platform] = true;
+    setCollapsed(next);
+    try {
+      chrome?.storage?.local?.set({ [COLLAPSE_KEY]: next });
+    } catch {
+      /* applied locally; only the persistence is lost */
+    }
+  };
+
+  return [collapsed, toggle];
 }
 
 function useFlag(key) {
@@ -240,7 +291,13 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
   );
 }
 
-function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, playhead }) {
+// `transcribing` says whether this record is a transcription JOB, and it has to
+// come from the caller: the card cannot tell from the record alone. Transcript
+// records and Library records share this component and this shape, and a Library
+// record saved straight off a grid has no `text` for the plain reason that nobody
+// ever asked for one. Deriving "no text ⇒ running" is what made every saved post
+// sit under "transcrevendo…" forever, with no job behind it.
+function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, playhead, transcribing, onThumbError }) {
   const [open, setOpen] = useState(false);
   // Counts are stored as raw numbers (schema 2) and formatted here. Records
   // written before that carry pre-formatted strings — pass those through.
@@ -297,13 +354,27 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
         {srcUrl ? (
           <a href={srcUrl} target="_blank" rel="noreferrer" title="Abrir o reel original" className="block h-full w-full">
             {it.thumb ? (
-              <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+              // onError is not decoration: a signed CDN link that died without an
+              // expiry stamp can only be detected by watching it fail.
+              <img
+                src={it.thumb}
+                alt=""
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                onError={() => onThumbError?.(it.videoId)}
+              />
             ) : (
               <div className="grid h-full w-full place-items-center text-[10px] text-[#d9e0ee]/45">abrir reel</div>
             )}
           </a>
         ) : it.thumb ? (
-          <img src={it.thumb} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+          <img
+            src={it.thumb}
+            alt=""
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+            onError={() => onThumbError?.(it.videoId)}
+          />
         ) : (
           <div className="grid h-full w-full place-items-center text-[10px] text-[#d9e0ee]/45">sem prévia</div>
         )}
@@ -432,7 +503,7 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
               ) : null}
             </div>
           </>
-        ) : it.status !== "error" ? (
+        ) : transcribing ? (
           // Real progress when the offscreen document is reporting it (model bytes,
           // audio bytes, then one 30 s Whisper window at a time); the plain label
           // when it isn't — a job started before this panel opened, or a caption
@@ -454,7 +525,12 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
               </div>
             )}
           </div>
-        ) : null}
+        ) : it.status === "error" ? null : (
+          // Saved but never transcribed. Said out loud, because the alternative is
+          // a card that just stops after the caption and leaves the reason to
+          // guesswork. Transcribing happens on the post itself — the ⧉ above opens it.
+          <p className="mt-0.5 text-[11px] text-muted-foreground">sem transcrição</p>
+        )}
       </div>
     </div>
   );
@@ -469,7 +545,10 @@ function Grid({ children }) {
 // Wipes a whole store with no undo, so the first tap only arms the button and a
 // second one commits. window.confirm is not an option: a native dialog belongs to
 // the parent tab and would sit behind the side panel, unreachable.
-function ClearAllButton({ onConfirm, className, children }) {
+// `title` says what THIS button would wipe. It matters now that there is more
+// than one of them on screen: the row header wipes everything, each platform
+// header wipes only its own group, and the two look alike.
+function ClearAllButton({ onConfirm, className, children, title }) {
   const [armed, setArmed] = useState(false);
   const ref = useRef(null);
 
@@ -488,7 +567,7 @@ function ClearAllButton({ onConfirm, className, children }) {
   return (
     <button
       ref={ref}
-      title={armed ? "Toque de novo para confirmar" : undefined}
+      title={armed ? "Toque de novo para confirmar" : title}
       className={
         armed
           ? "flex flex-none items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive"
@@ -505,6 +584,73 @@ function ClearAllButton({ onConfirm, className, children }) {
   );
 }
 
+// Repair for cards whose thumbnail link expired. Hidden while there is nothing
+// to repair — a button that always says "0" is noise — and it reports what the
+// sweep could NOT fix, because "2 não recuperadas" (a private or deleted post)
+// is a result, not a failure to hide.
+function RecoverThumbsButton({ pending, sweep, onClick }) {
+  if (!pending && !sweep.running) return null;
+  return (
+    <button
+      type="button"
+      disabled={sweep.running}
+      onClick={onClick}
+      title="Baixa as miniaturas de novo e guarda os bytes — links de CDN assinados expiram em poucos dias"
+      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-60"
+    >
+      <ImageOff size={11} />
+      {sweep.running ? `recuperando… ${sweep.done}/${sweep.total}` : `recuperar miniaturas (${pending})`}
+    </button>
+  );
+}
+
+function RecoverThumbsNote({ sweep }) {
+  if (sweep.running || !sweep.total || !sweep.failed) return null;
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      {sweep.fixed} miniatura{sweep.fixed === 1 ? "" : "s"} recuperada{sweep.fixed === 1 ? "" : "s"}, {sweep.failed} sem
+      resposta da plataforma (post privado, removido ou sem incorporação pública).
+    </p>
+  );
+}
+
+// Push the whole Arquivo to the hub, from the tab where the archive is — not
+// buried in Opções. This is the button someone presses on the browser that holds
+// the real collection (the panel is per-install; the hub is not), and it works
+// with the automatic switch off: pressing it IS the permission.
+//
+// Hidden until a hub address and token exist, because there is nothing it could
+// do before that and Opções is where those are set.
+function SyncButton() {
+  const { settings, state, ready, syncAll } = useSyncSettings();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  if (!ready || !settings.url || !settings.token) return null;
+
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    const r = await syncAll();
+    setResult(r?.ok ? `${r.sent ?? 0} enviados` : r?.error || "falhou");
+    setBusy(false);
+    setTimeout(() => setResult(null), 6000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={run}
+      disabled={busy || state?.running}
+      title={`Enviar tudo para ${settings.url}. O acervo guarda o histórico que não cabe aqui; nada é apagado lá.`}
+      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-60"
+    >
+      <CloudUpload size={11} />
+      {busy || state?.running ? "enviando…" : result || "enviar ao acervo"}
+    </button>
+  );
+}
+
 // ---- Transcripts tab ----
 export default function TranscriptsPanel() {
   const items = useStore(TKEY);
@@ -514,6 +660,7 @@ export default function TranscriptsPanel() {
   // One port for the whole tab, shared by every card — the card whose videoId
   // matches the tick is the one that lights up.
   const playhead = usePlayhead();
+  const thumbs = useThumbRecovery(items);
   // A delete that removed nothing used to leave the card sitting there in silence —
   // the same thing a button with no handler does. Say so on the card instead.
   const [failed, setFailed] = useState({});
@@ -540,11 +687,14 @@ export default function TranscriptsPanel() {
         </span>
         <div className="flex flex-none items-center gap-2">
           <TxLanguageToggle />
+          <SyncButton />
+          <RecoverThumbsButton pending={thumbs.pending} sweep={thumbs.sweep} onClick={thumbs.start} />
           {items.length > 0 && (
             <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground" onConfirm={clearAll}>limpar tudo</ClearAllButton>
           )}
         </div>
       </div>
+      <RecoverThumbsNote sweep={thumbs.sweep} />
       {failed.all && <p className="break-words text-[11px] text-destructive">{failed.all}</p>}
       {items.length === 0 ? (
         <p className="py-10 text-center text-xs text-muted-foreground leading-relaxed">
@@ -565,6 +715,8 @@ export default function TranscriptsPanel() {
                 deleteError={failed[it.videoId]}
                 progress={it.text ? null : progress[it.videoId]}
                 playhead={playhead}
+                transcribing={isTranscribing(it, "transcripts")}
+                onThumbError={thumbs.markBroken}
               />
             ))}
           </Grid>
@@ -586,7 +738,13 @@ export function SavedPanel() {
   const saved = useStore(SKEY);
   // Saved cards carry transcripts too, so they follow the tab the same way.
   const playhead = usePlayhead();
-  const [collapsed, setCollapsed] = useState({});
+  const thumbs = useThumbRecovery(saved);
+  const [collapsed, toggleCollapsed] = useCollapsedGroups();
+  // Same control row the search tools carry, over the ONE saved-record shape —
+  // see lib/savedSort.js. Not persisted, unlike the folds: an ordering is a way
+  // of looking at the list right now, and "Padrão" is the order the store keeps.
+  const [sortKey, setSortKey] = useState("default");
+  const [sortDir, setSortDir] = useState("desc");
 
   if (!saved.length) {
     return (
@@ -607,30 +765,74 @@ export function SavedPanel() {
     <div className="space-y-3">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
+        <div className="flex flex-none items-center gap-2">
+        <SyncButton />
+        <RecoverThumbsButton pending={thumbs.pending} sweep={thumbs.sweep} onClick={thumbs.start} />
         <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onConfirm={() => removeSavedEntry(saved.map((x) => x.videoId))}>
           <Trash2 size={11} /> limpar tudo
         </ClearAllButton>
+        </div>
       </div>
+      <RecoverThumbsNote sweep={thumbs.sweep} />
+
+      <ToolBar>
+        <ToolSelect label="Ordenar por" value={sortKey} onValueChange={setSortKey} options={SAVED_SORT_OPTS} />
+        <ToolIconButton
+          icon={sortDir === "desc" ? ArrowDown : ArrowUp}
+          label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
+          hint={
+            sortKey === "default"
+              ? "A ordem Padrão é a ordem em que você salvou — escolha um critério para inverter"
+              : sortDir === "desc"
+                ? "Maior → menor"
+                : "Menor → maior"
+          }
+          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+        />
+      </ToolBar>
 
       {platforms.map((p) => {
         const meta = PLATFORM_META[p] || { label: p, color: "#888" };
-        const items = groups[p];
+        // Sorted per group, because the grid is grouped by platform: one ordering
+        // across the whole store would be invisible with the groups in between.
+        const items = sortSavedRecords(groups[p], sortKey, sortDir);
         const open = !collapsed[p];
         return (
           <div key={p} className="space-y-2">
-            <button
-              onClick={() => setCollapsed((c) => ({ ...c, [p]: !c[p] }))}
-              className="flex w-full min-w-0 items-center gap-2 text-left"
-            >
-              <ChevronDown size={14} className={`transition-transform duration-[180ms] ease-[var(--sw-ease)] ${open ? "" : "-rotate-90"}`} />
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
-              <span className="min-w-0 truncate text-sm font-semibold text-foreground">{meta.label}</span>
-              <span className="text-[11px] text-muted-foreground">{items.length}</span>
-            </button>
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                onClick={() => toggleCollapsed(p)}
+                aria-expanded={open}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
+                <ChevronDown size={14} className={`transition-transform duration-[180ms] ease-[var(--sw-ease)] ${open ? "" : "-rotate-90"}`} />
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: meta.color }} />
+                <span className="min-w-0 truncate text-sm font-semibold text-foreground">{meta.label}</span>
+                <span className="text-[11px] text-muted-foreground">{items.length}</span>
+              </button>
+              {/* This platform only. The background takes a list of ids, so the
+                  other groups are simply not in it — "limpar tudo" above is the
+                  same call over every id. Two taps, like the one above. */}
+              <ClearAllButton
+                className="flex flex-none items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                onConfirm={() => removeSavedEntry(items.map((x) => x.videoId))}
+                title={`Remover os ${items.length} salvos de ${meta.label}`}
+              >
+                <Trash2 size={11} /> limpar
+              </ClearAllButton>
+            </div>
             {open && (
               <Grid>
                 {items.map((it) => (
-                  <VideoCard key={it.videoId} it={it} saved playhead={playhead} onToggleSave={() => removeSavedEntry(it.videoId)} />
+                  <VideoCard
+                    key={it.videoId}
+                    it={it}
+                    saved
+                    playhead={playhead}
+                    onToggleSave={() => removeSavedEntry(it.videoId)}
+                    transcribing={isTranscribing(it, "saved")}
+                    onThumbError={thumbs.markBroken}
+                  />
                 ))}
               </Grid>
             )}
