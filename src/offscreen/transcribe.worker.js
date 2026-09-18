@@ -50,7 +50,7 @@ async function getPipeline(onProgress) {
 }
 
 self.onmessage = async (e) => {
-  const { id, type, paths, audio, language } = e.data || {};
+  const { id, type, paths, audio, language, repetitionPenalty } = e.data || {};
   if (type === "config") {
     try { configure(paths); self.postMessage({ id, ok: true }); }
     catch (err) { self.postMessage({ id, ok: false, error: err.message }); }
@@ -72,8 +72,12 @@ self.onmessage = async (e) => {
         return_timestamps: true,
         chunk_length_s: TX_CHUNK_S,
         stride_length_s: TX_STRIDE_S,
-        repetition_penalty: 1.1,
       };
+      // The user's setting (Opções → Transcrição; lib/txPenalty.js). Off by default:
+      // it made whisper-base drop repeated words and cut a clip's ending. 1, or
+      // anything out of range, means no penalty at all.
+      if (Number.isFinite(repetitionPenalty) && repetitionPenalty > 1 && repetitionPenalty <= 2)
+        opts.repetition_penalty = repetitionPenalty;
       // Always pass "pt" or "en". Transformers.js currently defaults omitted
       // multilingual Whisper language to English instead of auto-detecting.
       if (language) opts.language = language;

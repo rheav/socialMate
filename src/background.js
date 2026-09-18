@@ -10,6 +10,7 @@ import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
 import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
 import { idsOverCap, readTranscriptCap } from "./lib/transcriptCap.js";
+import { readStoredTxPenalty, txPenaltyValue } from "./lib/txPenalty.js";
 import { bytesToBase64, isDataThumb, toDurableThumb } from "./lib/thumbCache.js";
 import { RECOVER_GAP_MS, recoverableRecords, resolveFreshThumb } from "./lib/thumbRecover.js";
 import {
@@ -848,12 +849,13 @@ function callOffscreen(message) {
   return chrome.runtime.sendMessage({ ...message, target: "offscreen" });
 }
 
-export function offscreenTranscribeMessage(videoId, audioUrl, language) {
+export function offscreenTranscribeMessage(videoId, audioUrl, language, repetitionPenalty = 1) {
   return {
     action: "transcribeFromAudioUrl",
     videoId,
     audioUrl,
     language: whisperTranscriptLanguage(language),
+    repetitionPenalty,
   };
 }
 
@@ -950,10 +952,11 @@ async function runTranscription(videoId, tabId, meta = {}) {
       if (!r.ok) throw new Error("caption fetch failed " + r.status);
       const { text, chunks } = parseWebVtt(await r.text());
       if (!text) throw new Error("empty caption");
+      // repetitionPenalty cleared like language: Whisper never ran on this text.
       const saved = await putTranscript(
         id,
-        { status: "done", source: "caption", language: captionLang, text, chunks },
-        { clear: ["language"] },
+        { status: "done", source: "caption", language: captionLang, repetitionPenalty: null, text, chunks },
+        { clear: ["language", "repetitionPenalty"] },
       );
       notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: true, text: saved.text, chunks: saved.chunks });
       return;
@@ -1014,6 +1017,9 @@ async function runTranscription(videoId, tabId, meta = {}) {
     language,
     ...transcriptMetaPatch(meta),
   });
+  // Read once per job, and filed on the record with the text it produced: the
+  // point of storing it is tracing a bad transcript back to the setting in force.
+  const repetitionPenalty = txPenaltyValue(await readStoredTxPenalty());
   try {
     await ensureOffscreen();
     // The race only decides what WE report. Losing it used to leave Whisper
@@ -1023,7 +1029,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     // terminates and respawns its worker.
     let timer = null;
     const res = await Promise.race([
-      callOffscreen(offscreenTranscribeMessage(id, audioUrl, language)),
+      callOffscreen(offscreenTranscribeMessage(id, audioUrl, language, repetitionPenalty)),
       new Promise((_, rej) => {
         timer = setTimeout(
           () => rej(new Error("transcrição expirou (3 min) — tente de novo")),
@@ -1040,6 +1046,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
     const saved = await putTranscript(id, {
       status: "done",
       language,
+      repetitionPenalty,
       text: res.text,
       chunks: res.chunks || [],
     });

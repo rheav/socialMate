@@ -18,6 +18,28 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.97.0] — 2026-09-18
+
+### Adicionado
+- **Penalidade de repetição do Whisper virou configuração** (`Opções →
+  Transcrição`): liga/desliga e, ligada, a intensidade (1.05 · 1.1 · 1.2). Ela
+  evita loops em silêncio ou música, mas faz o modelo pular palavras que se
+  repetem de verdade — num clipe de 57 s em inglês, o 1.1 fixo de antes errou
+  28 de 180 palavras e cortou o final; desligada, nenhuma. Vale a partir da
+  próxima transcrição.
+- **Cada transcrição guarda a penalidade usada** (`repetitionPenalty`, 1 =
+  desligada) e ela vai para o acervo, que mostra em "detalhes do registro" — para
+  rastrear uma transcrição ruim até a configuração que a produziu. Transcrições
+  vindas da legenda da própria plataforma não passam pelo Whisper e ficam sem o
+  campo.
+
+### Alterado
+- **A penalidade vem desligada por padrão.** Antes era 1.1 fixo, sem motivo
+  registrado. A proteção contra loop que continua ativa sempre é a do
+  `cleanChunks` (descarta trechos que repetem a mesma sequência de palavras).
+
+---
+
 ## [0.96.0] — 2026-09-18
 
 ### Adicionado

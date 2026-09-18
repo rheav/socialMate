@@ -132,7 +132,8 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_ig_overlay` / `sw_pin_overlay` | IgSortTool / pin-api | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |
-| `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, pending }`, read by Opções |
+| `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
+| `fbw_tx_rep_penalty` | Opções modal | `{ enabled, value }` — Whisper repetition penalty, off by default; read by the background per job and filed on the transcript as `repetitionPenalty` (1 = off) |
 | IndexedDB `emb:<djb2>:<len>` | offscreen, idb-keyval | MiniLM embedding cache |
 
 Downloads: one authority, `src/lib/downloadPath.js` →

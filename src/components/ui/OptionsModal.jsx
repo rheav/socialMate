@@ -19,6 +19,7 @@ import {
   readStoredTranscriptLanguage,
   writeStoredTranscriptLanguage,
 } from "@/lib/transcriptionLanguage";
+import { TX_PENALTY_KEY, TX_PENALTY_VALUES, normalizeTxPenalty, readStoredTxPenalty, writeStoredTxPenalty } from "@/lib/txPenalty";
 
 // Opções — one place for every setting that is about the PANEL rather than about
 // a running job. Before this the settings were spread over the surfaces that
@@ -144,6 +145,7 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
               <span className="text-sm text-foreground">Idioma padrão</span>
               <TxLanguageChoice />
             </div>
+            <TxPenaltySetting />
           </Section>
         </div>
       </div>
@@ -223,6 +225,45 @@ function TxLanguageChoice() {
       onChange={(v) => writeStoredTranscriptLanguage(v).then(setLang)}
       options={TX_LANG_OPTIONS.map((o) => ({ value: o.value, label: o.short }))}
     />
+  );
+}
+
+// Whisper's repetition penalty (lib/txPenalty.js). Read by the background at the
+// start of each job, so a change applies from the next transcription on; the
+// value used is filed on the transcript and shown in the acervo's record details.
+function TxPenaltySetting() {
+  const [setting, setSetting] = useState(null);
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    readStoredTxPenalty().then(setSetting).catch(() => {});
+    const onCh = (c, area) => {
+      if (area === "local" && c[TX_PENALTY_KEY]) setSetting(normalizeTxPenalty(c[TX_PENALTY_KEY].newValue));
+    };
+    chrome.storage.onChanged?.addListener(onCh);
+    return () => chrome.storage.onChanged?.removeListener(onCh);
+  }, []);
+  if (setting === null) return null;
+  const update = (patch) => writeStoredTxPenalty(patch).then(setSetting);
+  return (
+    <>
+      <Row
+        id="opt-tx-penalty"
+        label="Penalidade de repetição"
+        hint="Evita que o Whisper entre em loop em silêncio ou música, mas o faz pular palavras que se repetem de verdade. Num teste, 1.1 errou 28 de 180 palavras e cortou o fim; desligada, nenhuma."
+        checked={setting.enabled}
+        onChange={(v) => update({ enabled: v })}
+      />
+      {setting.enabled && (
+        <div className="flex items-center justify-between gap-3 py-1.5">
+          <span className="text-sm text-foreground">Intensidade</span>
+          <Choice
+            value={setting.value}
+            onChange={(v) => update({ value: v })}
+            options={TX_PENALTY_VALUES.map((v) => ({ value: v, label: String(v) }))}
+          />
+        </div>
+      )}
+    </>
   );
 }
 

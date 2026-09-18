@@ -99,12 +99,15 @@ function reportWorkerProgress(p) {
   }
 }
 
-function workerTranscribe(audio, language) {
+function workerTranscribe(audio, language, repetitionPenalty) {
   const w = getTxWorker();
   const id = ++txMsgId;
   return new Promise((resolve) => {
     txPending.set(id, resolve);
-    w.postMessage({ id, type: "transcribe", audio, language: whisperTranscriptLanguage(language) }, [audio.buffer]); // transfer the PCM
+    w.postMessage(
+      { id, type: "transcribe", audio, language: whisperTranscriptLanguage(language), repetitionPenalty },
+      [audio.buffer], // transfer the PCM
+    );
   });
 }
 
@@ -197,7 +200,7 @@ function cleanChunks(result) {
   return { text: "", chunks: [] };
 }
 
-async function transcribeFromAudioUrl(audioUrl, language, videoId) {
+async function transcribeFromAudioUrl(audioUrl, language, videoId, repetitionPenalty) {
   txJobVideoId = videoId || null;
   txLastPct = -1;
   txLastSentAt = 0;
@@ -208,7 +211,7 @@ async function transcribeFromAudioUrl(audioUrl, language, videoId) {
       emitTxProgress("fetch", loaded / total),
     ); // decode on the offscreen main thread (brief)
     emitTxProgress("decode", 1, { force: true }); // decodeAudioData has no progress of its own
-    const res = await workerTranscribe(audio, language); // heavy inference on the worker thread
+    const res = await workerTranscribe(audio, language, repetitionPenalty); // heavy inference on the worker thread
     if (!res.ok) throw new Error(res.error || "Transcription failed");
     emitTxProgress("infer", 1, { force: true });
     return cleanChunks(res.result);
@@ -519,7 +522,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "transcribeFromAudioUrl") {
-    job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl, msg.language, msg.videoId));
+    job(sendResponse, () => transcribeFromAudioUrl(msg.audioUrl, msg.language, msg.videoId, msg.repetitionPenalty));
     return true;
   }
 

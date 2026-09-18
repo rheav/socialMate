@@ -144,13 +144,20 @@ describe("offscreen transcription requests", () => {
       videoId: "123",
       audioUrl: "https://cdn/audio.mp4",
       language: "pt",
+      repetitionPenalty: 1,
     });
     expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "en")).toEqual({
       action: "transcribeFromAudioUrl",
       videoId: "123",
       audioUrl: "https://cdn/audio.mp4",
       language: "en",
+      repetitionPenalty: 1,
     });
+  });
+
+  it("carries the repetition penalty the user chose, and none by default", () => {
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br", 1.2).repetitionPenalty).toBe(1.2);
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br").repetitionPenalty).toBe(1);
   });
 
   it("defaults invalid or missing language to Portuguese", () => {
