@@ -18,6 +18,19 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.96.0] — 2026-09-18
+
+### Adicionado
+- **Luz de conexão do acervo**, ao lado da engrenagem: uma bolinha **verde** que
+  respira enquanto o servidor (socialmate.rheav.dev) responde, e **amarela**
+  quando não responde — token recusado, sync desligado lá, ou nenhuma resposta. O
+  painel testa ao abrir e a cada 60 s enquanto está visível, e um envio real (que
+  dá certo ou falha) também muda a cor; vale o sinal mais recente. Passar o mouse
+  diz o porquê ("Acervo conectado · verificado há 20 s"); clicar abre Opções. Sem
+  sync configurado, ela não aparece.
+
+---
+
 ## [0.95.0] — 2026-09-16
 
 ### Adicionado

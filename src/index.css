@@ -575,3 +575,61 @@ details summary svg { transition: transform var(--sw-swap-ms) var(--sw-ease); }
   .sw-pop { animation: none; }
   .sw-stagger > * { animation: none; }
 }
+
+/* ============================================================================
+   HUB STATUS DOT (header, beside the gear) — components/ui/HubStatusDot.jsx
+   A light that breathes rather than blinks: the core swells on a quick inhale
+   and settles on a longer exhale, while two halos leave it half a breath apart
+   and dissolve as they spread. Same rhythm for both tones — the colour is the
+   message, the motion only says "live". A status that is still being checked
+   sits still and muted.
+   ============================================================================ */
+.sw-hub-dot { --dot: var(--color-good); --breath: 3.6s; }
+.sw-hub-dot[data-tone="warn"] { --dot: var(--color-amber); }
+.sw-hub-dot[data-tone="checking"] { --dot: color-mix(in oklab, var(--color-panel) 35%, transparent); }
+
+.sw-hub-dot__core {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--dot);
+  box-shadow: 0 0 6px 0 color-mix(in oklab, var(--dot) 60%, transparent);
+  transition: background-color 600ms var(--sw-ease), box-shadow 600ms var(--sw-ease);
+  animation: sw-dot-breathe var(--breath) infinite;
+}
+.sw-hub-dot__core::before,
+.sw-hub-dot__core::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--dot);
+  opacity: 0;
+  transition: background-color 600ms var(--sw-ease);
+  animation: sw-dot-halo var(--breath) cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+.sw-hub-dot__core::after { animation-delay: calc(var(--breath) / 2); }
+
+.sw-hub-dot[data-tone="checking"] .sw-hub-dot__core { animation: none; box-shadow: none; }
+.sw-hub-dot[data-tone="checking"] .sw-hub-dot__core::before,
+.sw-hub-dot[data-tone="checking"] .sw-hub-dot__core::after { animation: none; }
+
+/* Inhale in ~35% of the cycle, exhale over the rest, a short rest at the bottom. */
+@keyframes sw-dot-breathe {
+  0%   { transform: scale(0.92); opacity: 0.82; animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1); }
+  35%  { transform: scale(1.1);  opacity: 1;    animation-timing-function: cubic-bezier(0.33, 0, 0.2, 1); }
+  85%  { transform: scale(0.92); opacity: 0.82; }
+  100% { transform: scale(0.92); opacity: 0.82; }
+}
+@keyframes sw-dot-halo {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  75%  { transform: scale(3.1); opacity: 0; }
+  100% { transform: scale(3.1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-hub-dot__core { animation: none; }
+  .sw-hub-dot__core::before,
+  .sw-hub-dot__core::after { animation: none; }
+}

@@ -553,7 +553,9 @@ async function flushSync({ attempt = 0, manual = false } = {}) {
     const status = e?.status || 0;
     const pending = kinds.reduce((n, k) => n + Object.keys(queue[k] || {}).length, 0);
     await chrome.storage.local.set({ [SYNC_QUEUE_KEY]: queue });
-    await setSyncState({ running: false, error: String(e?.message || e), pending });
+    // errorAt: the header's connection dot weighs this failure against its own
+    // pings by recency, and an error with no time can't be placed.
+    await setSyncState({ running: false, error: String(e?.message || e), errorAt: Date.now(), pending });
     // A wrong token or a malformed body fails the same way forever; only retry
     // what another attempt could fix.
     if (isRetryable(status) && attempt < 4) scheduleSync(backoffDelay(attempt));

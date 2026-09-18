@@ -16,6 +16,7 @@ import {
 import { DEFAULT_UI_PREFS, UI_PREFS_KEY, normalizeUiPrefs, resolveTab, visibleTabs } from "@/lib/uiPrefs";
 import Segmented from "@/components/ui/Segmented";
 import OptionsModal from "@/components/ui/OptionsModal";
+import HubStatusDot from "@/components/ui/HubStatusDot";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import ToolFrame from "@/components/ui/ToolFrame";
 import PlatformSwitcher from "@/components/ui/PlatformSwitcher";
@@ -257,17 +258,21 @@ export default function Shell() {
           {/* always-visible platform nav — also shows which platform the panel follows */}
           <PlatformSwitcher value={platform} onValueChange={pickPlatform} />
         </div>
-        {/* One button, not two: the theme moved into Opções with the rest of the
-            panel's settings, so the header keeps only the way in. */}
-        <button
-          onClick={() => setOptionsOpen(true)}
-          title="Opções"
-          aria-label="Opções"
-          aria-haspopup="dialog"
-          className="sw-hoverable grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <Settings className="size-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Acervo connection light; its settings live in Opções, so it opens them. */}
+          <HubStatusDot onClick={() => setOptionsOpen(true)} />
+          {/* One button, not two: the theme moved into Opções with the rest of the
+              panel's settings, so the header keeps only the way in. */}
+          <button
+            onClick={() => setOptionsOpen(true)}
+            title="Opções"
+            aria-label="Opções"
+            aria-haspopup="dialog"
+            className="sw-hoverable grid size-8 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Settings className="size-4" />
+          </button>
+        </div>
       </header>
 
       <div className="min-w-0 px-4">
