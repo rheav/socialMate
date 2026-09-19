@@ -116,14 +116,29 @@ Status: TODO / WIP / DONE. Target extension version for the batch: **0.98.0**.
   returns `status: "ok"`. SHA-256 hashes of the container's
   `build/server/social.js` and `dist/assets/index-DSm69njx.js` exactly match
   the local build of `0bce298`; public HTML references that same JS asset.
-- Browser check pending: the requested `~/.Codex/scripts/open-chrome.sh` does
+- Initial browser mismatch: the requested `~/.Codex/scripts/open-chrome.sh` does
   not exist. Port 9222 is live, but its Chrome process uses
   `~/.claude-chrome/profile`, not the AGENTS.md profile
-  `~/.Codex-chrome/profile`. No browser configuration was changed; asked the
-  user whether the existing Chrome may be used for background-only checks.
+  `~/.Codex-chrome/profile`. The user explicitly authorized reuse of the
+  existing Chrome. No browser configuration was changed.
+- Live browser check, 2026-09-19: reused that Chrome via its existing launcher
+  and CDP, creating background tabs without focus/activation commands. Chrome
+  still had manifest 0.97.0 loaded. With no warming or transcription job active
+  and sync disabled, reloaded the extension; runtime now reports **0.98.0**.
+  Its 15 transcripts and 3 saved records remained present. EN is selected and
+  BR/EN/AUTO are available. An existing transcript renders 22 timestamped lines
+  without double spaces, with no video playing. Screenshot and DOM inspection
+  at 420px width confirmed no horizontal overflow after layout settled.
+- Live production hub check: authenticated archive loads 27 transcripts.
+  Searching `prosperity` returns 7 cards; opening a result displays
+  `Transcrição (EN)`, highlights the term with `<mark>`, and scrolls the match
+  into view. Screenshot inspected. These checks used existing records and did
+  not start transcription, sync data, or modify the production archive.
 
 ## Remaining (not code)
 
 - Reload the unpacked extension in Edge (`edge://extensions`) to get 0.98.0.
-- Live UI check (panel/overlay/hub) remains pending the browser-profile decision.
+- Panel and hub display checks passed. New Whisper jobs, queued/error/no-speech
+  states, clipboard/download actions, and social-page overlays were not exercised
+  live in this check; the existing automated tests remain their current evidence.
 - Commit, push and hub deployment are complete and verified.
