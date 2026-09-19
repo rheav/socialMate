@@ -8,7 +8,21 @@ import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
 import { DOWNLOAD_ROOT, downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
 import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
-import { captionTrackLanguage, normalizeTranscriptLanguage, whisperTranscriptLanguage } from "./lib/transcriptionLanguage.js";
+import {
+  applyTranscriptLanguageDefaultOnce,
+  captionTrackLanguage,
+  whisperTranscriptLanguage,
+} from "./lib/transcriptionLanguage.js";
+import { resolveTranscriptLanguage } from "./lib/captionLanguage.js";
+import {
+  TX_INTERRUPTED_ERROR,
+  TX_STALL_MS,
+  fmtDeadline,
+  isActiveTxStatus,
+  orphanedTranscriptIds,
+  savedTranscriptPatch,
+  txDeadlineMs,
+} from "./lib/transcriptJobs.js";
 import { idsOverCap, readTranscriptCap } from "./lib/transcriptCap.js";
 import { readStoredTxPenalty, txPenaltyValue } from "./lib/txPenalty.js";
 import { bytesToBase64, isDataThumb, toDurableThumb } from "./lib/thumbCache.js";
@@ -116,6 +130,9 @@ chrome.runtime.onInstalled.addListener(() => {
   // was removed; drop the buffer key left behind by pre-0.68 versions so it
   // doesn't sit in storage forever holding a few thousand stale events.
   chrome.storage.local.remove("fbw_run_events").catch(() => {});
+  // 0.97.1 moved the transcription default to English; installs that already
+  // stored a pick get it once, here (see lib/transcriptionLanguage.js).
+  applyTranscriptLanguageDefaultOnce().catch(() => {});
 });
 
 // Re-inject content scripts into already-open platform tabs after an extension
@@ -796,7 +813,68 @@ function removeTranscripts(ids) {
     return removed;
   });
 }
-export { putTranscript, removeTranscripts }; // test seam — see background.transcripts.test.js
+// A finished (or failed) job refreshes the Library copy of the same post, if it
+// has one. Starring a transcript copies the record as it is at that moment, so a
+// star pressed mid-job used to leave the Library card "transcrevendo…" forever.
+function refreshSavedTranscript(videoId, record) {
+  if (!videoId || !record) return Promise.resolve(false);
+  return queueSavedWrite(async () => {
+    const id = String(videoId);
+    const r = await chrome.storage.local.get(SAVED_KEY);
+    const map = r[SAVED_KEY] || {};
+    if (!map[id]) return false;
+    map[id] = { ...map[id], ...savedTranscriptPatch(record), updatedAt: Date.now() };
+    await chrome.storage.local.set({ [SAVED_KEY]: map });
+    queueForSync("saved", id).catch(() => {});
+    return true;
+  });
+}
+
+// ---- orphaned jobs ----------------------------------------------------------
+// Jobs live in this worker's memory, so none survives a restart of it: an
+// extension reload, a browser quit, or Chrome retiring the worker mid-job. Any
+// record still "queued"/"running" from BEFORE this boot has nothing behind it —
+// file it as interrupted, in both stores, so the cards stop spinning and the hub
+// gets the truth. Records written after boot are live jobs (the page's instant
+// card can be the very message that woke us) and are left alone.
+const SW_BOOT_AT = Date.now();
+
+function sweepOrphanedTranscripts() {
+  const tx = queueTranscriptWrite(async () => {
+    const all = await getTranscripts();
+    const ids = orphanedTranscriptIds(all, SW_BOOT_AT);
+    if (!ids.length) return all;
+    const now = Date.now();
+    for (const id of ids) all[id] = { ...all[id], status: "error", error: TX_INTERRUPTED_ERROR, updatedAt: now };
+    await chrome.storage.local.set({ [TRANSCRIPTS_KEY]: all });
+    for (const id of ids) queueForSync("transcripts", id).catch(() => {});
+    return all;
+  });
+  // The Library copies: take the transcript's own outcome when there is one,
+  // otherwise the same "interrupted".
+  return tx.then((transcripts) =>
+    queueSavedWrite(async () => {
+      const r = await chrome.storage.local.get(SAVED_KEY);
+      const map = r[SAVED_KEY] || {};
+      const ids = orphanedTranscriptIds(map, SW_BOOT_AT);
+      if (!ids.length) return;
+      const now = Date.now();
+      for (const id of ids) {
+        const t = transcripts[id];
+        map[id] =
+          t && !isActiveTxStatus(t.status)
+            ? { ...map[id], ...savedTranscriptPatch(t), updatedAt: now }
+            : { ...map[id], status: "error", error: TX_INTERRUPTED_ERROR, updatedAt: now };
+      }
+      await chrome.storage.local.set({ [SAVED_KEY]: map });
+      for (const id of ids) queueForSync("saved", id).catch(() => {});
+    }),
+  );
+}
+// Top level, so it is queued ahead of whatever message woke the worker.
+sweepOrphanedTranscripts().catch((e) => console.warn("[fbw] varredura de transcrições órfãs:", e));
+
+export { putTranscript, removeTranscripts, sweepOrphanedTranscripts }; // test seam — see background.transcripts.test.js
 
 // ---- offscreen document lifecycle ----
 let offscreenReady = false;
@@ -929,11 +1007,58 @@ function transcriptMetaPatch(meta = {}) {
   };
 }
 
+// ---- Whisper jobs, one at a time ------------------------------------------
+// Whisper runs in ONE worker. Concurrent jobs used to all go straight to it:
+// they interleaved (each slower, so more timeouts), shared the offscreen's single
+// "current job" id (one card's progress bar drove another's), and one job timing
+// out sent `abortTranscription`, which terminates the worker — killing every
+// other job with it. Now they queue here, the record says "queued" while waiting,
+// and each job's deadline starts when it actually gets the worker.
+const queueWhisper = serialQueue();
+const whisperJobs = new Set(); // videoIds queued or running — a double click is one job
+// videoId → "it's alive" callback for the running job's stall watchdog, fed by
+// the offscreen's FBW_TX_PROGRESS stream (see the message handler).
+const txHeartbeats = new Map();
+
+function whisperWithWatchdog(id, message, durationS) {
+  const deadline = txDeadlineMs(durationS);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let stall = null;
+    const finish = (fn, v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hard);
+      clearTimeout(stall);
+      if (txHeartbeats.get(id) === beat) txHeartbeats.delete(id);
+      fn(v);
+    };
+    const hard = setTimeout(
+      () => finish(reject, new Error(`transcrição expirou (${fmtDeadline(deadline)}) — tente de novo`)),
+      deadline,
+    );
+    const beat = () => {
+      clearTimeout(stall);
+      stall = setTimeout(
+        () => finish(reject, new Error(`transcrição travou (sem progresso por ${fmtDeadline(TX_STALL_MS)}) — tente de novo`)),
+        TX_STALL_MS,
+      );
+    };
+    beat();
+    txHeartbeats.set(id, beat);
+    callOffscreen(message).then((r) => finish(resolve, r), (e) => finish(reject, e));
+  });
+}
+
 async function runTranscription(videoId, tabId, meta = {}) {
-  const language = normalizeTranscriptLanguage(meta.language);
   // Caption-first: if the platform already ships an ASR/subtitle track (TikTok
   // `subtitleInfos`), download and parse it instead of running Whisper — far
   // faster/cheaper. Whisper stays the fallback when no caption URL is present.
+  //
+  // `language` is written with the RESULT, never with "running": a re-run of a
+  // finished transcript keeps its old text on screen until the new one lands, and
+  // stamping the new language at the start labelled that old text wrongly — for
+  // good, when the re-run then failed.
   if (meta.captionUrl) {
     const id = videoId;
     // NOT the user's BR/EN pick: Whisper never runs on this path, so the text is
@@ -942,10 +1067,9 @@ async function runTranscription(videoId, tabId, meta = {}) {
     // run's language can't end up labelling someone else's caption file.
     const captionLang = captionTrackLanguage(meta.captionLang);
     await putTranscript(id, {
-      status: "running", error: null, source: "caption",
-      language: captionLang,
+      status: "running", error: null,
       ...transcriptMetaPatch(meta),
-    }, { clear: ["language"] });
+    });
     try {
       if (isTiktokCdn(meta.captionUrl)) await ensureTiktokReferer();
       const r = await fetch(meta.captionUrl);
@@ -955,9 +1079,13 @@ async function runTranscription(videoId, tabId, meta = {}) {
       // repetitionPenalty cleared like language: Whisper never ran on this text.
       const saved = await putTranscript(
         id,
-        { status: "done", source: "caption", language: captionLang, repetitionPenalty: null, text, chunks },
-        { clear: ["language", "repetitionPenalty"] },
+        {
+          status: "done", source: "caption", language: captionLang,
+          languageAuto: null, repetitionPenalty: null, text, chunks,
+        },
+        { clear: ["language", "languageAuto", "repetitionPenalty"] },
       );
+      refreshSavedTranscript(id, saved).catch(() => {});
       notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: true, text: saved.text, chunks: saved.chunks });
       return;
     } catch (e) {
@@ -969,7 +1097,8 @@ async function runTranscription(videoId, tabId, meta = {}) {
       const canFallBack =
         meta.mediaUrl || meta.candidates || meta.durationHint || meta.primedAt;
       if (!canFallBack) {
-        await putTranscript(id, { status: "error", error: e.message });
+        const failed = await putTranscript(id, { status: "error", error: e.message });
+        refreshSavedTranscript(id, failed).catch(() => {});
         notifyTab(tabId, { type: "FBW_TRANSCRIBE_RESULT", videoId: id, success: false, error: e.message });
         return;
       }
@@ -1011,60 +1140,76 @@ async function runTranscription(videoId, tabId, meta = {}) {
     });
     return;
   }
+  // Already queued or running: the second click is the same job. Its button is
+  // released by the first job's result, which carries the same videoId.
+  if (whisperJobs.has(id)) return;
+  whisperJobs.add(id);
+  // The pick, with "auto" resolved from the post's caption (lib/captionLanguage).
+  const { language, auto: languageAuto } = resolveTranscriptLanguage(meta.language, meta.caption);
+  const waiting = whisperJobs.size > 1;
   await putTranscript(id, {
-    status: "running",
+    status: waiting ? "queued" : "running",
     error: null,
-    language,
     ...transcriptMetaPatch(meta),
   });
-  // Read once per job, and filed on the record with the text it produced: the
-  // point of storing it is tracing a bad transcript back to the setting in force.
-  const repetitionPenalty = txPenaltyValue(await readStoredTxPenalty());
   try {
-    await ensureOffscreen();
-    // The race only decides what WE report. Losing it used to leave Whisper
-    // running: the zombie job kept a CPU core busy, its late reply was dropped, and
-    // `inFlight` stayed above zero so the offscreen document could not idle-release
-    // for minutes. Now the timeout also tells the offscreen to abort, which
-    // terminates and respawns its worker.
-    let timer = null;
-    const res = await Promise.race([
-      callOffscreen(offscreenTranscribeMessage(id, audioUrl, language, repetitionPenalty)),
-      new Promise((_, rej) => {
-        timer = setTimeout(
-          () => rej(new Error("transcrição expirou (3 min) — tente de novo")),
-          180000,
+    await queueWhisper(async () => {
+      if (waiting) await putTranscript(id, { status: "running" });
+      // Read when the job starts, and filed on the record with the text it
+      // produced: the point of storing it is tracing a bad transcript back to the
+      // setting in force.
+      const repetitionPenalty = txPenaltyValue(await readStoredTxPenalty());
+      try {
+        await ensureOffscreen();
+        // Losing the watchdog used to leave Whisper running: the zombie job kept a
+        // core busy, its late reply was dropped, and `inFlight` stayed above zero so
+        // the offscreen document could not idle-release. The abort terminates and
+        // respawns its worker — and with one job at a time it can only ever take
+        // THIS job with it.
+        const res = await whisperWithWatchdog(
+          id,
+          offscreenTranscribeMessage(id, audioUrl, language, repetitionPenalty),
+          meta.durationS ?? meta.durationHint,
+        ).catch(async (e) => {
+          await callOffscreen({ action: "abortTranscription" }).catch(() => {});
+          throw e;
+        });
+        if (!res?.success) throw new Error(res?.error || "Transcription failed");
+        // `text` cleared, not merged: a run that heard no speech must say so,
+        // not leave a previous run's text standing under the new language.
+        const saved = await putTranscript(
+          id,
+          {
+            status: "done",
+            language,
+            languageAuto,
+            repetitionPenalty,
+            text: res.text || "",
+            chunks: res.chunks || [],
+          },
+          { clear: ["text"] },
         );
-      }),
-    ]).finally(() => {
-      if (timer) clearTimeout(timer);
-    }).catch(async (e) => {
-      await callOffscreen({ action: "abortTranscription" }).catch(() => {});
-      throw e;
+        refreshSavedTranscript(id, saved).catch(() => {});
+        notifyTab(tabId, {
+          type: "FBW_TRANSCRIBE_RESULT",
+          videoId: id,
+          success: true,
+          text: saved.text,
+          chunks: saved.chunks,
+        });
+      } catch (e) {
+        const failed = await putTranscript(id, { status: "error", error: e.message });
+        refreshSavedTranscript(id, failed).catch(() => {});
+        notifyTab(tabId, {
+          type: "FBW_TRANSCRIBE_RESULT",
+          videoId: id,
+          success: false,
+          error: e.message,
+        });
+      }
     });
-    if (!res?.success) throw new Error(res?.error || "Transcription failed");
-    const saved = await putTranscript(id, {
-      status: "done",
-      language,
-      repetitionPenalty,
-      text: res.text,
-      chunks: res.chunks || [],
-    });
-    notifyTab(tabId, {
-      type: "FBW_TRANSCRIBE_RESULT",
-      videoId: id,
-      success: true,
-      text: saved.text,
-      chunks: saved.chunks,
-    });
-  } catch (e) {
-    await putTranscript(id, { status: "error", error: e.message });
-    notifyTab(tabId, {
-      type: "FBW_TRANSCRIBE_RESULT",
-      videoId: id,
-      success: false,
-      error: e.message,
-    });
+  } finally {
+    whisperJobs.delete(id);
   }
 }
 
@@ -1385,7 +1530,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const all = await getTranscripts();
         const prev = all[msg.videoId];
         if (!msg.videoId || (prev && prev.status === "done")) return; // never clobber a finished one
-        await putTranscript(msg.videoId, { ...msg.record, status: msg.record?.status || "running" });
+        // `language` is dropped: it is the PICK (maybe "auto"), and a record's
+        // language is written with its result — stamped here it relabelled the
+        // text of an earlier run that is still on the card.
+        const { language: _pick, ...record } = msg.record || {};
+        await putTranscript(msg.videoId, { ...record, status: record.status || "running" });
       })();
       return false;
     }
@@ -1419,6 +1568,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case "FBW_GET_VOICE_STATUS": {
       sendResponse({ job: voiceJobs.status(sender.tab?.id) });
+      return false;
+    }
+    // The offscreen's Whisper progress stream. The panel draws it; here every
+    // message is proof of life for the running job's stall watchdog.
+    case "FBW_TX_PROGRESS": {
+      if (sender.url === chrome.runtime.getURL(OFFSCREEN_PATH)) txHeartbeats.get(msg.videoId)?.();
       return false;
     }
     case "FBW_VOICE_PROGRESS": {

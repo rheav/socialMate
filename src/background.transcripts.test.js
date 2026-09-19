@@ -48,11 +48,11 @@ function chromeStub() {
   return stub;
 }
 
-let putTranscript, removeTranscripts;
+let putTranscript, removeTranscripts, sweepOrphanedTranscripts;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ putTranscript, removeTranscripts } = await import("./background.js"));
+  ({ putTranscript, removeTranscripts, sweepOrphanedTranscripts } = await import("./background.js"));
 });
 beforeEach(() => {
   for (const k of Object.keys(data)) delete data[k];
@@ -114,5 +114,40 @@ describe("transcript store writes", () => {
     data.fbw_transcripts = { A: { videoId: "A" }, B: { videoId: "B" } };
     await Promise.all([removeTranscripts(["A"]), putTranscript("C", { status: "running" })]);
     expect(Object.keys(transcripts()).sort()).toEqual(["B", "C"]);
+  });
+});
+
+// A job lives in the service worker's memory. Reload the extension (or quit the
+// browser) mid-job and its record said "running" forever.
+describe("orphaned jobs after a worker restart", () => {
+  it("files records left queued/running before boot as interrupted, and leaves live ones", async () => {
+    const later = Date.now() + 60_000; // written after this worker booted: a live job
+    data.fbw_transcripts = {
+      A: { videoId: "A", status: "running", updatedAt: 1 },
+      B: { videoId: "B", status: "queued", updatedAt: 1 },
+      C: { videoId: "C", status: "running", updatedAt: later },
+      D: { videoId: "D", status: "done", text: "ok", updatedAt: 1 },
+    };
+    await sweepOrphanedTranscripts();
+    expect(transcripts().A.status).toBe("error");
+    expect(transcripts().A.error).toMatch(/interrompida/);
+    expect(transcripts().B.status).toBe("error");
+    expect(transcripts().C.status).toBe("running");
+    expect(transcripts().D.status).toBe("done");
+  });
+
+  it("settles the Library copy from the transcript when it finished, else as interrupted", async () => {
+    data.fbw_transcripts = {
+      A: { videoId: "A", status: "done", text: "final text", language: "en", updatedAt: 1 },
+    };
+    data.fbw_saved = {
+      A: { videoId: "A", status: "running", caption: "post", updatedAt: 1 },
+      B: { videoId: "B", status: "running", updatedAt: 1 },
+      C: { videoId: "C", caption: "saved off a grid, never transcribed", updatedAt: 1 },
+    };
+    await sweepOrphanedTranscripts();
+    expect(data.fbw_saved.A).toMatchObject({ status: "done", text: "final text", language: "en", caption: "post" });
+    expect(data.fbw_saved.B.status).toBe("error");
+    expect(data.fbw_saved.C.status).toBeUndefined();
   });
 });

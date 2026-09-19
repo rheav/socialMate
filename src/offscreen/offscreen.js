@@ -10,6 +10,7 @@ import { serialQueue } from "../lib/serialQueue.js";
 import { createVoiceSeparator } from "./voiceSeparation.js";
 import { whisperTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { txProgressPercent, whisperInferRatio } from "@/lib/transcriptionProgress.js";
+import { cleanChunks } from "@/lib/transcriptJobs.js";
 
 // Whisper runs in a dedicated module worker (transcribe.worker.js) so its heavy WASM
 // compute stays OFF the shared extension main thread — otherwise it freezes the side
@@ -31,6 +32,25 @@ function getTxWorker() {
     const resolve = txPending.get(id);
     if (resolve) { txPending.delete(id); resolve(rest); }
   };
+  // A worker that dies (an uncaught error, a failed module load, a message that
+  // cannot be cloned) never answers — the job used to sit there until the
+  // background's deadline. Settle everything it owed now, and let the next job
+  // spawn a fresh one.
+  // Only while it is still THE worker: one already replaced (an abort terminates
+  // and a later job respawns) must not settle the new one's jobs.
+  const me = txWorker;
+  const dead = (why) => {
+    if (txWorker !== me) return;
+    txWorker = null;
+    try { me.terminate(); } catch { /* already gone */ }
+    for (const resolve of txPending.values()) resolve({ ok: false, error: why });
+    txPending.clear();
+  };
+  txWorker.onerror = (e) => {
+    e?.preventDefault?.();
+    dead(`o worker de transcrição caiu: ${e?.message || "erro sem mensagem"}`);
+  };
+  txWorker.onmessageerror = () => dead("o worker de transcrição devolveu uma mensagem ilegível");
   // Register a resolver for the config reply. Without one a {ok:false} config
   // (a bad model path, a missing wasm) was dropped on the floor and the first real
   // job failed later with an unrelated pipeline error.
@@ -65,7 +85,7 @@ let txLastSentAt = 0;
 let txLastPct = -1;
 const TX_PROGRESS_MIN_MS = 150;
 
-function emitTxProgress(phase, ratio, { force = false } = {}) {
+function emitTxProgress(phase, ratio, { force = false, start = false } = {}) {
   if (!txJobVideoId) return;
   const pct = txProgressPercent(phase, ratio);
   if (pct == null) return;
@@ -75,7 +95,12 @@ function emitTxProgress(phase, ratio, { force = false } = {}) {
   txLastSentAt = now;
   txLastPct = pct;
   try {
-    chrome.runtime.sendMessage({ type: "FBW_TX_PROGRESS", videoId: txJobVideoId, phase, pct }).catch(() => {});
+    // `start` lets the panel reset a bar left at 100% by an earlier run of the same
+    // video — its guard only ever moves forward. The background also listens: every
+    // message is proof of life for its stall watchdog.
+    chrome.runtime
+      .sendMessage({ type: "FBW_TX_PROGRESS", videoId: txJobVideoId, phase, pct, ...(start ? { start: true } : {}) })
+      .catch(() => {});
   } catch {
     /* no receiver (panel closed) — expected */
   }
@@ -175,30 +200,7 @@ async function fetchAudioPCM(url, maxSeconds, maxBytes, onBytes) {
   }
 }
 
-function cleanChunks(result) {
-  if (result?.chunks?.length) {
-    const chunks = result.chunks
-      .map((c) => ({ text: c.text, timestamp: c.timestamp }))
-      .filter((c) => {
-        const text = (c.text || "").trim();
-        if (!text) return false;
-        const words = text.split(/\s+/);
-        if (words.length > 10) {
-          const tri = {};
-          for (let i = 0; i <= words.length - 3; i++) {
-            const k = words.slice(i, i + 3).join(" ").toLowerCase();
-            tri[k] = (tri[k] || 0) + 1;
-            if (tri[k] >= 4) return false; // hallucination
-          }
-        }
-        return true;
-      });
-    return { text: chunks.map((c) => c.text).join(" ").trim(), chunks };
-  }
-  if (typeof result === "string") return { text: result, chunks: [] };
-  if (result?.text) return { text: result.text, chunks: [] };
-  return { text: "", chunks: [] };
-}
+// cleanChunks lives in lib/transcriptJobs.js (tested there).
 
 async function transcribeFromAudioUrl(audioUrl, language, videoId, repetitionPenalty) {
   txJobVideoId = videoId || null;
@@ -206,7 +208,7 @@ async function transcribeFromAudioUrl(audioUrl, language, videoId, repetitionPen
   txLastSentAt = 0;
   txModelBytes.clear();
   try {
-    emitTxProgress("fetch", 0, { force: true }); // the card gets a bar immediately
+    emitTxProgress("fetch", 0, { force: true, start: true }); // the card gets a bar immediately
     const audio = await fetchAudioPCM(audioUrl, undefined, undefined, (loaded, total) =>
       emitTxProgress("fetch", loaded / total),
     ); // decode on the offscreen main thread (brief)

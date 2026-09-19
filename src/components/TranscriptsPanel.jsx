@@ -17,7 +17,8 @@ import {
 import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
 import { removalFailed } from "@/lib/transcriptStore.js";
 import { advanceTxProgress } from "@/lib/transcriptionProgress.js";
-import { isTranscribing } from "@/lib/transcriptCardState.js";
+import { heardNoSpeech, isTranscribing } from "@/lib/transcriptCardState.js";
+import { tidyTranscriptText } from "@/lib/transcriptJobs.js";
 import { SAVED_SORT_OPTS, sortSavedRecords } from "@/lib/savedSort.js";
 import { ToolBar, ToolSelect, ToolIconButton } from "@/components/ui/ToolBar.jsx";
 import { useThumbRecovery } from "@/lib/useThumbRecovery.js";
@@ -107,7 +108,12 @@ function useTxProgress() {
     if (typeof chrome === "undefined" || !chrome?.runtime?.onMessage) return;
     const onMsg = (msg) => {
       if (msg?.type !== "FBW_TX_PROGRESS" || !msg.videoId) return;
-      setProgress((p) => ({ ...p, [msg.videoId]: advanceTxProgress(p[msg.videoId], msg.pct) }));
+      // `start` opens a new job: the bar is forward-only, so without the reset a
+      // re-run of the same video began at the previous run's 100%.
+      setProgress((p) => ({
+        ...p,
+        [msg.videoId]: msg.start ? advanceTxProgress(0, msg.pct) : advanceTxProgress(p[msg.videoId], msg.pct),
+      }));
     };
     chrome.runtime.onMessage.addListener(onMsg);
     return () => chrome.runtime.onMessage.removeListener(onMsg);
@@ -230,18 +236,20 @@ function ReloadHint() {
 }
 
 // ---- grid tile: a big thumbnail on top, meta + transcript below ----
-// The transcript, line by line, following the video playing in the tab. The
-// active line is the one the playhead is inside (lib/playhead.js decides, with a
-// small lead); clicking any line seeks the page video to it.
+// The transcript, line by line with its timestamps. It used to be a wall of text
+// unless the video happened to be playing in the tab; the lines are the useful
+// shape either way. While the tab plays THIS video (`live`), the active line is
+// the one the playhead is inside (lib/playhead.js decides, with a small lead)
+// and clicking a line seeks the page video to it; otherwise the lines are static.
 //
 // The scroll is deliberately NOT scrollIntoView: this list lives in a 176px box
 // inside the scrolling Library, and scrollIntoView walks up every scrollable
 // ancestor — it would yank the whole panel on each line change. Scroll the
 // container itself, and only when the active index actually moves.
-function KaraokeTranscript({ chunks, t, onSeek }) {
+function TranscriptLines({ chunks, t, live, onSeek }) {
   const boxRef = useRef(null);
   const rowsRef = useRef([]);
-  const idx = chunkIndexAt(chunks, t);
+  const idx = live ? chunkIndexAt(chunks, t) : -1;
   const lastIdx = useRef(-1);
 
   useEffect(() => {
@@ -271,22 +279,31 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
       ref={boxRef}
       className="console max-h-44 overflow-y-auto rounded-md p-2 text-[11px] leading-relaxed"
     >
-      {chunks.map((c, i) => (
-        <button
-          key={i}
-          ref={(el) => (rowsRef.current[i] = el)}
-          onClick={() => onSeek(c.timestamp?.[0] || 0)}
-          title="Ir para este ponto do vídeo"
-          className={`sw-hoverable block w-full rounded px-1 py-0.5 text-left break-words ${
-            i === idx ? "bg-sky/25 text-[#eceff4]" : "text-[#d9e0ee]/60 hover:text-[#d9e0ee]"
-          }`}
-        >
-          <span className="mr-1.5 tabular-nums text-[10px] text-[#d9e0ee]/45">
-            {fmtClock(c.timestamp?.[0])}
-          </span>
-          {(c.text || "").trim()}
-        </button>
-      ))}
+      {chunks.map((c, i) =>
+        live ? (
+          <button
+            key={i}
+            ref={(el) => (rowsRef.current[i] = el)}
+            onClick={() => onSeek(c.timestamp?.[0] || 0)}
+            title="Ir para este ponto do vídeo"
+            className={`sw-hoverable block w-full rounded px-1 py-0.5 text-left break-words ${
+              i === idx ? "bg-sky/25 text-[#eceff4]" : "text-[#d9e0ee]/60 hover:text-[#d9e0ee]"
+            }`}
+          >
+            <span className="mr-1.5 tabular-nums text-[10px] text-[#d9e0ee]/45">
+              {fmtClock(c.timestamp?.[0])}
+            </span>
+            {(c.text || "").trim()}
+          </button>
+        ) : (
+          <div key={i} className="px-1 py-0.5 break-words text-[#d9e0ee]/85">
+            <span className="mr-1.5 tabular-nums text-[10px] text-[#d9e0ee]/45">
+              {fmtClock(c.timestamp?.[0])}
+            </span>
+            {(c.text || "").trim()}
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -299,6 +316,20 @@ function KaraokeTranscript({ chunks, t, onSeek }) {
 // sit under "transcrevendo…" forever, with no job behind it.
 function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, playhead, transcribing, onThumbError }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  // Whisper records written before 0.98 carry double spaces (chunks were joined
+  // with a space on top of their own leading one). Tidied here, for the copy and
+  // the .txt too — the stored record is left as it is.
+  const text = tidyTranscriptText(it.text);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard refused (panel not focused) — the label simply doesn't flip */
+    }
+  };
   // Counts are stored as raw numbers (schema 2) and formatted here. Records
   // written before that carry pre-formatted strings — pass those through.
   const n = (v) => (typeof v === "number" ? fmtCount(v) : v || null);
@@ -314,9 +345,9 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
   // what was actually captured — a Facebook record usually contributes a duration
   // and nothing else, so this is often one chip, or absent entirely.
   const meta = transcriptMetaChips(it);
-  // Karaoke only for THIS card, and only when the tab is playing THIS video. The
-  // id travels with every tick precisely so a reel change can't scrub the wrong
-  // transcript. No chunks (an old record) → the plain text view, unchanged.
+  // Live lines only for THIS card, and only when the tab is playing THIS video.
+  // The id travels with every tick precisely so a reel change can't scrub the
+  // wrong transcript. No chunks (an old record) → the plain text view, unchanged.
   const karaoke = !!playhead?.tick && playhead.tick.videoId === it.videoId && !!it.chunks?.length;
   // Auto-open the transcript when its video starts playing — the whole point is
   // not having to click anything while you watch.
@@ -470,6 +501,31 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
         {it.status === "error" && <p className="break-words text-[11px] text-destructive">{it.error}</p>}
         {deleteError && <p className="break-words text-[11px] text-destructive">{deleteError}</p>}
 
+        {transcribing && (
+          // Real progress when the offscreen document is reporting it (model bytes,
+          // audio bytes, then one 30 s Whisper window at a time); the plain label
+          // when it isn't — a job started before this panel opened, or a caption
+          // transcript, which never runs Whisper at all. Shown ABOVE any text: a
+          // re-run keeps the previous transcript on screen until the new one lands.
+          <div className="mt-0.5">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{it.status === "queued" ? "na fila…" : it.text ? "transcrevendo de novo…" : "transcrevendo…"}</span>
+              {progress != null && it.status !== "queued" && <span className="tabular-nums">{progress}%</span>}
+            </div>
+            {progress != null && it.status !== "queued" && (
+              <div
+                className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
+              </div>
+            )}
+          </div>
+        )}
+
         {it.text ? (
           <>
             <button
@@ -482,50 +538,43 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
                   language and were decoded as English — labelling those "BR" is why
                   an English transcript looked like it had come out in Portuguese. */}
               {recordedTranscriptLanguageShort(it.language) && (
-                <span className="rounded-[4px] border border-border px-1 py-0.5 text-[9px] font-semibold text-muted-foreground">
+                <span
+                  className="rounded-[4px] border border-border px-1 py-0.5 text-[9px] font-semibold text-muted-foreground"
+                  title={it.languageAuto ? "Idioma escolhido pelo modo Automático, a partir da legenda do post" : undefined}
+                >
                   {recordedTranscriptLanguageShort(it.language)}
+                  {it.languageAuto ? " · auto" : ""}
                 </span>
               )}
             </button>
             {open &&
-              (karaoke ? (
-                <KaraokeTranscript chunks={it.chunks} t={playhead.tick.t} onSeek={(t) => playhead.seek(it.videoId, t)} />
+              (it.chunks?.length ? (
+                <TranscriptLines
+                  chunks={it.chunks}
+                  live={karaoke}
+                  t={karaoke ? playhead.tick.t : undefined}
+                  onSeek={(t) => playhead.seek(it.videoId, t)}
+                />
               ) : (
                 <div className="max-h-44 overflow-y-auto rounded-md console p-2 text-[11px] leading-relaxed  break-words whitespace-pre-wrap">
-                  {it.text}
+                  {text}
                 </div>
               ))}
             <div className="mt-auto flex flex-wrap gap-x-2 gap-y-0.5 pt-1 text-[11px]">
-              <button className="text-primary hover:underline" onClick={() => navigator.clipboard.writeText(it.text)}>copiar</button>
-              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.txt`, it.text)}>.txt</button>
+              <button className="text-primary hover:underline" onClick={copy}>
+                {copied ? "copiado ✓" : "copiar"}
+              </button>
+              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.txt`, text)}>.txt</button>
               {it.chunks?.length ? (
                 <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
               ) : null}
             </div>
           </>
-        ) : transcribing ? (
-          // Real progress when the offscreen document is reporting it (model bytes,
-          // audio bytes, then one 30 s Whisper window at a time); the plain label
-          // when it isn't — a job started before this panel opened, or a caption
-          // transcript, which never runs Whisper at all.
-          <div className="mt-0.5">
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>transcrevendo…</span>
-              {progress != null && <span className="tabular-nums">{progress}%</span>}
-            </div>
-            {progress != null && (
-              <div
-                className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-valuenow={progress}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
-              </div>
-            )}
-          </div>
-        ) : it.status === "error" ? null : (
+        ) : transcribing || it.status === "error" ? null : heardNoSpeech(it) ? (
+          // The job ran to the end and Whisper produced nothing: silence, music, or
+          // speech too faint to decode. A result, not a failure.
+          <p className="mt-0.5 text-[11px] text-muted-foreground">nenhuma fala detectada</p>
+        ) : (
           // Saved but never transcribed. Said out loud, because the alternative is
           // a card that just stops after the caption and leaves the reason to
           // guesswork. Transcribing happens on the post itself — the ⧉ above opens it.
@@ -700,7 +749,7 @@ export default function TranscriptsPanel() {
         <p className="py-10 text-center text-xs text-muted-foreground leading-relaxed">
           Ainda não há transcrições.<br />
           Toque em <span className="font-medium text-foreground">Transcrever</span> em um vídeo no
-          Facebook — ele aparece aqui.
+          Facebook, Instagram ou TikTok — ele aparece aqui.
         </p>
       ) : (
         <>
@@ -713,7 +762,7 @@ export default function TranscriptsPanel() {
                 onToggleSave={() => toggleSave(it)}
                 onDelete={() => deleteOne(it.videoId)}
                 deleteError={failed[it.videoId]}
-                progress={it.text ? null : progress[it.videoId]}
+                progress={isTranscribing(it, "transcripts") ? progress[it.videoId] : null}
                 playhead={playhead}
                 transcribing={isTranscribing(it, "transcripts")}
                 onThumbError={thumbs.markBroken}

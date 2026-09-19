@@ -15,16 +15,22 @@
 // whatever loop it already runs.
 
 export const TX_LANG_KEY = "fbw_transcript_language";
-export const TX_LANG_DEFAULT = "br";
+// English since 0.97.1. Only the fallback: a stored pick (BR or EN) still wins.
+// lib/transcriptionLanguage.js re-exports it, so this is the one place it lives.
+export const TX_LANG_DEFAULT = "en";
+// "auto" is resolved by the background from the post's caption (lib/
+// captionLanguage.js) — Whisper itself only ever receives en or pt.
 export const TX_LANG_OPTIONS = [
   { value: "br", label: "Português", short: "BR" },
   { value: "en", label: "English", short: "EN" },
+  { value: "auto", label: "Automático", short: "AUTO" },
 ];
 
 export function normTxLang(value) {
   const lang = String(value || "").trim().toLowerCase();
   if (lang === "en") return "en";
   if (lang === "br" || lang === "pt") return "br";
+  if (lang === "auto") return "auto";
   return TX_LANG_DEFAULT;
 }
 
@@ -40,11 +46,13 @@ export function txLangInfo(value) {
 // the left edge for that (Instagram's tile actions sit at left:7px) flips to the
 // right instead of being clamped into a strip overlapping itself.
 export const TX_LANG_MENU_W = 124;
+// Three 30px items + gaps + padding + border ≈ 112px, plus a margin.
+const TX_LANG_MENU_H = 126;
 export function txLangMenuPos(rect, view) {
   const preferred = rect.left - 102;
   const left = preferred < 8 ? rect.right + 6 : preferred;
   return {
-    top: Math.max(8, Math.min(view.height - 92, rect.top)),
+    top: Math.max(8, Math.min(view.height - TX_LANG_MENU_H, rect.top)),
     left: Math.max(8, Math.min(view.width - 132, left)),
   };
 }

@@ -160,8 +160,9 @@ describe("offscreen transcription requests", () => {
     expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br").repetitionPenalty).toBe(1);
   });
 
-  it("defaults invalid or missing language to Portuguese", () => {
-    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "es").language).toBe("pt");
-    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4").language).toBe("pt");
+  it("defaults invalid or missing language to English", () => {
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "es").language).toBe("en");
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4").language).toBe("en");
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br").language).toBe("pt");
   });
 });

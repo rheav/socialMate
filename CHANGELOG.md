@@ -18,6 +18,53 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [0.98.0] — 2026-09-19
+
+### Adicionado
+- **Idioma "Automático"** (BR · EN · AUTO, nos botões das páginas, no Arquivo e
+  em Opções): antes do Whisper, a legenda do post decide entre inglês e
+  português (franc, restrito às duas línguas — sem restrição ele chamava
+  português de italiano). Sem legenda útil (só hashtags, curta demais, empate) →
+  inglês. O card mostra "EN · auto" quando o idioma foi adivinhado.
+- **Fila de transcrição**: um Whisper por vez. Antes, vários cliques rodavam
+  juntos no mesmo worker — cada um mais lento, a barra de um aparecia no card
+  de outro, e o estouro de tempo de um cancelava todos. O card mostra "na
+  fila…" enquanto espera; clicar duas vezes no mesmo vídeo é um job só.
+- **Linhas com horário sempre visíveis** na transcrição do Arquivo, não só com
+  o vídeo tocando na aba (aí continuam acompanhando e clicáveis).
+- "copiado ✓" ao copiar; "nenhuma fala detectada" quando o Whisper termina sem
+  texto (antes o card ficava em "transcrevendo…" para sempre).
+
+### Corrigido
+- **Transcrição presa em "transcrevendo…"** depois de recarregar a extensão ou
+  fechar o navegador no meio do job: ao iniciar, o background marca esses
+  registros como interrompidos (nos dois stores) e o acervo recebe o erro.
+- **Cópia salva (estrela) apertada durante o job** agora recebe o resultado.
+- **Tempo limite**: era 3 min fixos. Agora escala com a duração do vídeo
+  (mín. 3 min, máx. 1 h; 30 min sem duração) e um vigia derruba o job se ficar
+  2 min sem nenhum progresso. O worker do Whisper que cai falha o job na hora.
+- **Retranscrever em outro idioma** não troca mais a etiqueta do texto antigo
+  no início (nem para sempre, se o job falhar); o idioma é gravado com o
+  resultado, e o card mostra "transcrevendo de novo…" com a barra.
+- **Espaço duplo em toda transcrição do Whisper** (26 de 26 no acervo): cada
+  trecho já começa com espaço e era unido com outro. Registros antigos são
+  limpos na exibição, no copiar e no .txt.
+- **Loop do Whisper** (a mesma frase repetida em trechos seguidos, típico em
+  silêncio/música) passava pelo filtro, que só olhava dentro de cada trecho.
+  Agora a 3ª repetição seguida em diante é descartada.
+- Tela vazia do Arquivo cita Instagram e TikTok, não só Facebook.
+
+## [0.97.1] — 2026-09-19
+
+### Alterado
+- **Transcrição agora sai em inglês por padrão** (antes, português). Vale para
+  os botões Transcrever das páginas (Facebook, Instagram, TikTok), para os
+  painéis e para Opções. O padrão é aplicado **uma vez** nesta atualização por
+  cima da escolha que já estava salva — sem isso ele nunca chegaria a quem já
+  tinha tocado BR/EN alguma vez. Escolher BR depois disso fica valendo.
+- O padrão do painel e o das páginas eram dois literais mantidos à mão; o do
+  painel agora é reexportado de `lib/shared/txLang.js`, então não divergem mais.
+
 ## [0.97.0] — 2026-09-18
 
 ### Adicionado

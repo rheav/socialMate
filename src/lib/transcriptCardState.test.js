@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isTranscribing } from "./transcriptCardState.js";
+import { heardNoSpeech, isTranscribing } from "./transcriptCardState.js";
 
 describe("isTranscribing", () => {
   it("is false for a post saved off a grid — it never started a job", () => {
@@ -31,5 +31,24 @@ describe("isTranscribing", () => {
   it("tolerates a missing record", () => {
     expect(isTranscribing(null, "saved")).toBe(false);
     expect(isTranscribing(undefined, "transcripts")).toBe(false);
+  });
+
+  it("is true for a queued job, in either store", () => {
+    expect(isTranscribing({ videoId: "1", status: "queued" }, "transcripts")).toBe(true);
+    expect(isTranscribing({ videoId: "1", status: "queued" }, "saved")).toBe(true);
+  });
+
+  // A re-run keeps the previous text on screen until the new one lands.
+  it("is true for a re-run even though the old text is still there", () => {
+    expect(isTranscribing({ videoId: "1", status: "running", text: "old" }, "transcripts")).toBe(true);
+  });
+
+  it("is false for a finished job that heard no speech", () => {
+    const silent = { videoId: "1", status: "done", text: "" };
+    expect(isTranscribing(silent, "transcripts")).toBe(false);
+    expect(heardNoSpeech(silent)).toBe(true);
+    expect(heardNoSpeech({ status: "done", text: "hi" })).toBe(false);
+    expect(heardNoSpeech({ status: "running" })).toBe(false);
+    expect(heardNoSpeech(null)).toBe(false);
   });
 });

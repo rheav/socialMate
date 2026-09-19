@@ -9,6 +9,7 @@ import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
+import { txButtonState } from "@/lib/transcriptJobs.js";
 import IconBtn from "@/components/ui/IconBtn";
 
 // TikTok Stories. Reads the passive fetch capture of /api/story/item_list (via the
@@ -31,7 +32,8 @@ export default function TtStoriesTool() {
     const load = () =>
       chrome.storage.local.get(["fbw_transcripts", "fbw_saved"], (r) => {
         const out = {};
-        for (const k in r.fbw_transcripts || {}) out[k] = r.fbw_transcripts[k].status;
+        // A queued job is as busy as a running one for this button (spinner, disabled).
+        for (const k in r.fbw_transcripts || {}) out[k] = txButtonState(r.fbw_transcripts[k].status);
         setTxMap(out);
         const s = {};
         for (const k in r.fbw_saved || {}) s[k] = true;

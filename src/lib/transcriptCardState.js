@@ -13,8 +13,21 @@
 //
 // Reading "no text" as "running" across both is what put every saved Instagram
 // post under a permanent "transcrevendo…" with no job behind it.
+//
+// An explicit in-flight status wins over the text: a RE-RUN of a finished
+// transcript keeps the old text on screen while the new job works, and the card
+// has to show that job instead of pretending nothing is happening. And "done"
+// with no text is a finished job that heard no speech — not one still running.
+import { isActiveTxStatus } from "./transcriptJobs.js";
+
 export function isTranscribing(record, store) {
-  if (!record || record.text) return false;
-  if (store === "saved") return record.status === "running";
-  return record.status !== "error";
+  if (!record) return false;
+  if (isActiveTxStatus(record.status)) return true;
+  if (record.text || store === "saved") return false;
+  return record.status !== "error" && record.status !== "done";
+}
+
+/** A job that finished and heard nothing — silence, music, or a failed decode. */
+export function heardNoSpeech(record) {
+  return !!record && record.status === "done" && !record.text;
 }

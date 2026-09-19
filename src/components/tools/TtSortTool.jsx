@@ -40,6 +40,7 @@ import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
+import { tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
 import IconBtn from "@/components/ui/IconBtn";
 import MetricLegend from "@/components/ui/MetricLegend";
 import {
@@ -162,7 +163,8 @@ export default function TtSortTool() {
       chrome.storage.local.get(["fbw_transcripts", "fbw_saved"], (r) => {
         const m = r.fbw_transcripts || {};
         const out = {};
-        for (const k in m) out[k] = m[k].status;
+        // A queued job is as busy as a running one for this button (spinner, disabled).
+        for (const k in m) out[k] = txButtonState(m[k].status);
         setTxMap(out);
         const s = {};
         for (const k in r.fbw_saved || {}) s[k] = true;
@@ -411,7 +413,7 @@ export default function TtSortTool() {
     const t = (r.fbw_transcripts || {})[rec.id];
     if (!t?.text) return;
     setCopied(false);
-    setTxModal({ id: rec.id, username: rec.username || rec.nickname || "desconhecido", text: t.text });
+    setTxModal({ id: rec.id, username: rec.username || rec.nickname || "desconhecido", text: tidyTranscriptText(t.text) });
   }
 
   async function copyTranscript() {

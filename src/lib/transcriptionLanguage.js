@@ -1,25 +1,36 @@
-export const TRANSCRIPT_LANGUAGE_KEY = "fbw_transcript_language";
-export const DEFAULT_TRANSCRIPT_LANGUAGE = "br";
+// Key and default come from the page helper so the panel and the content scripts
+// cannot disagree on them (they used to be two hand-kept literals).
+import { TX_LANG_DEFAULT, TX_LANG_KEY } from "./shared/txLang.js";
+
+export const TRANSCRIPT_LANGUAGE_KEY = TX_LANG_KEY;
+export const DEFAULT_TRANSCRIPT_LANGUAGE = TX_LANG_DEFAULT;
 
 const LABELS = {
   br: "Português",
   en: "English",
+  auto: "Automático",
 };
 
 const SHORT = {
   br: "BR",
   en: "EN",
+  auto: "AUTO",
 };
 
+// A PICK: br, en or auto. What a job runs in is always br or en — "auto" is
+// resolved from the caption first (lib/captionLanguage.js, background only).
 export function normalizeTranscriptLanguage(value) {
   const lang = String(value || "").trim().toLowerCase();
   if (lang === "en") return "en";
   if (lang === "br" || lang === "pt") return "br";
+  if (lang === "auto") return "auto";
   return DEFAULT_TRANSCRIPT_LANGUAGE;
 }
 
+// Whisper's token. Anything but Portuguese — including an "auto" that reached
+// here unresolved — decodes as English, the default.
 export function whisperTranscriptLanguage(value) {
-  return normalizeTranscriptLanguage(value) === "en" ? "en" : "pt";
+  return normalizeTranscriptLanguage(value) === "br" ? "pt" : "en";
 }
 
 export function transcriptLanguageLabel(value) {
@@ -33,7 +44,7 @@ export function transcriptLanguageShort(value) {
 // What a STORED record was transcribed in — null when it never recorded one.
 //
 // The functions above answer "which language should this job use?", so an absent
-// value there rightly means the BR default. A record is the opposite question:
+// value there rightly means the default. A record is the opposite question:
 // every transcript made before 0.72 carries no language at all, and those ran with
 // the language OMITTED, which Transformers.js decodes as English. Defaulting the
 // Library badge to BR therefore stamped "BR" on English transcripts — the reason a
@@ -77,4 +88,24 @@ export async function writeStoredTranscriptLanguage(value, storage = globalThis.
     /* caller can still use the normalized value for this job */
   }
   return language;
+}
+
+// The default only fills an EMPTY key, and any install where someone ever tapped
+// BR/EN already has one — so moving the default to English changed nothing for
+// them. This applies the new default once, over whatever was stored, and records
+// which default it applied so it never runs again; picking BR afterwards sticks.
+export const TRANSCRIPT_LANGUAGE_DEFAULT_APPLIED_KEY = "fbw_transcript_language_default_applied";
+
+export async function applyTranscriptLanguageDefaultOnce(storage = globalThis.chrome?.storage?.local) {
+  try {
+    const r = await storage?.get?.(TRANSCRIPT_LANGUAGE_DEFAULT_APPLIED_KEY);
+    if (r?.[TRANSCRIPT_LANGUAGE_DEFAULT_APPLIED_KEY] === DEFAULT_TRANSCRIPT_LANGUAGE) return false;
+    await storage?.set?.({
+      [TRANSCRIPT_LANGUAGE_KEY]: DEFAULT_TRANSCRIPT_LANGUAGE,
+      [TRANSCRIPT_LANGUAGE_DEFAULT_APPLIED_KEY]: DEFAULT_TRANSCRIPT_LANGUAGE,
+    });
+    return true;
+  } catch {
+    return false; // storage gone — the next install/update event tries again
+  }
 }
