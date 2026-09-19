@@ -96,8 +96,9 @@ Status: TODO / WIP / DONE. Target extension version for the batch: **0.98.0**.
   TtStories) map queued→"running" via `txButtonState`; IG/TT modals tidy text.
   FBW_TRANSCRIPT_PUT (FB instant card) drops the pick `language`.
 - Extension shipped as **0.98.0** (CHANGELOG entry, version_name, `npm run build`
-  ok, 782 tests green). Not committed.
-- Hub (`~/Code/apps/socialmate-hub`, uncommitted, NOT pushed — push = deploy):
+  ok, 782 tests green). Subsequently committed and pushed as `f067883`.
+- Hub (`~/Code/apps/socialmate-hub`, subsequently committed and pushed as
+  `0bce298` with the user's explicit "sim, commit push deploy" authorization):
   server/social.ts stores `error` (≤500) and `languageAuto` (true|null); twin
   borrow prefers the transcript's `language` and carries `languageAuto`.
   dashboard/transcript.ts: `fmtLanguage` (EN/PT/"EN · auto"), `tidyText`,
@@ -106,9 +107,23 @@ Status: TODO / WIP / DONE. Target extension version for the batch: **0.98.0**.
   tidied text for view/copy/.txt, status-aware empty message. 89 tests green.
   GOTCHA: run hub tests with `PATH=/opt/homebrew/bin:$PATH` (Node 26) —
   better-sqlite3 is built for ABI 147 and nvm's default Node 20 fails 63 tests.
+- Codex verification, 2026-09-19: GitHub `main` matches both release commits
+  (`git ls-remote`). Extension `npm test` and `npm run build` passed; Vitest
+  recorded 66 passing files, and `dist/manifest.json` reports 0.98.0. Hub
+  `PATH=/opt/homebrew/bin:$PATH npm test` passed all 89 tests; build passed.
+- Production deployment verified: Docker service `my-projects_socialmate-hub`
+  has a running replacement task; `https://socialmate.rheav.dev/api/health`
+  returns `status: "ok"`. SHA-256 hashes of the container's
+  `build/server/social.js` and `dist/assets/index-DSm69njx.js` exactly match
+  the local build of `0bce298`; public HTML references that same JS asset.
+- Browser check pending: the requested `~/.Codex/scripts/open-chrome.sh` does
+  not exist. Port 9222 is live, but its Chrome process uses
+  `~/.claude-chrome/profile`, not the AGENTS.md profile
+  `~/.Codex-chrome/profile`. No browser configuration was changed; asked the
+  user whether the existing Chrome may be used for background-only checks.
 
 ## Remaining (not code)
 
 - Reload the unpacked extension in Edge (`edge://extensions`) to get 0.98.0.
-- Hub: commit + push to deploy (ask the user first).
-- No live UI check was done (panel/overlay/hub); only unit tests + builds.
+- Live UI check (panel/overlay/hub) remains pending the browser-profile decision.
+- Commit, push and hub deployment are complete and verified.
