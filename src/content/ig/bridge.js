@@ -2426,15 +2426,17 @@ function recordReachTier(rec) {
     el.dataset.code = code;
     const hasViews = rec.play_count != null;
     const rows = [];
-    // Vertical rail: reach headline (views ÷ followers, graded like TikTok's), then
-    // views, likes, comments, reposts, ER, date. Reach needs both numbers, so a
-    // photo (no views) or a post whose author's follower count was never captured
-    // simply starts at views, as before.
+    // Vertical rail: reach (views ÷ followers, graded in TikTok's colours, row-sized
+    // so the rail stays narrow), then views, likes, comments, reposts, ER, date.
+    // Reach needs both numbers, so a photo (no views) or a post whose author's
+    // follower count was never captured simply starts at views, as before. The
+    // follower count itself is not a row: reach already carries it, and the panel
+    // and the spreadsheet still show it.
     const vpf = ttViewsPerFollower(rec);
     const tier = reachTier(vpf);
     if (tier)
       rows.push(
-        `<div class="sw-ovl-row primary" style="color:${tier.color}" title="${tier.label} — ${fmtRatio(vpf)} o próprio público (views ÷ seguidores)">${overlayIcon("trend", OVL.iconPrimary)}<span>${fmtRatio(vpf)}</span></div>`,
+        `<div class="sw-ovl-row" style="color:${tier.color}" title="${tier.label} — ${fmtRatio(vpf)} o próprio público (views ÷ seguidores)">${overlayIcon("trend", OVL.iconRow)}<span>${fmtRatio(vpf)}</span></div>`,
       );
     if (hasViews)
       rows.push(`<div class="sw-ovl-row${tier ? "" : " primary"}">${overlayIcon("eye", tier ? OVL.iconRow : OVL.iconPrimary)}<span>${fmtCount(rec.play_count)}</span></div>`);
@@ -2447,10 +2449,6 @@ function recordReachTier(rec) {
       rows.push(`<div class="sw-ovl-row">${overlayIcon("zap", OVL.iconRow)}<span>${e}</span></div>`);
     const d = fmtDate(rec.taken_at) || dateFromPk(rec.pk);
     if (d) rows.push(`<div class="sw-ovl-row">${overlayIcon("cal", OVL.iconRow)}<span>${d}</span></div>`);
-    // How big the account behind the post is (item 2) — the number that turns
-    // "this did well" into "this did well FOR a page that size".
-    if (rec.user_follower_count != null)
-      rows.push(`<div class="sw-ovl-row">${overlayIcon("user", OVL.iconRow)}<span>${fmtCount(rec.user_follower_count)}</span></div>`);
     el.innerHTML = rows.join("");
     return el;
   }

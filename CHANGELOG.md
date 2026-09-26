@@ -18,6 +18,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.1.1] — 2026-09-26
+
+### Alterado
+- **Card do Instagram mais enxuto.** O Alcance ("0.33×") agora tem o tamanho das
+  outras linhas — continua no topo e com a cor da faixa —, e a linha de
+  seguidores saiu do card: o Alcance já a carrega, e o número segue no painel e na
+  planilha.
+
+---
+
 ## [1.1.0] — 2026-09-26
 
 A partir desta versão a numeração segue 1.x: depois da 0.99 vem a 1.0 (a antiga
