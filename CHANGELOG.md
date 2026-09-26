@@ -18,6 +18,20 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.2.2] — 2026-09-26
+
+### Corrigido
+- **Explicações das métricas no Instagram e no TikTok.** Velocidade (`views/dia`)
+  é a média desde a publicação, não uma medida em tempo real. Alcance
+  (`views ÷ seguidores`) compara as views ao tamanho da conta, sem inferir
+  pessoas únicas ou distribuição fora da base. A legenda também esclarece
+  que esses números dependem dos dados disponíveis.
+- **Explicação dos pesos do TE no Instagram** respeita os pesos escolhidos,
+  sem afirmar que comentário e repost sempre valem mais que curtida.
+- Versão do pacote no lockfile sincronizada com o manifesto.
+
+---
+
 ## [1.2.1] — 2026-09-26
 
 ### Adicionado

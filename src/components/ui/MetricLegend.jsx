@@ -47,13 +47,13 @@ export default function MetricLegend({ weights, platform = "tiktok" }) {
       RadioTower,
       "Alcance (views ÷ seguidores)",
       ig
-        ? "0.3× = o vídeo teve 30% do número de seguidores da conta em views; 12× = doze vezes o próprio público. Acima de 1× ele saiu da base de seguidores e foi levado pelo algoritmo (Explorar/Reels). Colorido pela escala abaixo. Só aparece quando o número de seguidores do autor é conhecido — no perfil sim; em hashtag e busca o Instagram não informa, então ali ele some."
-        : "352× = o vídeo alcançou 352 vezes o próprio público. Acima de 1× ele saiu da base de seguidores e foi levado pelo Para Você; abaixo de 1× ficou dentro dela. É o número que diz se o formato funcionou, independente do tamanho da conta. Colorido pela escala abaixo.",
+        ? "12× = o total de views equivale a 12 vezes o número de seguidores do autor. Compara as views ao tamanho da conta; não mede pessoas únicas nem revela se quem assistiu era seguidor. As cores seguem a escala abaixo. Só aparece quando conhecemos os seguidores do autor; em hashtag e busca esse dado pode faltar."
+        : "352× = o total de views equivale a 352 vezes o número de seguidores do autor. Compara as views ao tamanho da conta; não mede pessoas únicas nem revela se quem assistiu era seguidor. As cores seguem a escala abaixo. Só aparece quando conhecemos os seguidores do autor.",
     ],
     [
       TrendingUp,
       "Velocidade (views por dia)",
-      "2.5K/dia = em média 2.500 views por dia desde que foi publicado (views ÷ dias). Mostra o que está rodando AGORA: 400K/dia num post de 3 dias está bombando; 8K/dia num post de dois anos é cauda longa. Existe em todo vídeo, inclusive em hashtag e busca. Post com menos de um dia conta como um dia.",
+      "2.5K/dia = em média 2.500 views por dia desde a publicação (total de views ÷ dias). Exemplo: 1,2 milhão de views em 3 dias = 400K/dia. É a média do período inteiro, não as views de hoje nem a velocidade em tempo real. Aparece quando temos views e data, inclusive em hashtag e busca. Post com menos de um dia conta como um dia.",
     ],
     [Eye, "Visualizações", "Quantas vezes o vídeo foi reproduzido (replays contam)."],
     [Heart, "Curtidas", null],
@@ -66,7 +66,7 @@ export default function MetricLegend({ weights, platform = "tiktok" }) {
       Zap,
       "TE — taxa de engajamento (o raio)",
       ig
-        ? `Quanto o público interage por view, ponderado: (curtidas×${w.like ?? 1} + coment.×${w.comment ?? 4} + reposts×${w.repost ?? 4}) ÷ views × 100. Comentário e repost valem mais que curtida porque custam mais intenção. Os pesos são os de "Peso do TE" logo acima.`
+        ? `Quanto o público interage por view, ponderado: (curtidas×${w.like ?? 1} + coment.×${w.comment ?? 4} + reposts×${w.repost ?? 4}) ÷ views × 100. Os pesos são os de "Peso do TE" logo acima; um peso maior dá mais importância àquela interação.`
         : `Quanto o público interage por view, ponderado: (curtidas×${w.like ?? 1} + coment.×${w.comment ?? 4} + compart.×${w.share ?? 4} + salvos×${w.save ?? 2}) ÷ views × 100. Os pesos são os de "Peso do TE" logo acima.`,
     ],
     ...(ig ? [] : [[User, "Seguidores do perfil", "O tamanho da conta que publicou."]]),
