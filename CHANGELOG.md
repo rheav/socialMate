@@ -18,6 +18,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.1.2] — 2026-09-26
+
+### Alterado
+- **Seguidores e Duração saíram das opções de ordenar** — da barra na página, do
+  "Ordenar por" do painel e dos critérios de desempate, no Instagram e no TikTok.
+  Não fazem sentido como ordem de uma grade de posts; continuam disponíveis como
+  regra de filtro ("seguidores ≥ 10 mil", "duração ≤ 30 s") em "Filtros e
+  desempate".
+
+---
+
 ## [1.1.1] — 2026-09-26
 
 ### Alterado

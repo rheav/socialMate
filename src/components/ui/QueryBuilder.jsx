@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, X, ArrowDown, ArrowUp } from "lucide-react";
-import { QUERY_OPS } from "@/lib/shared/feedQuery";
+import { QUERY_OPS, isSortableField } from "@/lib/shared/feedQuery";
 import { cn } from "@/lib/utils";
 
 // Rule builder for the feed query: filters (field / operator / value, joined by
@@ -87,7 +87,7 @@ function EnumChips({ def, value, onChange }) {
 export default function QueryBuilder({ query, setQuery, fields, primaryKey }) {
   const [open, setOpen] = useState(false);
   const keys = Object.keys(fields);
-  const sortableKeys = keys.filter((k) => fields[k].kind === "number" || fields[k].kind === "date");
+  const sortableKeys = keys.filter((k) => isSortableField(fields[k]));
   const n = query.filters.length + Math.max(0, query.sorts.length - 1);
 
   const setFilter = (i, patch) =>

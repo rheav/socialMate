@@ -43,7 +43,7 @@ import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
 import useFeedQuery from "@/lib/useFeedQuery";
 import QueryBuilder from "@/components/ui/QueryBuilder";
-import { applyQuery, primarySort, withPrimarySort } from "@/lib/shared/feedQuery";
+import { applyQuery, primarySort, withPrimarySort, isSortableField } from "@/lib/shared/feedQuery";
 import { TT_QUERY_FIELDS } from "@/lib/shared/ttQuery";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
@@ -78,7 +78,7 @@ import { downloadPath } from "@/lib/downloadPath";
 const SORT_OPTS = [
   { value: "default", label: "Padrão" },
   ...Object.entries(TT_QUERY_FIELDS)
-    .filter(([, f]) => f.kind === "number" || f.kind === "date")
+    .filter(([, f]) => isSortableField(f))
     .map(([value, f]) => ({ value, label: f.label, short: f.short })),
 ];
 

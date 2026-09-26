@@ -1729,6 +1729,15 @@ const QUERY_OPS = {
   enum: ["isAnyOf"],
 };
 
+/**
+ * Can this field order a list? Numbers and dates can, unless the field map says
+ * `sortable: false` — follower count and duration filter well ("accounts under
+ * 10K", "videos under 30 s") but make no sense as an order for a grid of posts.
+ */
+function isSortableField(def) {
+  return !!def && (def.kind === "number" || def.kind === "date") && def.sortable !== false;
+}
+
 function emptyQuery() {
   return { version: 1, join: "all", sorts: [], filters: [] };
 }
@@ -1881,8 +1890,8 @@ const IG_QUERY_FIELDS = {
     kind: "number",
     get: (r) => (r.play_count == null || !r.user_follower_count ? null : r.play_count / r.user_follower_count),
   },
-  followers: { label: "Seguidores", short: "Segs.", kind: "number", get: (r) => r.user_follower_count },
-  duration: { label: "Duração (s)", short: "Duração", kind: "number", get: (r) => r.duration },
+  followers: { label: "Seguidores", short: "Segs.", kind: "number", sortable: false, get: (r) => r.user_follower_count },
+  duration: { label: "Duração (s)", short: "Duração", kind: "number", sortable: false, get: (r) => r.duration },
   date: { label: "Data", kind: "date", get: (r) => r.taken_at },
   caption: { label: "Legenda", kind: "text", get: (r) => r.caption },
   username: { label: "Perfil", kind: "text", get: (r) => r.username },
@@ -2147,7 +2156,7 @@ function makePageSorter(opts) {
 
   // ---- the bar ----
   function sortableKeys() {
-    return Object.keys(fields).filter((k) => fields[k].kind === "number" || fields[k].kind === "date");
+    return Object.keys(fields).filter((k) => isSortableField(fields[k]));
   }
   function ensureBar() {
     let bar = document.getElementById(PS_BAR_ID);

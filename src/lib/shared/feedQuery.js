@@ -20,6 +20,15 @@ export const QUERY_OPS = {
   enum: ["isAnyOf"],
 };
 
+/**
+ * Can this field order a list? Numbers and dates can, unless the field map says
+ * `sortable: false` — follower count and duration filter well ("accounts under
+ * 10K", "videos under 30 s") but make no sense as an order for a grid of posts.
+ */
+export function isSortableField(def) {
+  return !!def && (def.kind === "number" || def.kind === "date") && def.sortable !== false;
+}
+
 export function emptyQuery() {
   return { version: 1, join: "all", sorts: [], filters: [] };
 }

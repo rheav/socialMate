@@ -40,7 +40,7 @@ import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
 import useFeedQuery from "@/lib/useFeedQuery";
 import QueryBuilder from "@/components/ui/QueryBuilder";
-import { applyQuery, primarySort, withPrimarySort } from "@/lib/shared/feedQuery";
+import { applyQuery, primarySort, withPrimarySort, isSortableField } from "@/lib/shared/feedQuery";
 import { IG_QUERY_FIELDS } from "@/lib/shared/igQuery";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
@@ -70,7 +70,7 @@ import {
 const SORT_OPTS = [
   { value: "default", label: "Padrão" },
   ...Object.entries(IG_QUERY_FIELDS)
-    .filter(([, f]) => f.kind === "number" || f.kind === "date")
+    .filter(([, f]) => isSortableField(f))
     .map(([value, f]) => ({ value, label: f.label, short: f.short })),
 ];
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };

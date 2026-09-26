@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { IG_QUERY_FIELDS } from "./igQuery.js";
 import { TT_QUERY_FIELDS } from "./ttQuery.js";
-import { applyQuery, emptyQuery } from "./feedQuery.js";
+import { applyQuery, emptyQuery, isSortableField } from "./feedQuery.js";
 
 describe("IG_QUERY_FIELDS", () => {
   const rec = { play_count: 1000, like_count: 50, comment_count: 10, repost: 5, user_follower_count: 200, taken_at: 9, media_type: "video" };
@@ -44,5 +44,28 @@ describe("TT_QUERY_FIELDS", () => {
   it("filters on hashtags through the engine", () => {
     const q = { ...emptyQuery(), filters: [{ field: "hashtags", op: "contains", value: "TAROT" }] };
     expect(applyQuery([rec, { ...rec, hashtags: [] }], q, TT_QUERY_FIELDS)).toHaveLength(1);
+  });
+});
+
+describe("which fields a sort can use", () => {
+  it("leaves followers and duration out of the sort lists on both networks", () => {
+    for (const F of [IG_QUERY_FIELDS, TT_QUERY_FIELDS]) {
+      expect(isSortableField(F.followers)).toBe(false);
+      expect(isSortableField(F.duration)).toBe(false);
+      expect(isSortableField(F.views)).toBe(true);
+      expect(isSortableField(F.vpf)).toBe(true);
+      expect(isSortableField(F.date)).toBe(true);
+    }
+  });
+
+  it("still lets a filter rule use them", () => {
+    const q = { ...emptyQuery(), filters: [{ field: "followers", op: "gte", value: 1000 }] };
+    const recs = [{ user_follower_count: 500 }, { user_follower_count: 5000 }];
+    expect(applyQuery(recs, q, IG_QUERY_FIELDS)).toHaveLength(1);
+  });
+
+  it("never offers text or enum fields as a sort", () => {
+    expect(isSortableField(IG_QUERY_FIELDS.caption)).toBe(false);
+    expect(isSortableField(IG_QUERY_FIELDS.type)).toBe(false);
   });
 });

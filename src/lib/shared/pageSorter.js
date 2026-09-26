@@ -18,7 +18,7 @@
 //   linkOk(a)     → false for links outside the grid (hovercards, rails…)
 //   routeOk(path) → is this page a grid at all?
 
-import { emptyQuery, normalizeQuery, matchesQuery, compareByQuery, primarySort, withPrimarySort, querySignature } from "./feedQuery.js";
+import { emptyQuery, normalizeQuery, matchesQuery, compareByQuery, primarySort, withPrimarySort, querySignature, isSortableField } from "./feedQuery.js";
 import { gridCellOf, stampOrigIndex, origIndexOf, reorderCells, setCellHidden } from "./gridSort.js";
 
 const PS_BAR_ID = "sw-psort";
@@ -139,7 +139,7 @@ export function makePageSorter(opts) {
 
   // ---- the bar ----
   function sortableKeys() {
-    return Object.keys(fields).filter((k) => fields[k].kind === "number" || fields[k].kind === "date");
+    return Object.keys(fields).filter((k) => isSortableField(fields[k]));
   }
   function ensureBar() {
     let bar = document.getElementById(PS_BAR_ID);
