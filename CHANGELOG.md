@@ -18,6 +18,23 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.2.1] — 2026-09-26
+
+### Adicionado
+- **"O que significam os números" no Ordenar do Instagram.** A legenda que só o
+  TikTok tinha agora existe nas duas redes, cada uma com os ícones do seu card,
+  na mesma ordem: Alcance (antena), Velocidade (↗, o "xx/dia"), views, curtidas,
+  comentários, reposts, TE (o raio — com a fórmula e os pesos atuais) e data, mais
+  a escala de cores do Alcance. Os cards da página não aceitam tooltip (não
+  capturam o mouse, para o clique chegar no post), então a explicação mora aqui.
+
+### Corrigido
+- **Legenda do TikTok com ícones do card.** Compartilhamentos aparecia com o
+  ícone de "compartilhar", mas o card usa o de repost; e a Velocidade entrou na
+  lista.
+
+---
+
 ## [1.2.0] — 2026-09-26
 
 ### Adicionado

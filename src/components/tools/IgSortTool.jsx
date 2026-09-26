@@ -40,6 +40,7 @@ import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
 import useFeedQuery from "@/lib/useFeedQuery";
 import QueryBuilder from "@/components/ui/QueryBuilder";
+import MetricLegend from "@/components/ui/MetricLegend";
 import { applyQuery, primarySort, withPrimarySort, isSortableField } from "@/lib/shared/feedQuery";
 import { IG_QUERY_FIELDS } from "@/lib/shared/igQuery";
 import { requireOk } from "@/lib/bg";
@@ -572,6 +573,10 @@ export default function IgSortTool() {
           </label>
         ))}
       </div>
+
+      {/* What each glyph on the card means — the page rails can't carry tooltips
+          (pointer-events:none), so this is where they are explained. */}
+      <MetricLegend weights={erW} platform="instagram" />
 
       {/* Was "N coletados · <raw surface key>" plus a "mostrar tudo" toggle. The
           raw key is what hid the bucket bug: "explore" reads like a real answer. */}

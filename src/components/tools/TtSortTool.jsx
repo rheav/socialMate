@@ -558,7 +558,7 @@ export default function TtSortTool() {
         </div>
       </details>
 
-      <MetricLegend weights={erW} />
+      <MetricLegend weights={erW} platform="tiktok" />
 
       {/* Was "N coletados · <raw surface key>" plus a "mostrar tudo" toggle. The
           raw key is what hid the bucket bug: "explore" reads like a real answer. */}
