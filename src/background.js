@@ -5,7 +5,12 @@
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
-import { DOWNLOAD_ROOT, downloadPath, underDownloadRoot } from "./lib/downloadPath.js";
+import { downloadPath, underDownloadRoot, initDownloadPrefs } from "./lib/downloadPath.js";
+
+// The folder/flat settings are read synchronously by every path builder, so the
+// cache behind them has to be primed the moment this worker wakes — an MV3 worker
+// is torn down at 30s idle and re-created for the next message.
+initDownloadPrefs();
 import { mergeMeta } from "./lib/shared/metaMerge.js";
 import { serialQueue } from "./lib/serialQueue.js";
 import {
@@ -1232,8 +1237,15 @@ async function runTranscription(videoId, tabId, meta = {}) {
 // Either way it is impossible for a caller to land a file in the Downloads root.
 function resolveDownloadPath(msg, fallbackName) {
   const name = msg.filename || fallbackName;
-  const rooted = String(name == null ? "" : name).split(/[\\/]+/)[0] === DOWNLOAD_ROOT;
-  if (rooted) return underDownloadRoot(name); // idempotent for a finished path
+  // The two shapes are told apart by whether the name carries a SEPARATOR, not by
+  // the root segment. It used to compare against the literal "social-mate", which
+  // stopped working the moment the folder became a setting (a path under a custom
+  // folder looked "bare" and got the folder applied a second time). A content
+  // script's bare name never contains a slash; a finished path always does —
+  // except under `{folder:"", flat:true}`, where the two shapes are identical and
+  // both functions are idempotent anyway.
+  const finished = /[\\/]/.test(String(name == null ? "" : name));
+  if (finished) return underDownloadRoot(name); // idempotent for a finished path
   return downloadPath(msg.folder || msg.kind || null, name);
 }
 

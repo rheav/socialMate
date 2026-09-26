@@ -124,11 +124,11 @@ describe("recordToCard", () => {
 describe("filenameFor / extFromUrl", () => {
   it("builds sanitized filenames", () => {
     expect(filenameFor(rec({ username: "a/b:c" }), "mp4")).toBe(
-      "social-mate/videos/tt-a_b_c-1.mp4",
+      "social-mate/videos/a_b_c-tt-1.mp4",
     );
     // A jpg through the same namer is an image, so it files under imagens — the
     // sub-folder follows the media, not the platform default.
-    expect(filenameFor(rec(), "jpg", 2)).toBe("social-mate/imagens/tt-creator-1_2.jpg");
+    expect(filenameFor(rec(), "jpg", 2)).toBe("social-mate/imagens/creator-tt-1_2.jpg");
   });
   it("derives extension", () => {
     expect(extFromUrl("https://x/y.mp4?a=1", "video")).toBe("mp4");

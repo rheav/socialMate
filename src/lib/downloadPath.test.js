@@ -1,10 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   DOWNLOAD_ROOT,
   downloadPath,
   underDownloadRoot,
   kindFromExt,
   sanitizeFilenamePart,
+  setDownloadPrefs,
+  normalizeDlPrefs,
+  DEFAULT_DL_PREFS,
 } from "./downloadPath.js";
 
 // chrome.downloads rejects a filename that is absolute, contains a ".." component or
@@ -16,6 +19,14 @@ function assertAcceptableToChrome(path) {
   expect(path.split("/")).not.toContain("..");
   expect(path.split("/")).not.toContain(".");
   expect(path.split("/").every(Boolean)).toBe(true); // no empty segments
+}
+
+// Under the DEFAULT prefs everything also lands inside social-mate/. That is a
+// property of the default folder, not of Chrome — since 0.99.0 the folder is a
+// setting and may legitimately be empty (straight into the browser's download
+// directory), so the two assertions are separate.
+function assertUnderDefaultRoot(path) {
+  assertAcceptableToChrome(path);
   expect(path.startsWith(DOWNLOAD_ROOT + "/")).toBe(true);
 }
 
@@ -26,7 +37,7 @@ describe("downloadPath", () => {
   // them: keep a 200-cover thumb dump and a pile of JSON out of the way of the
   // media you actually went looking for.
   it("sorts by what the file IS, not by where it came from", () => {
-    expect(downloadPath("video", "ig-ivy-X1.mp4")).toBe("social-mate/videos/ig-ivy-X1.mp4");
+    expect(downloadPath("video", "ivy-ig-X1.mp4")).toBe("social-mate/videos/ivy-ig-X1.mp4");
     expect(downloadPath("video", "tt-creator-1.mp4")).toBe("social-mate/videos/tt-creator-1.mp4");
     expect(downloadPath("image", "pin-user-9.jpg")).toBe("social-mate/imagens/pin-user-9.jpg");
     expect(downloadPath("image", "fb-perfil-9.jpg")).toBe("social-mate/imagens/fb-perfil-9.jpg");
@@ -57,7 +68,7 @@ describe("downloadPath", () => {
   it("keeps the file name exactly as the caller built it", () => {
     // Only the FOLDER changed in 0.80.0. The platform prefix, the author, the id
     // and the -thumb suffix are all still what the media libs produced.
-    for (const name of ["ig-user-code_2.mp4", "fb-Astra Vale-122.jpg", "pin-user-1.webp"]) {
+    for (const name of ["ig-user-code_2.mp4", "Astra Vale-fb-122.jpg", "pin-user-1.webp"]) {
       expect(downloadPath("video", name).endsWith("/" + name)).toBe(true);
     }
   });
@@ -66,18 +77,18 @@ describe("downloadPath", () => {
     // A profile can literally be named "../../etc" — Chrome would reject the download
     // outright, and the call sites swallow that error.
     const evil = downloadPath("thumb", "../../etc/passwd");
-    assertAcceptableToChrome(evil);
+    assertUnderDefaultRoot(evil);
     expect(evil).toBe("social-mate/imagens/etc/passwd");
 
     const absolute = downloadPath("video", "/etc/hosts.mp4");
-    assertAcceptableToChrome(absolute);
+    assertUnderDefaultRoot(absolute);
 
     const windows = downloadPath("video", "..\\..\\Windows\\System32\\x.mp4");
-    assertAcceptableToChrome(windows);
+    assertUnderDefaultRoot(windows);
     expect(windows).toBe("social-mate/videos/Windows/System32/x.mp4");
 
     const dotdot = downloadPath("video", "..");
-    assertAcceptableToChrome(dotdot);
+    assertUnderDefaultRoot(dotdot);
   });
 
   it("scrubs characters that break a download or a filesystem", () => {
@@ -89,7 +100,7 @@ describe("downloadPath", () => {
   it("never returns a folder with no file, whatever the caller passes", () => {
     for (const bad of [null, undefined, "", "   ", "/", "..", "././."]) {
       const p = downloadPath("video", bad);
-      assertAcceptableToChrome(p);
+      assertUnderDefaultRoot(p);
       expect(p).toBe("social-mate/videos/arquivo");
     }
   });
@@ -103,7 +114,7 @@ describe("downloadPath", () => {
 describe("underDownloadRoot", () => {
   it("returns an already-rooted path byte-identical", () => {
     for (const p of [
-      "social-mate/videos/ig-ivy-X1.mp4",
+      "social-mate/videos/ivy-ig-X1.mp4",
       "social-mate/dados/run-x.json",
       downloadPath("video", "pin-user-1.mp4"),
     ]) {
@@ -123,12 +134,17 @@ describe("underDownloadRoot", () => {
   });
 
   it("re-roots anything a caller forgot to build with downloadPath", () => {
-    // This is the guard that makes it impossible to land in the Downloads ROOT —
-    // the exact mess this module exists to end.
+    // This is the guard that makes it impossible to land in the configured folder's
+    // PARENT — the mess this module exists to end.
     expect(underDownloadRoot("ig-ivy-X1.mp4")).toBe("social-mate/ig-ivy-X1.mp4");
-    expect(underDownloadRoot("socialmate-comments/fb-1.json")).toBe(
-      "social-mate/socialmate-comments/fb-1.json",
-    );
+    // A folder this module never chose is DROPPED, not carried along. Since 0.99.0
+    // the root is a setting, so a path can arrive built under an older one; keeping
+    // only the file name plus a bucket we recognise is what makes the guard
+    // idempotent under whatever the prefs say now. ("dados" here comes from the
+    // .json extension, which overrules any kind a caller claimed.)
+    expect(underDownloadRoot("socialmate-comments/fb-1.json")).toBe("social-mate/dados/fb-1.json");
+    // A bucket the module DOES own survives, so a finished path is not re-derived.
+    expect(underDownloadRoot("social-mate/videos/tt-a-1.mp4")).toBe("social-mate/videos/tt-a-1.mp4");
   });
 
   it("rejects absolute paths, traversal and drive letters", () => {
@@ -141,10 +157,12 @@ describe("underDownloadRoot", () => {
       "",
       null,
     ]) {
-      assertAcceptableToChrome(underDownloadRoot(evil));
+      assertUnderDefaultRoot(underDownloadRoot(evil));
     }
-    expect(underDownloadRoot("/etc/passwd")).toBe("social-mate/etc/passwd");
-    expect(underDownloadRoot("C:\\Windows\\x.mp4")).toBe("social-mate/Windows/x.mp4");
+    // Only the file name survives an unknown tree, so a traversal has nothing left
+    // to traverse with.
+    expect(underDownloadRoot("/etc/passwd")).toBe("social-mate/passwd");
+    expect(underDownloadRoot("C:\\Windows\\x.mp4")).toBe("social-mate/x.mp4");
     expect(underDownloadRoot(null)).toBe("social-mate/arquivo");
   });
 });
@@ -167,5 +185,66 @@ describe("sanitizeFilenamePart", () => {
     expect(sanitizeFilenamePart(null)).toBe("");
     expect(sanitizeFilenamePart("x".repeat(80))).toHaveLength(40);
     expect(sanitizeFilenamePart("Astra Valé ✦")).toBe("Astra Valé ✦");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The folder is a setting (0.99.0). "sem folders e mais folders" — a flat folder
+// sorts by name, and every name starts with the creator's handle, so the creator
+// IS the grouping. Chrome still refuses an absolute path, so the setting is always
+// relative to the browser's own download directory.
+// ---------------------------------------------------------------------------
+describe("download prefs", () => {
+  afterEach(() => setDownloadPrefs(DEFAULT_DL_PREFS));
+
+  it("defaults to the historical social-mate tree", () => {
+    expect(normalizeDlPrefs(undefined)).toEqual({ folder: "social-mate", flat: false });
+    expect(downloadPath("video", "ivy-ig-X1.mp4")).toBe("social-mate/videos/ivy-ig-X1.mp4");
+  });
+
+  it("puts everything in one folder when flat is on", () => {
+    setDownloadPrefs({ folder: "social-mate", flat: true });
+    expect(downloadPath("video", "ivy-ig-X1.mp4")).toBe("social-mate/ivy-ig-X1.mp4");
+    expect(downloadPath("thumb", "ivy-ig-X1-thumb.jpg")).toBe("social-mate/ivy-ig-X1-thumb.jpg");
+    expect(downloadPath("sheet", "ig-tag_soulmate-2026-09-22.xlsx")).toBe(
+      "social-mate/ig-tag_soulmate-2026-09-22.xlsx",
+    );
+  });
+
+  it("drops into the browser's download directory when the folder is empty", () => {
+    setDownloadPrefs({ folder: "", flat: true });
+    expect(downloadPath("video", "ivy-ig-X1.mp4")).toBe("ivy-ig-X1.mp4");
+    expect(underDownloadRoot("ivy-ig-X1.mp4")).toBe("ivy-ig-X1.mp4");
+  });
+
+  it("accepts a nested folder and scrubs each segment", () => {
+    setDownloadPrefs({ folder: "pesquisa/instagram", flat: true });
+    expect(downloadPath("video", "ivy-ig-X1.mp4")).toBe("pesquisa/instagram/ivy-ig-X1.mp4");
+  });
+
+  it("cannot be talked into an absolute path, a drive letter or a traversal", () => {
+    // chrome.downloads.download rejects all three outright, so a setting that
+    // produced one would download nothing and say nothing.
+    for (const folder of ["/Users/rheavictor/Downloads", "C:\\Users\\x", "../../etc", "..", "."]) {
+      const p = downloadPath("video", "x.mp4");
+      setDownloadPrefs({ folder, flat: true });
+      assertAcceptableToChrome(downloadPath("video", "x.mp4"));
+      expect(p).not.toMatch(/^\//);
+    }
+    setDownloadPrefs({ folder: "/Users/rheavictor/Downloads", flat: true });
+    expect(downloadPath("video", "x.mp4")).toBe("Users/rheavictor/Downloads/x.mp4");
+    setDownloadPrefs({ folder: "../../etc", flat: true });
+    expect(downloadPath("video", "x.mp4")).toBe("etc/x.mp4");
+  });
+
+  it("re-files a path built under the previous prefs", () => {
+    // The panel and the worker each cache the prefs, and a path can outlive a
+    // change (a queued download, a blob minted before the switch). The guard has to
+    // land it where the CURRENT prefs say, not where its builder thought.
+    const old = "social-mate/videos/ivy-ig-X1.mp4";
+    setDownloadPrefs({ folder: "baixados", flat: true });
+    expect(underDownloadRoot(old)).toBe("baixados/ivy-ig-X1.mp4");
+    setDownloadPrefs({ folder: "baixados", flat: false });
+    expect(underDownloadRoot(old)).toBe("baixados/videos/ivy-ig-X1.mp4");
   });
 });

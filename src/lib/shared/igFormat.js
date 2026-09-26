@@ -63,10 +63,20 @@ export function extFromUrl(url, kind) {
   return kind === "video" ? "mp4" : "jpg";
 }
 
-// Bare file name, no folder. Kept separate from the path so the cover-only button
-// can rename it (-thumb) — the suffix is what marks a cover now that covers share
-// the imagens/ bucket with the full-size images.
+// Bare file name, no folder — and it LEADS with the creator's handle.
+//
+// The handle used to sit in the middle ("ig-ivymoontarot7-DaBF.mp4"), which reads
+// fine in a bucketed tree and badly in a flat one: sorted by name, every file
+// grouped by PLATFORM and nothing grouped by creator. Since the folder became a
+// setting (0.99.0) a flat folder is a supported layout, and in a flat folder the
+// name is the only structure there is — so the handle goes first and a creator's
+// videos, covers and audio sit together. The platform tag stays, just demoted.
+// Kept separate from the path so the cover-only button can rename it (-thumb) —
+// the suffix is what marks a cover now that covers share the imagens/ bucket with
+// the full-size images.
 export function baseNameFor(rec, ext, idx) {
-  const base = `ig-${sanitizeFilenamePart(rec.username)}-${rec.code || rec.pk || Date.now()}`;
+  // An empty handle used to produce "ig--DaBF.mp4"; the fallback keeps the shape.
+  const who = sanitizeFilenamePart(rec.username) || "instagram";
+  const base = `${who}-ig-${rec.code || rec.pk || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
 }

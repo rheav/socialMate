@@ -71,6 +71,13 @@ describe("fmtRatio", () => {
     expect(fmtRatio(112.4)).toBe("112×");
     expect(fmtRatio(null)).toBe(null);
   });
+
+  it("keeps a reach below 1× readable instead of rounding it to 0×", () => {
+    expect(fmtRatio(0.013)).toBe("0.01×"); // 2.1M views on a 163M account
+    expect(fmtRatio(0.46)).toBe("0.46×");
+    expect(fmtRatio(0.004)).toBe("<0.01×");
+    expect(fmtRatio(0)).toBe("0×");
+  });
 });
 
 describe("ttPermalink", () => {

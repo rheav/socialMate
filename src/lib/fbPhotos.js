@@ -250,8 +250,10 @@ export function extFromUrl(url, kind) {
 // it for its ENTRY names: a path there would make every extracted archive rebuild a
 // social-mate/imagens/ tree inside whatever folder you unzip into.
 export function baseNameFor(rec, ext, idx) {
+  // Owner first — see the note on Instagram's baseNameFor: in a flat folder the
+  // name is the only structure, so a creator's files have to sort together.
   const owner = sanitizeFilenamePart(rec.owner || rec.ownerKey) || "perfil";
-  const base = `fb-${owner}-${rec.fbid || Date.now()}`;
+  const base = `${owner}-fb-${rec.fbid || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
 }
 
@@ -270,7 +272,7 @@ export function stampFor(date) {
 // rather than
 // in a folder of its own — one place to look for "the photos I pulled off a page".
 export function zipFilename(owner, date) {
-  return downloadPath("image", `fb-${sanitizeFilenamePart(owner) || "perfil"}-${stampFor(date)}.zip`);
+  return downloadPath("image", `${sanitizeFilenamePart(owner) || "perfil"}-fb-${stampFor(date)}.zip`);
 }
 
 // Human size for the UI ("2,4 MB"). pt-BR decimal comma, since every label in

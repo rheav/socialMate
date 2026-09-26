@@ -20,6 +20,8 @@
 // That is the follower count — the denominator behind "did well FOR an account
 // this size" — and on Instagram it costs a separate enrichment round-trip.
 
+import { makeSurfaceTracker } from "./surfaceTracker.js";
+
 const ttNum = (v) => (v == null ? null : typeof v === "number" ? v : Number.isFinite(+v) ? +v : null);
 
 /**
@@ -36,6 +38,42 @@ export function ttItemsIn(obj) {
   if (Array.isArray(obj.data))
     return obj.data.map((d) => (d && typeof d === "object" ? d.item || null : null)).filter(Boolean);
   return [];
+}
+
+/** The aweme id out of a /video/<id> or /photo/<id> permalink, or null. */
+export function ttIdFromHref(href) {
+  const m = typeof href === "string" && href.match(/\/(?:video|photo)\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * The item struct TikTok's own React props hold for a tile, or null.
+ *
+ * A grid tile's wrapper renders from the full item — the same shape the
+ * item_list API answers with — nested a few levels down `children` / `props`
+ * (grids name it `item`, explore/search `videoData`). Reading it covers tiles
+ * whose request the fetch tee never saw: a tab restored from cache, an extension
+ * reload into an open page, a response served before the hook existed.
+ * Depth-capped and id-checked: a wrapper can also hold a neighbour's item.
+ */
+export function ttFindPropsItem(props, id, maxDepth = 12) {
+  const stack = [[props, 0]];
+  while (stack.length) {
+    const [o, d] = stack.pop();
+    if (!o || typeof o !== "object" || d > maxDepth) continue;
+    if (Array.isArray(o)) {
+      for (const v of o) stack.push([v, d + 1]);
+      continue;
+    }
+    for (const k of ["item", "videoData"]) {
+      const it = Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null;
+      if (it && typeof it === "object" && String(it.id) === String(id) && (it.stats || it.statsV2 || it.video))
+        return it;
+    }
+    for (const k of ["children", "props"])
+      if (Object.prototype.hasOwnProperty.call(o, k)) stack.push([o[k], d + 1]);
+  }
+  return null;
 }
 
 /**
@@ -228,18 +266,50 @@ export function ttLiteUser(u) {
  * captured, never at relay time — Instagram learned that the hard way: a replay
  * resends everything the capture ever saw, so stamping the live surface relabels
  * another profile's videos as the one you happen to be looking at now.
+ *
+ * Returns **null** for a transparent detail route — callers go through
+ * `ttSurface` (the tracker), never this function directly. /@user/video/<id> is
+ * transparent because clicking a tile on /tag/soulmate pushes that URL, and the
+ * page it opens is a recommendation feed: 12 videos by mrbeast, adv.devedores,
+ * cinemaaquiagora… all of which used to be stamped `profile:<the author>`.
+ * Measured live 2026-09-22: the hashtag list went from 25 items to 2.
+ *
+ *   "tag:<t>" | "search:<q>" | "profile:<u>" | "playlist:<id>" | "music:<id>"
+ *   | "explore" | "following" | "live" | "feed" | null
  */
 export function ttSurfaceKey(path, search) {
   const p = path != null ? path : (typeof location !== "undefined" ? location.pathname : "/");
   const q = search != null ? search : (typeof location !== "undefined" ? location.search : "");
   let m;
+  // A detail route under a profile is transparent; the profile grid itself is not.
+  if (/^\/@[^/]+\/video(?:\/|$)/.test(p)) return null;
+  if (/^\/video(?:\/|$)/.test(p)) return null;
+  // A playlist is a hand-picked subset of a profile — its own list, not the grid.
+  if ((m = p.match(/^\/@[^/]+\/playlist\/(?:.*-)?(\d+)/))) return "playlist:" + m[1];
   if ((m = p.match(/^\/@([^/]+)/))) return "profile:" + decodeURIComponent(m[1]).toLowerCase();
   if ((m = p.match(/^\/tag\/([^/]+)/))) return "tag:" + decodeURIComponent(m[1]).toLowerCase();
   if (p.startsWith("/search")) {
-    const k = new URLSearchParams(q || "").get("q");
-    return "search:" + (k ? k.toLowerCase() : "");
+    let k = "";
+    try {
+      k = new URLSearchParams(q || "").get("q") || "";
+    } catch {
+      k = ""; // a malformed query must not throw inside the capture hook
+    }
+    return "search:" + k.trim().toLowerCase();
   }
+  // "Sons" pages list every video riding one audio — the closest thing TikTok has
+  // to a hashtag, and it used to land in `feed` alongside the For You page.
+  if ((m = p.match(/^\/music\/(?:.*-)?(\d+)/))) return "music:" + m[1];
+  if ((m = p.match(/^\/discover\/([^/]+)/))) return "search:" + decodeURIComponent(m[1]).toLowerCase();
+  if (p.startsWith("/following")) return "following";
+  if (p.startsWith("/live")) return "live";
   if (p.startsWith("/foryou") || p === "/") return "feed";
   if (p.startsWith("/explore")) return "explore";
   return "feed";
 }
+
+/**
+ * The live tracker. One instance per document — the MAIN-world capture and the
+ * isolated relay each hold their own, and both see the same URLs, so they agree.
+ */
+export const ttSurface = makeSurfaceTracker(ttSurfaceKey);

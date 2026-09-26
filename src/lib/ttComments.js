@@ -5,7 +5,7 @@
 // (reply_id); top-level comments don't. These helpers order a thread (top-level,
 // each followed by its replies), sort, and map to display rows.
 
-import { downloadPath } from "./downloadPath.js";
+import { downloadPath, sanitizeFilenamePart } from "./downloadPath.js";
 
 // Order a flat comment list as top-level comments each immediately followed by
 // their replies (by capture order within each group). Orphan replies (parent not
@@ -104,6 +104,9 @@ function stamp(d = new Date()) {
   return d.toISOString().replace(/[:.]/g, "-").slice(0, 19);
 }
 
-export function exportFilename(awemeId) {
-  return downloadPath("comments", `tt-${awemeId || "video"}-${stamp()}.json`);
+// `author` is optional and leads the name when known — see fbComments.filenameFor.
+export function exportFilename(awemeId, author) {
+  const who = sanitizeFilenamePart(author);
+  const base = `tt-${awemeId || "video"}-${stamp()}`;
+  return downloadPath("comments", who ? `${who}-${base}.json` : `${base}.json`);
 }

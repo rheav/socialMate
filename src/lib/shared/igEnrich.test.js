@@ -4,7 +4,10 @@ import {
   igUserStats,
   igAudioInfo,
   mergeIgRecord,
-  ENRICH_MIN_GAP_MS,
+  IG_WEB_APP_ID,
+  visibleFirst,
+  igViewCount,
+  stripJsonGuard,
 } from "./igEnrich.js";
 
 // VERIFIED live on /explore/search/keyword/?q=%23auralytrend (2026-08-15):
@@ -40,8 +43,31 @@ describe("needsEnrichment", () => {
     expect(needsEnrichment({ ...video, pk: null, play_count: null })).toBe(false);
   });
 
-  it("paces requests — one call per second is a browsing human, 24 at once is a bot", () => {
-    expect(ENRICH_MIN_GAP_MS).toBeGreaterThanOrEqual(500);
+});
+
+describe("IG_WEB_APP_ID", () => {
+  it("is Instagram's web app id, usable before the page sends its own header", () => {
+    expect(IG_WEB_APP_ID).toBe("936619743392459");
+  });
+});
+
+describe("visibleFirst", () => {
+  const jobs = [{ code: "a" }, { code: "b" }, { code: "c" }, { code: "d" }];
+
+  it("fires the tiles on screen before the ones off screen", () => {
+    const onScreen = new Set(["c", "a"]);
+    expect(visibleFirst(jobs, (j) => onScreen.has(j.code)).map((j) => j.code)).toEqual(["a", "c", "b", "d"]);
+  });
+
+  it("keeps capture order within each group", () => {
+    const onScreen = new Set(["d", "b"]);
+    expect(visibleFirst(jobs, (j) => onScreen.has(j.code)).map((j) => j.code)).toEqual(["b", "d", "a", "c"]);
+  });
+
+  it("returns a copy and leaves the input alone", () => {
+    const out = visibleFirst(jobs, () => false);
+    expect(out).toEqual(jobs);
+    expect(out).not.toBe(jobs);
   });
 });
 
@@ -117,5 +143,39 @@ describe("mergeIgRecord", () => {
 
   it("takes everything when there was no previous record", () => {
     expect(mergeIgRecord(null, { code: "a", play_count: 1 })).toEqual({ code: "a", play_count: 1 });
+  });
+});
+
+describe("igViewCount", () => {
+  it("reads every key Instagram has shipped views under, in order", () => {
+    expect(igViewCount({ play_count: 5, ig_play_count: 9 })).toBe(5);
+    expect(igViewCount({ ig_play_count: 9, view_count: 3 })).toBe(9);
+    expect(igViewCount({ view_count: 3 })).toBe(3);
+    expect(igViewCount({ video_view_count: 7 })).toBe(7);
+    expect(igViewCount({ content_views_count: 11 })).toBe(11);
+  });
+
+  it("skips a null key and falls through to the next one", () => {
+    expect(igViewCount({ play_count: null, view_count: null, video_view_count: 4 })).toBe(4);
+  });
+
+  it("does not treat Facebook plays as Instagram views", () => {
+    expect(igViewCount({ fb_play_count: 99 })).toBe(null);
+  });
+
+  it("returns null when no key carries a number", () => {
+    expect(igViewCount({})).toBe(null);
+    expect(igViewCount(null)).toBe(null);
+  });
+});
+
+describe("stripJsonGuard", () => {
+  it("removes the for(;;); anti-hijack prefix", () => {
+    expect(stripJsonGuard('for (;;);{"a":1}')).toBe('{"a":1}');
+    expect(stripJsonGuard('  for(;;);[1]')).toBe("[1]");
+  });
+
+  it("leaves plain JSON alone", () => {
+    expect(stripJsonGuard('{"a":1}')).toBe('{"a":1}');
   });
 });

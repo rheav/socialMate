@@ -483,31 +483,31 @@ describe("filename helpers (must behave exactly like igMedia/ttMedia)", () => {
   // social-mate/imagens/ tree inside whatever folder you unzipped into.
   it("keeps baseNameFor a bare file name, with no folder", () => {
     const name = baseNameFor({ owner: "Astra Vale", fbid: "122" }, "jpg");
-    expect(name).toBe("fb-Astra Vale-122.jpg");
+    expect(name).toBe("Astra Vale-fb-122.jpg");
     expect(name).not.toContain("/");
-    expect(baseNameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe("fb-Astra-9_2.jpg");
+    expect(baseNameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe("Astra-fb-9_2.jpg");
   });
 
-  it("files fb-<owner>-<fbid>.<ext> under social-mate/facebook/fotos", () => {
+  it("files <owner>-fb-<fbid>.<ext> under social-mate/facebook/fotos", () => {
     expect(filenameFor({ owner: "Astra Vale", fbid: "122111787357372141" }, "jpg")).toBe(
-      "social-mate/imagens/fb-Astra Vale-122111787357372141.jpg",
+      "social-mate/imagens/Astra Vale-fb-122111787357372141.jpg",
     );
     expect(filenameFor({ owner: "a/b", fbid: "9" }, "png")).toBe(
-      "social-mate/imagens/fb-a_b-9.png",
+      "social-mate/imagens/a_b-fb-9.png",
     );
     expect(filenameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe(
-      "social-mate/imagens/fb-Astra-9_2.jpg",
+      "social-mate/imagens/Astra-fb-9_2.jpg",
     );
   });
 
   it("falls back to the profile key, then to 'perfil', rather than an empty segment", () => {
     expect(filenameFor({ ownerKey: "61591164255809", fbid: "9" }, "jpg")).toBe(
-      "social-mate/imagens/fb-61591164255809-9.jpg",
+      "social-mate/imagens/61591164255809-fb-9.jpg",
     );
     expect(filenameFor({ owner: "///", fbid: "9" }, "jpg")).toBe(
-      "social-mate/imagens/fb-perfil-9.jpg",
+      "social-mate/imagens/perfil-fb-9.jpg",
     );
-    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("social-mate/imagens/fb-perfil-9.jpg");
+    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("social-mate/imagens/perfil-fb-9.jpg");
   });
 });
 
@@ -521,10 +521,10 @@ describe("stampFor / zipFilename", () => {
   // archives instead of burying the loose photos next to it.
   it("files the archive under social-mate/dados, not with the photos", () => {
     expect(zipFilename("Astra Vale", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "social-mate/dados/fb-Astra Vale-2026-07-25_16-40-12.zip",
+      "social-mate/dados/Astra Vale-fb-2026-07-25_16-40-12.zip",
     );
     expect(zipFilename("", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "social-mate/dados/fb-perfil-2026-07-25_16-40-12.zip",
+      "social-mate/dados/perfil-fb-2026-07-25_16-40-12.zip",
     );
   });
 });

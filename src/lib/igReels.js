@@ -60,8 +60,8 @@ export function storyToCard(item) {
 // Download path for a story media (indexed for carousel children). A story item is
 // a photo OR a video, so the sub-folder follows the resolved extension.
 export function storyFilename(item, ext, idx) {
-  const owner = sanitizeFilenamePart(item.owner_username || item.username || "unknown");
-  const base = `ig-story-${owner}-${item.pk || item.id || Date.now()}`;
+  const owner = sanitizeFilenamePart(item.owner_username || item.username) || "instagram";
+  const base = `${owner}-ig-story-${item.pk || item.id || Date.now()}`;
   const name = idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
   return downloadPath(kindFromExt(ext), name);
 }

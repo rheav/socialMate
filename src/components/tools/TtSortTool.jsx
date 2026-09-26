@@ -36,15 +36,20 @@ import { useContentLink } from "@/lib/useContentLink";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { startPolling } from "@/lib/poll";
+import SurfacePicker, { FOLLOW, resolveSurface } from "@/components/ui/SurfacePicker";
+import { surfaceFileTag } from "@/lib/surfaceLabel";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
+import useFeedQuery from "@/lib/useFeedQuery";
+import QueryBuilder from "@/components/ui/QueryBuilder";
+import { applyQuery, primarySort, withPrimarySort } from "@/lib/shared/feedQuery";
+import { TT_QUERY_FIELDS } from "@/lib/shared/ttQuery";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
 import IconBtn from "@/components/ui/IconBtn";
 import MetricLegend from "@/components/ui/MetricLegend";
 import {
-  sortRecords,
   recordToCard,
   filenameFor,
   thumbFilenameFor,
@@ -67,23 +72,14 @@ import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
 import { buildXlsx } from "@/lib/xlsx";
 import { downloadPath } from "@/lib/downloadPath";
 
-// `short` is the word the sort trigger falls back to once the row is too narrow
-// for the full label — a whole word, never an ellipsis. Values are unchanged.
+// The sort select's options come from the query's field map (Alcance first — the
+// card's headline metric), so a key picked on the page's own sort bar always
+// shows here. `short` is the word the trigger falls back to when narrow.
 const SORT_OPTS = [
   { value: "default", label: "Padrão" },
-  // Second, and named the way the CARD names it. This sorted by views-per-
-  // follower all along, but under the label "Views por seguidor" — while the
-  // card printed "352×" beside a trending-up glyph and called it Alcance. Same
-  // number, two names, so the option nobody could find was the headline metric.
-  { value: "vpf", label: "Alcance (×)", short: "Alcance" },
-  { value: "views", label: "Visualizações", short: "Visualiz." },
-  { value: "likes", label: "Curtidas" },
-  { value: "comments", label: "Comentários", short: "Coment." },
-  { value: "shares", label: "Compartilhamentos", short: "Compart." },
-  { value: "saves", label: "Salvamentos", short: "Salvos" },
-  { value: "er", label: "TE %" },
-  { value: "followers", label: "Seguidores", short: "Segs." },
-  { value: "date", label: "Data" },
+  ...Object.entries(TT_QUERY_FIELDS)
+    .filter(([, f]) => f.kind === "number" || f.kind === "date")
+    .map(([value, f]) => ({ value, label: f.label, short: f.short })),
 ];
 
 // TikTok hands the follower count over on every list item (authorStats), so these
@@ -123,10 +119,21 @@ const XLSX_COLS = [
 export default function TtSortTool() {
   const [records, setRecords] = useState([]);
   const [surface, setSurface] = useState(null);
-  const [showAll, setShowAll] = useState(false);
-  const [sortKey, setSortKey] = useState("default");
+  // Which page the grid shows. FOLLOW re-points itself as you browse (the
+  // default); a hand-picked surface stays pinned; ALL drops the scoping.
+  const [pick, setPick] = useState(FOLLOW);
+  const [surfaces, setSurfaces] = useState([]);
+  // Sort + filters, shared with the bar on tiktok.com (sw_tt_query): sorting here
+  // reorders the site's own grid, and the other way round.
+  const [query, setQuery] = useFeedQuery("sw_tt_query", TT_QUERY_FIELDS);
+  const { key: sortKey, dir: sortDir } = primarySort(query);
+  const setSortKey = (k) => setQuery((q) => withPrimarySort(q, k, primarySort(q).dir));
+  const toggleSortDir = () =>
+    setQuery((q) => {
+      const p = primarySort(q);
+      return p.key === "default" ? q : withPrimarySort(q, p.key, p.dir === "desc" ? "asc" : "desc");
+    });
   const [dateRange, setDateRange] = useState("all");
-  const [sortDir, setSortDir] = useState("desc");
   // Same key the Opções modal writes — see IgSortTool for why it is a hook.
   const [overlay, toggleOverlay] = useStoredFlag("sw_tt_overlay");
   const [erW, setErW] = useState(TT_ER_WEIGHTS);
@@ -185,6 +192,7 @@ export default function TtSortTool() {
     // drives the scoping filter — skipping it on an unchanged store would keep the
     // grid filtered to the profile you just left.
     if (res.surface !== undefined) setSurface(res.surface);
+    if (Array.isArray(res.surfaces)) setSurfaces(res.surfaces);
     if (res.unchanged) return;
     sinceRef.current = res.version ?? sinceRef.current;
     if (res && Array.isArray(res.records)) {
@@ -202,6 +210,10 @@ export default function TtSortTool() {
   const refresh = useCallback(async () => {
     sinceRef.current = null;
     setRecords([]);
+    setSurfaces([]);
+    // A pinned page that no longer has any captures would leave the grid empty
+    // with no hint why, so a clear also hands the picker back to the live page.
+    setPick(FOLLOW);
     // userAction: the user pressed Atualizar and is owed an answer either way.
     await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
@@ -229,14 +241,15 @@ export default function TtSortTool() {
     refresh();
   };
 
-  const scopedAll = showAll ? records : filterBySurface(records, surface);
+  const view = resolveSurface(pick, surface);
+  const scopedAll = filterBySurface(records, view);
   const scoped = scopedAll.filter((r) => withinDateRange(r.create_time, dateRange));
   // The weights go in so an ER sort orders by the same number the rail prints.
-  const sorted = sortRecords(scoped, sortKey, sortDir, erW);
+  const sorted = applyQuery(scoped, query, TT_QUERY_FIELDS, { weights: erW });
   // Replay the grid's entrance whenever the ARRANGEMENT changes — not when a
   // single card's download finishes, which is the other reason this list
   // re-renders and no reason at all to re-animate 137 tiles.
-  const stagger = useStagger(`${sortKey}|${sortDir}|${dateRange}|${showAll}`);
+  const stagger = useStagger(`${JSON.stringify(query)}|${dateRange}|${view}`);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
   // used to share the record's key and so painted the media-download icon red.
@@ -331,11 +344,11 @@ export default function TtSortTool() {
     );
     const stamp = new Date().toISOString().slice(0, 10);
     chrome.downloads.download({
-      // `surface` is null before the first poll answers, and stays null on a page
-      // that reports none — with "mostrar tudo" the export is still legitimate, so
-      // it needs a name rather than a TypeError that downloads nothing.
+      // The name follows what the grid actually EXPORTS, which is the picked page —
+      // not the live one. `view` is null under "Tudo", and surfaceFileTag answers
+      // "tudo" for that rather than letting a null reach the file name.
       url,
-      filename: downloadPath("sheet", `tt-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`),
+      filename: downloadPath("sheet", `tt-${surfaceFileTag(view)}-${stamp}.xlsx`),
       saveAs: false,
       conflictAction: "uniquify",
     });
@@ -462,7 +475,7 @@ export default function TtSortTool() {
         <ToolIconButton
           icon={sortDir === "desc" ? ArrowDown : ArrowUp}
           label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
-          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+          onClick={toggleSortDir}
         />
         <ToolIconButton
           ref={clearBtnRef}
@@ -503,6 +516,8 @@ export default function TtSortTool() {
           disabled={!sorted.length}
         />
       </ToolBar>
+
+      <QueryBuilder query={query} setQuery={setQuery} fields={TT_QUERY_FIELDS} primaryKey={sortKey} />
 
       {/* ER weights, folded away. They are a set-once-per-niche setting, not a
           per-session control — open every time they cost two lines of the panel
@@ -545,16 +560,16 @@ export default function TtSortTool() {
 
       <MetricLegend weights={erW} />
 
-      {/* flex-wrap, not truncate: when the tally and the toggle can't share a
-          line the toggle drops to its own line instead of losing words. */}
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="min-w-0 break-words">
-          {sorted.length} coletados{surface ? ` · ${surface}` : ""}
-        </span>
-        <button className="shrink-0 underline" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "restringir à superfície" : "mostrar tudo"}
-        </button>
-      </div>
+      {/* Was "N coletados · <raw surface key>" plus a "mostrar tudo" toggle. The
+          raw key is what hid the bucket bug: "explore" reads like a real answer. */}
+      <SurfacePicker
+        value={pick}
+        onChange={setPick}
+        live={surface}
+        surfaces={surfaces}
+        total={records.length}
+        shown={sorted.length}
+      />
 
       <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
         <Label htmlFor="tt-overlay" className="min-w-0 cursor-pointer text-xs text-foreground">

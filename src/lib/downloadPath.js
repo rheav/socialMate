@@ -36,7 +36,82 @@
 import { sanitizeFilenamePart } from "./shared/filenames.js";
 export { sanitizeFilenamePart };
 
+// The DEFAULT folder. It is a default, not a law: since 0.99.0 the folder and the
+// bucketing are settings (Opções → Downloads), because "sem folders e mais
+// folders" is a legitimate way to want your files — a flat folder sorts by name,
+// and every name this extension produces starts with the creator's handle.
+//
+// CHROME'S LIMIT, which the setting cannot lift: chrome.downloads.download only
+// accepts a path RELATIVE to the browser's own download directory. An absolute
+// path ("/Users/…", "D:\\") is rejected outright, and so is any "..". So an empty
+// folder setting means "straight into the browser's download directory", and
+// pointing that somewhere else is a browser setting (chrome://settings/downloads),
+// not something an extension can do.
 export const DOWNLOAD_ROOT = "social-mate";
+
+export const DL_PREFS_KEY = "fbw_dl";
+
+export const DEFAULT_DL_PREFS = { folder: DOWNLOAD_ROOT, flat: false };
+
+/**
+ * Coerce whatever is in storage into a usable pair. A folder may be nested
+ * ("pesquisa/instagram"); each segment is scrubbed on its own, and an absolute
+ * path or a ".." is reduced to its harmless parts rather than rejected — a
+ * setting that silently downloads nothing is worse than one that lands somewhere
+ * sane.
+ */
+export function normalizeDlPrefs(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  return {
+    folder: folderSegments(r.folder === undefined ? DEFAULT_DL_PREFS.folder : r.folder).join("/"),
+    flat: !!r.flat,
+  };
+}
+
+export function folderSegments(folder) {
+  return String(folder == null ? "" : folder)
+    .replace(/^[A-Za-z]:/, "") // a drive letter would make it absolute on Windows
+    .split(/[\\/]+/)
+    .map(safeSegment)
+    .filter(Boolean);
+}
+
+// The live copy every call site reads. downloadPath() is called synchronously from
+// panels, libs and the service worker, while chrome.storage is async — so the
+// prefs are CACHED here and primed once per context (see initDownloadPrefs).
+let PREFS = { ...DEFAULT_DL_PREFS };
+
+/** Replace the cached prefs. Exported for tests and for the storage listener. */
+export function setDownloadPrefs(raw) {
+  PREFS = normalizeDlPrefs(raw);
+  return PREFS;
+}
+
+export function getDownloadPrefs() {
+  return PREFS;
+}
+
+/**
+ * Prime the cache in this context and keep it live. Safe to call more than once,
+ * and a no-op outside an extension context (the unit tests).
+ *
+ * Both the panel and the service worker call it: the panel downloads its own
+ * spreadsheets, transcripts and ZIPs directly (it is the only context that can
+ * mint a blob URL), so the worker is NOT the single gate it once was.
+ */
+export function initDownloadPrefs() {
+  const local = typeof chrome !== "undefined" && chrome.storage && chrome.storage.local;
+  if (!local) return;
+  try {
+    local.get(DL_PREFS_KEY, (r) => setDownloadPrefs(r && r[DL_PREFS_KEY]));
+    chrome.storage.onChanged.addListener((c, area) => {
+      if (area === "local" && c[DL_PREFS_KEY]) setDownloadPrefs(c[DL_PREFS_KEY].newValue);
+    });
+  } catch {
+    // A context without storage access keeps the defaults rather than throwing
+    // inside a download call.
+  }
+}
 
 // Media kind -> bucket. `thumb` deliberately shares a bucket with `image`: the
 // covers are named "…-thumb.jpg" already, so a folder to say the same thing again
@@ -55,6 +130,10 @@ const BUCKETS = {
 // ZIP was filed with the photos. The extension is the honest signal about what the
 // bytes are, and it overrules a kind that would misfile them.
 const DATA_EXTS = new Set(["json", "xlsx", "csv", "txt", "vtt", "srt", "zip"]);
+
+// The bucket names as they appear in a path, so underDownloadRoot can recognise a
+// bucket a caller already chose instead of guessing it back from the extension.
+const BUCKET_NAMES = new Set(Object.values(BUCKETS));
 
 // Used when a caller hands us nothing usable. A nameless download is a bug, but a
 // stable name keeps it visible in the folder instead of failing silently.
@@ -105,8 +184,10 @@ function bucketFor(kind, filename) {
  * every call site here swallows download errors — a bad path would fail invisibly.
  */
 export function downloadPath(kind, filename) {
-  const parts = [DOWNLOAD_ROOT];
-  const bucket = bucketFor(kind, filename);
+  const parts = folderSegments(PREFS.folder);
+  // `flat` is the whole point of the setting: one folder, sorted by name, and
+  // every name starts with the creator's handle.
+  const bucket = PREFS.flat ? null : bucketFor(kind, filename);
   if (bucket) parts.push(bucket);
 
   const tail = String(filename == null ? "" : filename)
@@ -132,8 +213,18 @@ export function underDownloadRoot(path) {
     .split(/[\\/]+/)
     .map(safeSegment)
     .filter(Boolean);
-  if (segs[0] === DOWNLOAD_ROOT) segs.shift();
-  return [DOWNLOAD_ROOT, ...(segs.length ? segs : [FALLBACK_NAME])].join("/");
+  const name = segs.pop() || FALLBACK_NAME;
+  // Rebuild rather than patch the prefix. A path that arrives here was built under
+  // WHATEVER folder was configured when its caller ran — a different folder, or a
+  // bucket that `flat` has since switched off. Keeping only the file name (and the
+  // bucket the path itself already chose) makes this idempotent under the current
+  // prefs, which is what "last line of defence" has to mean once the root moves.
+  const prior = segs.length && BUCKET_NAMES.has(segs[segs.length - 1]) ? segs[segs.length - 1] : null;
+  const parts = folderSegments(PREFS.folder);
+  const bucket = PREFS.flat ? null : prior || bucketFor(null, name);
+  if (bucket) parts.push(bucket);
+  parts.push(name);
+  return parts.join("/");
 }
 
 // A pin, an IG carousel child or a story can be either an image or a video, so the

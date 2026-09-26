@@ -33,9 +33,15 @@ import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
 import { startPolling } from "@/lib/poll";
+import SurfacePicker, { FOLLOW, resolveSurface } from "@/components/ui/SurfacePicker";
+import { surfaceFileTag } from "@/lib/surfaceLabel";
 import { useItemStatus, statusKey, statusTitle } from "@/lib/useItemStatus";
 import useStagger from "@/lib/useStagger";
 import useStoredFlag from "@/lib/useStoredFlag";
+import useFeedQuery from "@/lib/useFeedQuery";
+import QueryBuilder from "@/components/ui/QueryBuilder";
+import { applyQuery, primarySort, withPrimarySort } from "@/lib/shared/feedQuery";
+import { IG_QUERY_FIELDS } from "@/lib/shared/igQuery";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
@@ -48,7 +54,6 @@ import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
 import { buildXlsx } from "@/lib/xlsx.js";
 import { downloadPath } from "@/lib/downloadPath";
 import {
-  sortRecords,
   recordToCard,
   filenameFor,
   thumbFilenameFor,
@@ -59,15 +64,14 @@ import {
   fmtER,
 } from "@/lib/igMedia";
 
-// `short` is the word the sort trigger falls back to once the row is too narrow
-// for the full label — a whole word, never an ellipsis. Values are unchanged.
+// The sort select's options come from the query's field map, so a key picked on
+// the page's own sort bar (which lists every sortable field) always shows here.
+// `short` is the word the trigger falls back to once the row is too narrow.
 const SORT_OPTS = [
   { value: "default", label: "Padrão" },
-  { value: "views", label: "Visualizações", short: "Visualiz." },
-  { value: "likes", label: "Curtidas" },
-  { value: "comments", label: "Comentários", short: "Coment." },
-  { value: "er", label: "TE %" },
-  { value: "date", label: "Data" },
+  ...Object.entries(IG_QUERY_FIELDS)
+    .filter(([, f]) => f.kind === "number" || f.kind === "date")
+    .map(([value, f]) => ({ value, label: f.label, short: f.short })),
 ];
 const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 
@@ -78,8 +82,20 @@ const TYPE_ICON = { carousel: Images, video: Play, photo: ImageIcon };
 export default function IgSortTool() {
   const [records, setRecords] = useState([]);
   const [surface, setSurface] = useState(null);
-  const [showAll, setShowAll] = useState(false);
-  const [sortKey, setSortKey] = useState("default");
+  // Which page the grid shows. FOLLOW re-points itself as you browse (the
+  // default); a hand-picked surface stays pinned; ALL drops the scoping.
+  const [pick, setPick] = useState(FOLLOW);
+  const [surfaces, setSurfaces] = useState([]);
+  // Sort + filters, shared with the bar on instagram.com (sw_ig_query): sorting
+  // here reorders the site's own grid, and the other way round.
+  const [query, setQuery] = useFeedQuery("sw_ig_query", IG_QUERY_FIELDS);
+  const { key: sortKey, dir: sortDir } = primarySort(query);
+  const setSortKey = (k) => setQuery((q) => withPrimarySort(q, k, primarySort(q).dir));
+  const toggleSortDir = () =>
+    setQuery((q) => {
+      const p = primarySort(q);
+      return p.key === "default" ? q : withPrimarySort(q, p.key, p.dir === "desc" ? "asc" : "desc");
+    });
   // Item 4: a hashtag search is mostly old posts — "what worked lately" needs a
   // window, not just an ordering.
   const [dateRange, setDateRange] = useState("all");
@@ -99,7 +115,6 @@ export default function IgSortTool() {
     setErW(next);
     chrome.storage?.local?.set?.({ [ER_WEIGHTS_KEY]: next });
   };
-  const [sortDir, setSortDir] = useState("desc");
   // The Opções modal toggles this same key, so it is read through the shared hook
   // rather than latched at mount — otherwise turning the overlay off there left
   // this switch showing "ligado" until the tool remounted.
@@ -139,6 +154,7 @@ export default function IgSortTool() {
     if (res && Array.isArray(res.records)) {
       setRecords(res.records);
       setSurface(res.surface || null);
+      if (Array.isArray(res.surfaces)) setSurfaces(res.surfaces);
     }
   }, [send]);
 
@@ -150,6 +166,10 @@ export default function IgSortTool() {
   // current surface — so switching context doesn't leave stale posts in the grid.
   const refresh = useCallback(async () => {
     setRecords([]);
+    setSurfaces([]);
+    // A pinned page that no longer has any captures would leave the grid empty
+    // with no hint why, so a clear also hands the picker back to the live page.
+    setPick(FOLLOW);
     // userAction: the user pressed Atualizar and is owed an answer either way.
     await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     listFromTab();
@@ -177,10 +197,11 @@ export default function IgSortTool() {
     refresh();
   };
 
-  const scopedAll = showAll ? records : filterBySurface(records, surface);
+  const view = resolveSurface(pick, surface);
+  const scopedAll = filterBySurface(records, view);
   const scoped = scopedAll.filter((r) => withinDateRange(r.taken_at, dateRange));
-  const sorted = sortRecords(scoped, sortKey, sortDir);
-  const stagger = useStagger(`${sortKey}|${sortDir}|${dateRange}|${showAll}`);
+  const sorted = applyQuery(scoped, query, IG_QUERY_FIELDS, { weights: erW });
+  const stagger = useStagger(`${JSON.stringify(query)}|${dateRange}|${view}`);
 
   // Per-action status. The key is namespaced per action: a failed COVER download
   // used to share the record's key and so painted the media-download icon red.
@@ -368,10 +389,10 @@ export default function IgSortTool() {
     const stamp = new Date().toISOString().slice(0, 10);
     chrome.downloads.download({
       url,
-      // `surface` is null before the first poll answers, and stays null on a page
-      // that reports none — with "mostrar tudo" the export is still legitimate, so
-      // it needs a name rather than a TypeError that silently downloads nothing.
-      filename: downloadPath("sheet", `ig-${(surface || "tudo").replace(/[^\w-]+/g, "_")}-${stamp}.xlsx`),
+      // The name follows what the grid actually EXPORTS, which is the picked page —
+      // not the live one. `view` is null under "Tudo", and surfaceFileTag answers
+      // "tudo" for that rather than letting a null reach the file name.
+      filename: downloadPath("sheet", `ig-${surfaceFileTag(view)}-${stamp}.xlsx`),
       saveAs: false,
       conflictAction: "uniquify",
     });
@@ -485,7 +506,7 @@ export default function IgSortTool() {
         <ToolIconButton
           icon={sortDir === "desc" ? ArrowDown : ArrowUp}
           label={sortDir === "desc" ? "Maior → menor" : "Menor → maior"}
-          onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+          onClick={toggleSortDir}
         />
         <ToolIconButton
           ref={clearBtnRef}
@@ -526,6 +547,8 @@ export default function IgSortTool() {
         />
       </ToolBar>
 
+      <QueryBuilder query={query} setQuery={setQuery} fields={IG_QUERY_FIELDS} primaryKey={sortKey} />
+
       {/* ER weights (item 5). What counts as engagement differs per niche — a
           saved-heavy niche wants comments weighted differently from a viral one —
           and the on-page overlay reads the same stored numbers. */}
@@ -550,16 +573,16 @@ export default function IgSortTool() {
         ))}
       </div>
 
-      {/* flex-wrap, not truncate: when the tally and the toggle can't share a
-          line the toggle drops to its own line instead of losing words. */}
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="min-w-0 break-words">
-          {sorted.length} coletados{surface ? ` · ${surface}` : ""}
-        </span>
-        <button className="shrink-0 underline" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? "restringir à superfície" : "mostrar tudo"}
-        </button>
-      </div>
+      {/* Was "N coletados · <raw surface key>" plus a "mostrar tudo" toggle. The
+          raw key is what hid the bucket bug: "explore" reads like a real answer. */}
+      <SurfacePicker
+        value={pick}
+        onChange={setPick}
+        live={surface}
+        surfaces={surfaces}
+        total={records.length}
+        shown={sorted.length}
+      />
 
       <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
         <Label htmlFor="ig-overlay" className="min-w-0 text-xs text-foreground cursor-pointer">

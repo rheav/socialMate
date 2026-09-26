@@ -65,7 +65,7 @@ story opened; TT collections need the playlist opened; etc.).
 |---|---|
 | FB photos | `FBW_FBPHOTOS_CONTEXT` (5 s), `_STATE` (1 s), `_SCRAPE`, `_STOP`, `_CLEAR` |
 | FB reels | `FBW_FB_REELS_LIST` (3 s), `FBW_FB_REELS_HARVEST` |
-| IG | `FBW_IG_LIST` (2.5 s), `FBW_IG_REELS`, `FBW_IG_CLEAR` |
+| IG | `FBW_IG_LIST` (2.5 s), `FBW_IG_REELS`, `FBW_IG_COMMENTS` (2.5 s, `since`/`unchanged` like TT), `FBW_IG_CLEAR` (also empties the comment store) |
 | TT | `FBW_TT_LIST` (2.5 s), `FBW_TT_COMMENTS`, `FBW_TT_STORIES`, `FBW_TT_LISTS`, `FBW_TT_CLEAR` |
 | Pin | `FBW_PIN_CONTEXT` (5 s), `FBW_PIN_STATE` (1 s), `FBW_PIN_HARVEST`, `FBW_PIN_CLEAR`, `FBW_PIN_RESOLVE` |
 | any | `FBW_PING` (liveness) |
@@ -130,16 +130,32 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_nav3` / `sw_nav2` | Shell (300 ms debounce) | nav state; v2 is legacy, still read forever |
 | `sw_theme` | Shell | light/dark |
 | `sw_ig_overlay` / `sw_pin_overlay` | IgSortTool / pin-api | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
+| `sw_ig_query` / `sw_tt_query` | IgSortTool / TtSortTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
+| `fbw_dl` | Opções modal | `{ folder, flat }` — download folder + bucketing; cached synchronously by `lib/downloadPath.js` in BOTH the panel and the worker |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |
 | `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
 | `fbw_tx_rep_penalty` | Opções modal | `{ enabled, value }` — Whisper repetition penalty, off by default; read by the background per job and filed on the transcript as `repetitionPenalty` (1 = off) |
 | IndexedDB `emb:<djb2>:<len>` | offscreen, idb-keyval | MiniLM embedding cache |
 
-Downloads: one authority, `src/lib/downloadPath.js` →
-`~/Downloads/social-mate/{facebook|instagram|tiktok|pinterest}/{videos|fotos|imagens|miniaturas|comentarios|transcricoes}`.
-`background.js` is the only `chrome.downloads.download` caller and applies
-`underDownloadRoot()` as a last line of defence.
+Downloads: one authority, `src/lib/downloadPath.js`. Since 0.99.0 the tree is a
+setting (`fbw_dl`): `<folder>/{videos|imagens|dados}/<name>`, where `folder` may be
+empty (straight into the browser's download directory) or nested, and `flat` drops
+the bucket. **Chrome only accepts a path RELATIVE to the browser's download
+directory** — an absolute path is rejected outright, so moving the destination disk
+is a browser setting, not something the extension can do.
+
+The prefs are read synchronously by every path builder, so they are CACHED in the
+module and primed by `initDownloadPrefs()` in **both** the worker (`background.js`,
+at wake) and the panel (`App.jsx`, at module scope). The worker is NOT the only
+`chrome.downloads.download` caller — the panel downloads its own spreadsheets,
+transcripts and ZIPs, because it is the only context that can mint a blob URL.
+`underDownloadRoot()` is still the last line of defence and now REBUILDS the path
+(file name + a bucket it recognises) rather than patching its prefix, so a path
+built under older prefs lands where the current ones say.
+
+File names lead with the creator's handle — `ivymoontarot7-ig-DaBFBcgxZIi.mp4` —
+because in a flat folder the name is the only structure there is.
 
 ---
 
@@ -241,6 +257,20 @@ restored empty on every navigation until `serializeLedger`/`restoreLedger`
   downloads must use the captured `video_versions` CDN URL.
 - No backdrop blur on the overlay: measured 68 ms → 8 ms per frame after removal.
 - Profile Reels-tab payloads omit `username`; it is backfilled from the surface.
+- **`/explore/tags/<t>/` 302s to `/explore/search/keyword/?q=%23<t>`** (measured
+  2026-09-22). A surface key that reads only `location.pathname` buckets every
+  hashtag — and the Explore feed — as plain `explore`. The query string is
+  load-bearing.
+- **Detail routes are transparent.** `/p/`, `/reel/`, `/stories/`, `/direct/` (IG)
+  and `/@u/video/<id>` (TT) do not become the surface: they report the grid you
+  came from and stamp their own captures `related:<grid>`
+  (`src/lib/shared/surfaceTracker.js`). Before this, opening a post from a hashtag
+  reported `feed` and the panel's filter emptied the grid; on TikTok the video
+  page's recommendation rail was stamped as the author's profile and the list went
+  25 → 2. A `related:` stamp may never DEMOTE a record already filed under a real
+  surface — both ingests check.
+- `/reels/<code>/` is the Reels FEED (surface `reels`), `/reel/<code>/` is a
+  permalink out of a grid (transparent). One letter apart.
 - Story item identity is a DOM heuristic: visible `<time datetime>` matched to
   `taken_at` within ±2 s, scoped to the active media's container.
 

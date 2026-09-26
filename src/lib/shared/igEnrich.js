@@ -15,14 +15,53 @@
 // answer; the capture script owns the request itself.
 //
 // This is a deliberate break from "passive only" — until now the IG capture read
-// what Instagram parsed and never called anything. One request per video, paced,
-// is the smallest possible break, and it only fires for media the user has
-// actually scrolled into view.
+// what Instagram parsed and never called anything.
+//
+// POLICY (2026-09-26, user's call): fire every enrichment the moment its record is
+// captured, all in parallel, the way SortFeed does. The old 1 req/s serial queue
+// (ENRICH_MIN_GAP_MS) made tile N wait ~N seconds for its views — on a 24-tile
+// page the last card sat without views for half a minute while SortFeed showed
+// them at once. The only ordering left is which requests leave first: the tiles
+// on screen (visibleFirst).
 
-// One request per second, at most. IG Sorter (the reference extension) fires all
-// 24 of a SERP page's enrichments the moment the payload lands, with no queue and
-// no viewport gate — on a logged-in account that reads as a script, not a reader.
-export const ENRICH_MIN_GAP_MS = 1000;
+// Instagram's web app id — what SortFeed hardcodes. The capture script still
+// prefers the id it sees on Instagram's own requests (it can rotate), but uses
+// this one instead of waiting when no request has carried the header yet.
+export const IG_WEB_APP_ID = "936619743392459";
+
+/**
+ * Order a batch of enrichment jobs so the ones for tiles on screen are sent
+ * first. Stable: capture order is kept inside each group.
+ */
+export function visibleFirst(jobs, isOnScreen) {
+  const on = [];
+  const off = [];
+  for (const j of jobs) (isOnScreen(j) ? on : off).push(j);
+  return on.concat(off);
+}
+
+// Every key Instagram has shipped a media's view count under, most specific
+// first. Which one a payload uses depends on the endpoint and its age: the v1 API
+// says play_count / ig_play_count, the web SERP says view_count, the legacy
+// GraphQL shape says video_view_count, and some clips payloads say
+// content_views_count. fb_play_count is NOT here — those are Facebook plays of a
+// cross-posted reel, a different audience, kept in their own field.
+const IG_VIEW_KEYS = ["play_count", "ig_play_count", "view_count", "video_view_count", "content_views_count"];
+
+/** The media's Instagram view count, or null when no key carries a number. */
+export function igViewCount(m) {
+  if (!m || typeof m !== "object") return null;
+  for (const k of IG_VIEW_KEYS) {
+    const v = m[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/** JSON Instagram serves inline sometimes carries a `for (;;);` anti-hijack prefix. */
+export function stripJsonGuard(txt) {
+  return String(txt).replace(/^\s*for\s*\(\s*;;\s*\)\s*;?/, "");
+}
 
 /**
  * Does this record still need a per-media fetch?

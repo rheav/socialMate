@@ -74,5 +74,5 @@ export { sanitizeFilenamePart };
 // The Reels Sort tool only ever downloads the reel's COVER image, so this always
 // files it with the other images; the -thumb suffix is what marks it as a cover.
 export function filenameFor(owner, id) {
-  return downloadPath("thumb", `fb-${sanitizeFilenamePart(owner) || "reel"}-${id || Date.now()}.jpg`);
+  return downloadPath("thumb", `${sanitizeFilenamePart(owner) || "reel"}-fb-${id || Date.now()}.jpg`);
 }

@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { ToolBar, ActionButton, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import { fmtCount } from "@/lib/fbReels";
-import { downloadPath } from "@/lib/downloadPath";
+import { filenameFor } from "@/lib/fbComments";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label. Values are unchanged.
@@ -278,10 +278,13 @@ export default function FbCommentsTool() {
           variant="outline"
           className="h-8 basis-0 grow"
           onClick={() =>
-            jsonDownload(
-              downloadPath("comments", `fb-comments-${active.post_id}.json`),
-              active,
-            )
+            // Was a hand-built `downloadPath("comments", "fb-comments-<id>.json")`
+            // — the one comments export that did NOT go through fbComments' namer,
+            // so the two routes to the same file disagreed about its name. No
+            // author prefix here: the comments store keeps the POST's id and url,
+            // never its author (buildExport's envelope), and a commenter's name
+            // would be a lie.
+            jsonDownload(filenameFor(active.post_id), active)
           }
         />
         <ToolIconButton

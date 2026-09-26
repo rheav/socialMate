@@ -60,17 +60,17 @@ describe("storyToCard", () => {
 
 describe("storyFilename", () => {
   it("builds base and indexed names", () => {
-    expect(storyFilename(vid, "mp4")).toBe("social-mate/videos/ig-story-solomonaldric-1.mp4");
+    expect(storyFilename(vid, "mp4")).toBe("social-mate/videos/solomonaldric-ig-story-1.mp4");
     expect(storyFilename(carousel, "jpg", 2)).toBe(
-      "social-mate/imagens/ig-story-ivy-3_2.jpg",
+      "social-mate/imagens/ivy-ig-story-3_2.jpg",
     );
   });
-  it("sanitizes the owner and falls back to unknown", () => {
+  it("sanitizes the owner and falls back to the platform, not an empty segment", () => {
     expect(storyFilename({ pk: "7", owner_username: "a/b:c" }, "jpg")).toBe(
-      "social-mate/imagens/ig-story-a_b_c-7.jpg",
+      "social-mate/imagens/a_b_c-ig-story-7.jpg",
     );
     expect(storyFilename({ pk: "7" }, "jpg")).toBe(
-      "social-mate/imagens/ig-story-unknown-7.jpg",
+      "social-mate/imagens/instagram-ig-story-7.jpg",
     );
   });
 });

@@ -309,7 +309,8 @@ export function recordToCard(rec) {
 export { sanitizeFilenamePart };
 
 export function baseNameFor(rec, ext, idx) {
-  const base = `pin-${sanitizeFilenamePart(rec.username) || "pinterest"}-${rec.id || Date.now()}`;
+  // Handle first — see the note on Instagram's baseNameFor.
+  const base = `${sanitizeFilenamePart(rec.username) || "pinterest"}-pin-${rec.id || Date.now()}`;
   return idx != null ? `${base}_${idx}.${ext}` : `${base}.${ext}`;
 }
 

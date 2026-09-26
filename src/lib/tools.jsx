@@ -3,6 +3,7 @@ import WarmTool from "@/components/tools/WarmTool";
 import FbFilterTool from "@/components/tools/FbFilterTool";
 import IgSortTool from "@/components/tools/IgSortTool";
 import IgStoriesTool from "@/components/tools/IgStoriesTool";
+import IgCommentsTool from "@/components/tools/IgCommentsTool";
 import FbReelsTool from "@/components/tools/FbReelsTool";
 import FbCommentsTool from "@/components/tools/FbCommentsTool";
 import FbPhotosTool from "@/components/tools/FbPhotosTool";
@@ -35,6 +36,7 @@ export const TOOLS = [
   // 5 tools fit the segmented sub-nav without clipping.
   { id: "ig-sort", label: "Ordenar", Icon: ArrowDownUp, platforms: ["instagram"], Panel: IgSortTool },
   { id: "ig-stories", label: "Stories", Icon: Clapperboard, platforms: ["instagram"], Panel: IgStoriesTool },
+  { id: "ig-comments", label: "Comentários", Icon: MessageSquare, platforms: ["instagram"], Panel: IgCommentsTool },
   { id: "tt-sort", label: "Ordenar", Icon: ArrowDownUp, platforms: ["tiktok"], Panel: TtSortTool },
   { id: "tt-comments", label: "Comentários", Icon: MessageSquare, platforms: ["tiktok"], Panel: TtCommentsTool },
   { id: "tt-stories", label: "Stories", Icon: Clapperboard, platforms: ["tiktok"], Panel: TtStoriesTool },

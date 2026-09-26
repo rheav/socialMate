@@ -18,6 +18,179 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.1.0] — 2026-09-26
+
+A partir desta versão a numeração segue 1.x: depois da 0.99 vem a 1.0 (a antiga
+"0.100.0" virou 1.0.0).
+
+### Adicionado
+- **Alcance no card do Instagram.** Views ÷ seguidores — quantas vezes o post foi
+  visto em relação ao público que a conta já tinha — agora abre o rail do
+  Instagram com a mesma setinha, as mesmas faixas de cor e a mesma dica do
+  TikTok (código reaproveitado, então as duas redes nunca discordam de uma
+  faixa). Só aparece quando o post tem views e o número de seguidores do autor
+  foi capturado; foto e carrossel continuam começando pelas curtidas. O card
+  também se redesenha quando os seguidores chegam depois das views.
+
+### Corrigido
+- **Carrosséis do Instagram viravam vários posts.** O Instagram passou a mandar
+  um shortcode também em cada slide do carrossel, e o scanner, que separava
+  slide de post justamente pela falta dele, listava cada slide como um post sem
+  curtidas nem data (em @iivymooon: um carrossel de 3 fotos virava 4 cards).
+  Agora slides nunca são lidos como posts — continuam dentro do carrossel.
+- **Alcance abaixo de 1× aparecia como "0×".** Um vídeo de 2,1 mi de views numa
+  conta de 163 mi de seguidores mostrava "0×"; agora mostra "0.01×" (e
+  "<0.01×" abaixo disso).
+
+---
+
+## [1.0.0] — 2026-09-26
+
+### Adicionado
+- **Ordenar a grade do próprio site.** Instagram (perfil, reels, marcados,
+  salvos, busca por palavra/hashtag/local) e TikTok (perfil, busca, hashtag, som,
+  Explorar) agora reordenam a grade NATIVA, não só a lista do painel. A consulta
+  é uma só por plataforma (`sw_ig_query` / `sw_tt_query`): o "Ordenar por" do
+  painel e a barrinha que aparece embaixo da página escrevem no mesmo lugar, então
+  ordenar em um reordena o outro. "Padrão" devolve a ordem exata do site. Tiles
+  que chegam com a rolagem entram já na posição certa (medido: perfil do TikTok de
+  32 → 111 tiles, 0 fora de ordem). No Instagram a grade é em linhas de 3, então
+  as células trocam de linha com marcadores de posição e cada linha continua com
+  3. A barra acompanha a chave de sobreposição da plataforma e recolhe num botão.
+  Toda vez que uma página de grade abre (carregar, aba nova, ir para outro
+  perfil ou busca), o sort volta para o "Padrão do site"; os filtros continuam.
+- **Filtros e desempate (construtor de regras).** "Filtros e desempate" nas duas
+  ferramentas Ordenar: regras campo / operador / valor (≥, ≤, >, <, entre, =, ≠,
+  contém, não contém, é um de, tem valor), ligadas por "todas" ou "qualquer uma",
+  e critérios de desempate depois do "Ordenar por". Campos novos derivados:
+  curtidas/views, comentários/views, reposts/views (IG), compartilhamentos/views e
+  salvos/views (TikTok), além de duração, legenda, perfil, hashtags e tipo. Vale
+  também para a grade da página: o que não passa no filtro some de lá.
+- **Comentários do Instagram.** Ferramenta nova "Comentários" no Instagram, no
+  mesmo formato da do TikTok (busca, ordem da conversa / curtidas / data,
+  respostas aninhadas, copiar, JSON). Captura passiva, do que o próprio Instagram
+  carrega ao abrir um post: a primeira página vem no HTML
+  (`xdt_api__v1__media__media_id__comments__connection`), as seguintes chegam ao
+  rolar a conversa (`PolarisPostCommentsPaginationQuery`) e as respostas ao tocar
+  em "ver respostas" (`PolarisPostChildCommentsQuery`) — tudo verificado ao vivo
+  em 26/09 (62 comentários de um post do @instagram em 3 rolagens).
+- **Views do TikTok pelas props do próprio tile.** Um tile cujo request a captura
+  não viu (aba restaurada do cache, extensão recarregada com a página aberta) ainda
+  é desenhado a partir do item completo — e esse item fica nas React props do tile
+  (`…props.children[3].props.item` na grade de perfil, verificado ao vivo em
+  26/09). O MAIN world lê essas props para todo tile sem registro, com o mesmo
+  `ttLiteItem` da captura de rede, então o registro sai idêntico.
+- **Views do TikTok pelo DOM, como último recurso.** Tile de grade sem registro
+  nenhum ganha um rail só com as views que o próprio TikTok imprime
+  (`[data-e2e="video-views"]`), trocado pelo rail completo quando o registro
+  chega. A página de um vídeo não imprime views (só curtidas, comentários, salvos
+  e compartilhamentos — verificado ao vivo), então lá continua valendo o SSR.
+- **Instagram: tile na tela sem registro é enriquecido direto.** As props da
+  grade do Instagram só guardam uma referência Relay (`{pk, code, __id}`) — os
+  números ficam no store do Relay —, mas o shortcode já É o pk, e
+  `/api/v1/media/<pk>/info/` responde para qualquer tipo de mídia.
+- **Instagram: varredura dos blobs `script[type="application/json"]`** a cada
+  segundo, como rede de segurança do hook de `JSON.parse` (remove o prefixo
+  `for (;;);`, cada blob é lido uma vez).
+
+### Corrigido
+- **TikTok: o sort da página misturava a caixa de Atividade no grid.** O TikTok
+  mantém a caixa de notificações inteira no DOM (escondida), e as linhas dela
+  também linkam para vídeos. O sort pegava todo `a[href*="/video/"]` da página e
+  trocava células entre o grid e a caixa: 13 tiles foram parar dentro da caixa e
+  as notificações ("curtiu seu comentário…") apareceram no grid. Agora só entram
+  links dentro das listas de grade do TikTok.
+- **Views do Instagram em todas as chaves.** Além de `play_count`,
+  `ig_play_count` e `view_count`, agora `video_view_count` e
+  `content_views_count`. `fb_play_count` (plays no Facebook de um reel
+  compartilhado) fica no próprio campo, sem se misturar às views do Instagram.
+- **TikTok: a pilha de botões presa na borda direita da janela saiu.** Ela
+  repetia salvar/baixar/transcrever do rail do player e ficava por cima da coluna
+  "Você pode gostar". Os dois botões que só ela tinha — Coletar comentários e
+  Curtir — foram para o rail do player.
+
+---
+
+## [0.99.1] — 2026-09-26
+
+### Corrigido
+- **As views do Instagram demoravam a aparecer no card.** A grade de perfil e a
+  busca não trazem views, então cada vídeo precisa de um
+  `/api/v1/media/<pk>/info/` — e esses pedidos saíam numa fila serial, um por
+  segundo, na ordem de captura. O tile N esperava ~N segundos: numa página de 24,
+  o último card ficava meio minuto sem views, enquanto o SortFeed mostrava na hora.
+  Agora é igual ao SortFeed: todo pedido sai no momento da captura, em paralelo,
+  com os tiles que estão na tela indo primeiro. Não espera mais o Instagram mandar
+  o próprio `x-ig-app-id` — usa o id web fixo (`936619743392459`) até capturar o
+  da página — e não pausa com a aba escondida.
+- **O card esperava ~0,3–1 s depois de o dado chegar.** Instagram e TikTok
+  repintavam só depois de um debounce de 300/250 ms que reiniciava a cada mutação
+  da página, mais `requestIdleCallback`; numa página que não para de mutar
+  (autoplay, grade virtualizada) isso empurrava o desenho indefinidamente. Dado
+  novo agora pinta no próximo frame, e o debounce de mutações tem teto de 1 s.
+
+---
+
+## [0.99.0] — 2026-09-22
+
+### Corrigido
+- **A pesquisa mostrava a página errada.** O Instagram parou de servir
+  `/explore/tags/<t>/` — ele redireciona para
+  `/explore/search/keyword/?q=%23<t>`. O `igSurfaceKey` só lia `location.pathname`,
+  então TODA página de hashtag caía em `p.startsWith("/explore")` e era arquivada
+  como `explore`: o mesmo balde do feed Explorar e o de qualquer outra hashtag.
+  Medido ao vivo em 22/09: 30 posts de tarô capturados em `#soulmate` voltaram
+  carimbados `explore`, numa lista que ainda tinha carros e fotos de formatura de
+  uma visita anterior ao Explorar — e nenhum scroll removia. A query string agora
+  é lida: `?q=#x` → `tag:x`, `?q=x` → `search:x`.
+- **Abrir um item esvaziava a grade.** `/p/<code>/` e `/reel/<code>/` viravam
+  `feed`, e no TikTok `/@user/video/<id>` virava `profile:<autor>` — em ambos os
+  casos o filtro de superfície do painel derrubava a lista inteira enquanto o item
+  estava aberto. Pior no TikTok, porque a página de vídeo É um feed de
+  recomendação: os 12 vídeos que ela carrega (mrbeast, adv.devedores,
+  cinemaaquiagora…) eram carimbados como sendo daquele perfil. Medido: a lista de
+  `#soulmate` ia de 25 itens para 2. Rotas de detalhe agora são **transparentes**
+  (`src/lib/shared/surfaceTracker.js`): a grade de origem continua sendo exibida, o
+  item aberto mantém o carimbo que já tinha, e o que a página de detalhe captura
+  vai para `related:<grade>` — guardado e visível no seletor, nunca misturado.
+- **`/reels/<code>/` caía em `feed`** (achado ao vivo: clicar em Reels na nav leva
+  para lá), juntando o feed de Reels com a timeline. Agora é `reels`. Note a letra:
+  `/reel/<code>/` no singular é permalink de grade e segue transparente.
+- **Baldes que faltavam.** Instagram: `/<u>/tagged/` → `tagged:<u>` e
+  `/<u>/saved/…` → `saved:<u>` (eram `feed`; como `profile:` exige que o autor seja
+  o dono, virar `profile:` teria esvaziado a aba). TikTok: `/@u/playlist/…` →
+  `playlist:<id>`, `/music/…` → `music:<id>`, `/discover/<t>` → `search:<t>`,
+  `/following` e `/live` com balde próprio — todos dividiam `feed` com o For You.
+
+### Adicionado
+- **Seletor de página** no IG Sort e no TikTok Sort, no lugar de
+  "N coletados · \<chave crua\>" + "mostrar tudo". A captura continua guardando
+  tudo que a aba viu; a grade mostra uma página e o seletor diz qual, com a
+  contagem de cada uma — dá para voltar numa hashtag já rolada sem rolar de novo.
+  "Seguir a página" é o padrão e se re-aponta sozinho enquanto você navega.
+  Os nomes aparecem em pt-BR (`#soulmate`, `@ivy`, `busca: tarot`,
+  `relacionados · #soulmate`) — a chave crua era o que escondia o bug: "explore"
+  parece uma resposta plausível.
+- **Pasta de download configurável** (Opções → Downloads). Campo de pasta (vazio =
+  direto na pasta de downloads do navegador, aceita aninhada como
+  `pesquisa/instagram`) e chave "Tudo numa pasta só", que desliga
+  `videos/ imagens/ dados/`. **Limite do Chrome, dito na própria UI:** o caminho é
+  sempre RELATIVO à pasta de downloads do navegador — caminho absoluto é rejeitado
+  pela API, então mudar de disco é `chrome://settings/downloads`.
+
+### Alterado
+- **O @ do perfil agora vem primeiro no nome do arquivo**:
+  `ivymoontarot7-ig-DaBFBcgxZIi.mp4`, não `ig-ivymoontarot7-…`. Numa pasta única a
+  ordem alfabética é a única estrutura que existe, e agrupar por plataforma não
+  serve para nada — agrupar por criador serve. Vale para IG, TikTok, Facebook,
+  Pinterest, stories, capas, o ZIP de álbum, o JSON de comentários do TikTok e as
+  transcrições .txt/.srt. O JSON de comentários do Facebook fica sem prefixo: o
+  envelope guarda o id e a url do post, nunca o autor dele.
+- `underDownloadRoot()` reconstrói o caminho em vez de remendar o prefixo — com a
+  pasta virando ajuste, um caminho pode chegar montado sob a configuração antiga.
+- `FbCommentsTool` passou a usar `fbComments.filenameFor()` em vez de montar o nome
+  à mão: era o único dos dois caminhos do mesmo arquivo que não usava o namer.
+
 ## [0.98.0] — 2026-09-19
 
 ### Adicionado

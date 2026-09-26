@@ -418,15 +418,15 @@ describe("filenames", () => {
     expect(sanitizeFilenamePart('a/b:c*d?"<>|')).toBe("a_b_c_d");
   });
 
-  it("builds pin-<user>-<id>.<ext> and suffixes multi-asset pins", () => {
+  it("builds <user>-pin-<id>.<ext> and suffixes multi-asset pins", () => {
     const rec = pinToRecord(IMAGE_PIN, "s");
     // A pin is an image OR a video, so the same record files under different
     // sub-folders depending on the media actually being saved.
     expect(filenameFor(rec, "png")).toBe(
-      "social-mate/imagens/pin-marianam7536-819655200979225688.png",
+      "social-mate/imagens/marianam7536-pin-819655200979225688.png",
     );
     expect(filenameFor(rec, "mp4", 2)).toBe(
-      "social-mate/videos/pin-marianam7536-819655200979225688_2.mp4",
+      "social-mate/videos/marianam7536-pin-819655200979225688_2.mp4",
     );
   });
 

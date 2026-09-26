@@ -52,10 +52,10 @@ describe("filenames", () => {
   });
   it("builds base and indexed names", () => {
     expect(filenameFor({ username: "ivy", code: "X1" }, "mp4")).toBe(
-      "social-mate/videos/ig-ivy-X1.mp4",
+      "social-mate/videos/ivy-ig-X1.mp4",
     );
     expect(filenameFor({ username: "ivy", code: "X1" }, "jpg", 2)).toBe(
-      "social-mate/imagens/ig-ivy-X1_2.jpg",
+      "social-mate/imagens/ivy-ig-X1_2.jpg",
     );
   });
   it("derives extension", () => {
@@ -144,5 +144,25 @@ describe("filterBySurface", () => {
   });
   it("returns all records when no surface", () => {
     expect(filterBySurface(recs, null)).toHaveLength(4);
+  });
+});
+
+// The buckets igSurfaceKey gained in 0.99.0. `profile:` is the ONLY key with an
+// author rule — every other surface is legitimately multi-author, and applying the
+// owner test to them would empty the list.
+describe("filterBySurface across the new surface kinds", () => {
+  const recs = [
+    { code: "a", username: "ivy", surface: "tagged:ivy" },
+    { code: "b", username: "someone_else", surface: "tagged:ivy" },
+    { code: "c", username: "mrbeast", surface: "related:tag:soulmate" },
+    { code: "d", username: "tarotgirl", surface: "search:tarot" },
+  ];
+  it("passes multi-author surfaces through on a plain key match", () => {
+    expect(filterBySurface(recs, "tagged:ivy").map((r) => r.code)).toEqual(["a", "b"]);
+    expect(filterBySurface(recs, "related:tag:soulmate").map((r) => r.code)).toEqual(["c"]);
+    expect(filterBySurface(recs, "search:tarot").map((r) => r.code)).toEqual(["d"]);
+  });
+  it("keeps a related bucket out of the grid it was captured beside", () => {
+    expect(filterBySurface(recs, "tag:soulmate")).toEqual([]);
   });
 });

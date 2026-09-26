@@ -5,7 +5,7 @@
 // aria-label). These helpers turn raw aria-labels / hrefs into clean records and
 // assemble the JSON export envelope.
 
-import { downloadPath } from "./downloadPath.js";
+import { downloadPath, sanitizeFilenamePart } from "./downloadPath.js";
 // These parsers are shared with src/content/fb/comments-scrape.js, which is
 // inlined at build time because a content script cannot import (see
 // src/lib/shared/README.md). Re-exported so callers and tests are unchanged.
@@ -36,8 +36,14 @@ function stamp(d = new Date()) {
 
 // Both routes to a comments export — the content script's auto-save and the panel's
 // "baixar JSON" button — call this, so they can never disagree about where it lands.
-export function filenameFor(postId) {
-  return downloadPath("comments", `fb-${postId || "post"}-${stamp()}.json`);
+//
+// `author` is optional and leads the name when known, the same way every media file
+// does: in a flat folder (Opções → Downloads) the name is the only structure, so a
+// post's comments sort next to that creator's videos instead of under "fb-".
+export function filenameFor(postId, author) {
+  const who = sanitizeFilenamePart(author);
+  const base = `fb-${postId || "post"}-${stamp()}`;
+  return downloadPath("comments", who ? `${who}-${base}.json` : `${base}.json`);
 }
 
 // Assemble the export envelope. Records arrive already ordered (top-level then its

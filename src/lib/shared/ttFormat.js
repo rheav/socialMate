@@ -47,9 +47,14 @@ export function ttViewsPerFollower(rec) {
   return v / f;
 }
 
-/** One decimal below 10×, none above — "3.4×", "112×". */
+/**
+ * One decimal below 10×, none above — "3.4×", "112×". Below 1× two decimals, so a
+ * big account's reel doesn't read "0×" (2.1M views on 163M followers is 0.01×).
+ */
 export function fmtRatio(x) {
   if (x == null) return null;
+  if (x <= 0) return "0×";
+  if (x < 1) return x < 0.005 ? "<0.01×" : Number(x.toFixed(2)) + "×";
   return (x >= 10 ? Math.round(x) : Number(x.toFixed(1))) + "×";
 }
 

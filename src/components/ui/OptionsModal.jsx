@@ -20,6 +20,8 @@ import {
   writeStoredTranscriptLanguage,
 } from "@/lib/transcriptionLanguage";
 import { TX_PENALTY_KEY, TX_PENALTY_VALUES, normalizeTxPenalty, readStoredTxPenalty, writeStoredTxPenalty } from "@/lib/txPenalty";
+import { DL_PREFS_KEY, DEFAULT_DL_PREFS, normalizeDlPrefs, setDownloadPrefs } from "@/lib/downloadPath";
+import { Input } from "@/components/ui/input";
 
 // Opções — one place for every setting that is about the PANEL rather than about
 // a running job. Before this the settings were spread over the surfaces that
@@ -131,6 +133,8 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
               onChange={setPinOverlay}
             />
           </Section>
+
+          <DownloadsSection />
 
           <ArchiveSection />
 
@@ -383,6 +387,82 @@ function HubSection() {
 // with a thumbnail inside every record, so the cap is what keeps a write cheap.
 // Whose ceiling that should be is the user's call — so it is a setting, with the
 // cost of "sem limite" stated instead of discovered.
+// Where files land, and how many folders they land in.
+//
+// CHROME'S LIMIT, stated in the UI because it is not guessable: a download's path
+// is always RELATIVE to the browser's own download directory. An extension cannot
+// write to "/Users/…/Videos" — Chrome rejects an absolute path outright. So an
+// empty field means the download directory itself, and moving that is a browser
+// setting (chrome://settings/downloads).
+function DownloadsSection() {
+  const [prefs, setPrefsState] = useState(DEFAULT_DL_PREFS);
+  // The field is a free-text path, so it is edited as a STRING and only
+  // normalized on commit — normalizing per keystroke eats the "/" the moment you
+  // type it, and you can never reach "pesquisa/instagram".
+  const [draft, setDraft] = useState(DEFAULT_DL_PREFS.folder);
+
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    chrome.storage.local.get(DL_PREFS_KEY, (r) => {
+      const next = normalizeDlPrefs(r && r[DL_PREFS_KEY]);
+      setPrefsState(next);
+      setDraft(next.folder);
+    });
+  }, []);
+
+  const save = (patch) => {
+    const next = normalizeDlPrefs({ ...prefs, ...patch });
+    setPrefsState(next);
+    setDraft(next.folder);
+    // Write the cache in THIS context too: storage.onChanged does not fire for
+    // the page that wrote it in every Chrome version, and the panel builds its
+    // own spreadsheet/transcript/ZIP paths.
+    setDownloadPrefs(next);
+    chrome.storage?.local?.set?.({ [DL_PREFS_KEY]: next });
+  };
+
+  const shown = prefs.folder || "a pasta de downloads do navegador";
+  const example = [prefs.folder, prefs.flat ? null : "videos", "ivymoontarot7-ig-DaBFBcgxZIi.mp4"]
+    .filter(Boolean)
+    .join("/");
+
+  return (
+    <Section
+      title="Downloads"
+      hint="Pasta dentro da pasta de downloads do navegador. Para mudar o disco, use chrome://settings/downloads — uma extensão não pode gravar fora dela."
+    >
+      <div className="py-1">
+        <Label htmlFor="dl-folder" className="text-sm text-foreground">
+          Pasta
+        </Label>
+        <Input
+          id="dl-folder"
+          value={draft}
+          placeholder="vazio = direto na pasta de downloads"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => save({ folder: draft })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className="mt-1 h-8 text-sm"
+        />
+      </div>
+      <Row
+        id="dl-flat"
+        label="Tudo numa pasta só"
+        hint="Sem videos/ imagens/ dados/ — vídeos, capas, planilhas e transcrições ficam juntos. Cada arquivo já começa com o @ do perfil, então a ordem alfabética agrupa por criador."
+        checked={prefs.flat}
+        onChange={(v) => save({ flat: v })}
+      />
+      <p className="mt-1 break-all text-[11px] leading-relaxed text-muted-foreground">
+        Salvando em <span className="font-medium text-foreground">{shown}</span>
+        <br />
+        Exemplo: <span className="font-medium text-foreground">{example}</span>
+      </p>
+    </Section>
+  );
+}
+
 function ArchiveSection() {
   const [cap, setCap] = useState(null);
 

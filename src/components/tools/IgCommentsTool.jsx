@@ -17,16 +17,16 @@ import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { sendBg } from "@/lib/bg";
 import { useContentLink } from "@/lib/useContentLink";
-import { fmtCount } from "@/lib/ttMedia";
+import { fmtCount } from "@/lib/igMedia";
 import { startPolling } from "@/lib/poll";
 import {
   sortComments,
   filterComments,
   commentToRow,
   commentCounts,
-  buildExport,
-  exportFilename,
-} from "@/lib/ttComments";
+  buildIgExport,
+  igExportFilename,
+} from "@/lib/igComments";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label. Values are unchanged.
@@ -36,37 +36,38 @@ const SORT_OPTS = [
   { value: "date", label: "Data" },
 ];
 
-// TikTok Comments. Comments are captured passively (fetch tee of
-// /api/comment/list/) when you OPEN a video on TikTok — nothing is fetched in the
-// background. The panel lists captured videos, shows each thread with search /
-// sort-by-likes / copy / JSON export.
-export default function TtCommentsTool() {
-  const [videos, setVideos] = useState([]);
+// Instagram Comments. Captured passively from the comment pages Instagram itself
+// loads when you OPEN a post (/p/, /reel/, /reels/) — the first page is
+// server-rendered, more arrive as you scroll the thread or tap "ver respostas".
+// Nothing is fetched in the background. Same layout as the TikTok tool; the
+// records share its field names, so the thread/sort/filter helpers are shared.
+export default function IgCommentsTool() {
+  const [posts, setPosts] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState("thread");
   const [sortDir, setSortDir] = useState("desc");
   const [copied, setCopied] = useState(false);
   const [exportErr, setExportErr] = useState(false);
-  const { link, noTab, fixing, send, revive, openTab } = useContentLink("tiktok");
+  const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
   // The bridge answers {unchanged:true} when its store hasn't moved since the
   // version we last saw, which makes an idle poll near-free — it otherwise
   // re-serialises the whole store every 2.5s. `null` forces a full answer, which is
   // what Atualizar wants after a clear.
   const sinceRef = useRef(null);
-  // Follow the currently-open TikTok video until the user manually picks one.
+  // Follow the currently-open Instagram post until the user manually picks one.
   const follow = useRef(true);
   // Mirror of the last list so the {unchanged} poll path can still answer "does
-  // this video have comments?" without the payload.
-  const videosRef = useRef([]);
-  const hasComments = (id) => !!id && videosRef.current.some((v) => v.aweme_id === id);
+  // this post have comments?" without the payload.
+  const postsRef = useRef([]);
+  const hasComments = (id) => !!id && postsRef.current.some((v) => v.code === id);
 
   const pull = useCallback(async () => {
-    const res = await send({ type: "FBW_TT_COMMENTS", since: sinceRef.current });
+    const res = await send({ type: "FBW_IG_COMMENTS", since: sinceRef.current });
     if (!res) return;
-    // `current` (the video being watched) changes without new comments and drives
+    // `current` (the post being viewed) changes without new comments and drives
     // the auto-follow, so it is honoured even when the store hasn't moved. The
-    // guard still has to be "does this video actually have comments", which the
+    // guard still has to be "does this post actually have comments", which the
     // short-circuit reply doesn't carry — hence the ref mirror of the last list.
     if (res.unchanged) {
       if (follow.current && res.current && hasComments(res.current))
@@ -74,35 +75,35 @@ export default function TtCommentsTool() {
       return;
     }
     sinceRef.current = res.version ?? sinceRef.current;
-    if (res && Array.isArray(res.videos)) {
-      // Keep only videos that actually have comments; newest capture first.
-      const withComments = res.videos.filter((v) => v.comments && v.comments.length);
-      videosRef.current = withComments;
-      setVideos(withComments);
-      const has = (id) => id && withComments.some((v) => v.aweme_id === id);
+    if (res && Array.isArray(res.posts)) {
+      // Keep only posts that actually have comments; newest capture first.
+      const withComments = res.posts.filter((v) => v.comments && v.comments.length);
+      postsRef.current = withComments;
+      setPosts(withComments);
+      const has = (id) => id && withComments.some((v) => v.code === id);
       setActiveId((cur) => {
-        // Auto-follow the video the user is currently viewing (res.current).
+        // Auto-follow the post the user is currently viewing (res.current).
         if (follow.current && has(res.current)) return res.current;
         if (has(cur)) return cur;
-        return (withComments[0] && withComments[0].aweme_id) || null;
+        return (withComments[0] && withComments[0].code) || null;
       });
     }
   }, [send]);
 
-  const pickVideo = (id) => { follow.current = false; setActiveId(id); };
+  const pickPost = (id) => { follow.current = false; setActiveId(id); };
 
   const refresh = useCallback(async () => {
     follow.current = true;
     sinceRef.current = null;
-    videosRef.current = [];
-    setVideos([]);
+    postsRef.current = [];
+    setPosts([]);
     setActiveId(null);
     // userAction: the user pressed Atualizar and is owed an answer either way.
-    await send({ type: "FBW_TT_CLEAR" }, { userAction: true, action: "limpar a captura" });
+    await send({ type: "FBW_IG_CLEAR" }, { userAction: true, action: "limpar a captura" });
     pull();
   }, [send, pull]);
 
-  // FBW_TT_CLEAR is platform-global: it empties the capture behind every TikTok
+  // FBW_IG_CLEAR is platform-global: it empties the capture behind every Instagram
   // pane, not just this one. So Atualizar arms on the first tap and only clears on
   // the second — the same two-step the Library's "limpar tudo" uses.
   const [clearArmed, setClearArmed] = useState(false);
@@ -128,7 +129,7 @@ export default function TtCommentsTool() {
     return startPolling(pull, 2500); // skips ticks while the panel is hidden
   }, [pull]);
 
-  const active = videos.find((v) => v.aweme_id === activeId) || null;
+  const active = posts.find((v) => v.code === activeId) || null;
   const counts = active ? commentCounts(active.comments) : { total: 0, replies: 0, topLevel: 0 };
   const rows = active
     ? sortComments(filterComments(active.comments, query), sortKey, sortDir).map(commentToRow)
@@ -152,8 +153,8 @@ export default function TtCommentsTool() {
     if (!active) return;
     const res = await sendBg({
       type: "FBW_DL_JSON",
-      data: buildExport(active),
-      filename: exportFilename(active.aweme_id, active.meta?.username || active.meta?.nickname),
+      data: buildIgExport(active),
+      filename: igExportFilename(active.code, active.meta?.username),
     });
     // The link itself is the only feedback this export has, so it flashes the
     // failure the same way Copiar flashes success — otherwise a download that
@@ -167,7 +168,7 @@ export default function TtCommentsTool() {
   const banner = (
     <ContentLinkBanner
       link={link}
-      platformName="TikTok"
+      platformName="Instagram"
       fixing={fixing}
       onRevive={revive}
       onOpenTab={openTab}
@@ -176,12 +177,12 @@ export default function TtCommentsTool() {
 
   if (noTab) return banner;
 
-  if (!videos.length)
+  if (!posts.length)
     return (
       <div className="space-y-2">
         {banner}
         <p className="text-sm text-muted-foreground py-8 text-center">
-          Abra um vídeo do TikTok (para carregar os comentários) para capturar a conversa aqui.
+          Abra um post do Instagram e role os comentários para capturar a conversa aqui.
         </p>
       </div>
     );
@@ -189,18 +190,18 @@ export default function TtCommentsTool() {
   return (
     <div className="space-y-3">
       {banner}
-      {/* video picker + refresh */}
+      {/* post picker + refresh */}
       <ToolBar>
         <ToolSelect
-          label="Vídeo"
+          label="Post"
           value={activeId || ""}
-          onValueChange={pickVideo}
-          options={videos.map((v) => {
+          onValueChange={pickPost}
+          options={posts.map((v) => {
             const label =
-              (v.meta && (v.meta.desc || (v.meta.username && "@" + v.meta.username))) ||
-              "vídeo " + v.aweme_id;
+              (v.meta && (v.meta.caption || (v.meta.username && "@" + v.meta.username))) ||
+              "post " + v.code;
             return {
-              value: v.aweme_id,
+              value: v.code,
               label: `${String(label).slice(0, 48)} · ${v.comments.length}`,
               short: String(label).slice(0, 24),
             };
@@ -212,8 +213,8 @@ export default function TtCommentsTool() {
           label={clearArmed ? "Confirmar limpeza" : "Atualizar"}
           hint={
             clearArmed
-              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários, Stories e Playlists"
-              : "Atualizar — limpa TODA a captura do TikTok (Ordenar, Comentários, Stories e Playlists) e volta a seguir o vídeo que você está vendo"
+              ? "Toque de novo para confirmar — apaga a captura de Ordenar, Comentários e Stories"
+              : "Atualizar — limpa TODA a captura do Instagram (Ordenar, Comentários e Stories) e volta a seguir o post que você está vendo"
           }
           variant={clearArmed ? "destructive" : "outline"}
           onClick={onClearTap}
@@ -283,7 +284,7 @@ export default function TtCommentsTool() {
               {r.isReply && <CornerDownRight className="size-3 text-muted-foreground" />}
               {r.handle ? (
                 <a
-                  href={`https://www.tiktok.com/@${r.handle}`}
+                  href={`https://www.instagram.com/${r.handle}/`}
                   target="_blank"
                   rel="noreferrer"
                   className="truncate hover:underline"

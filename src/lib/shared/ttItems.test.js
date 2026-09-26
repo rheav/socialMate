@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { makeSurfaceTracker } from "./surfaceTracker.js";
 import {
   ttItemsIn,
   ttUsersIn,
@@ -8,6 +9,8 @@ import {
   ttLiteItem,
   ttLiteUser,
   ttSurfaceKey,
+  ttIdFromHref,
+  ttFindPropsItem,
 } from "./ttItems.js";
 
 // Shapes below are trimmed from real captures taken on 2026-08-16 (see
@@ -219,12 +222,95 @@ describe("ttLiteUser", () => {
 describe("ttSurfaceKey", () => {
   it("names the surfaces the panel scopes its grid to", () => {
     expect(ttSurfaceKey("/@Veloria691", "")).toBe("profile:veloria691");
-    expect(ttSurfaceKey("/@veloria691/video/765", "")).toBe("profile:veloria691");
     expect(ttSurfaceKey("/tag/CardReading", "")).toBe("tag:cardreading");
     expect(ttSurfaceKey("/search", "?q=%23cardreading")).toBe("search:#cardreading");
     expect(ttSurfaceKey("/search/video", "?q=Tarot")).toBe("search:tarot");
     expect(ttSurfaceKey("/foryou", "")).toBe("feed");
     expect(ttSurfaceKey("/", "")).toBe("feed");
     expect(ttSurfaceKey("/explore", "")).toBe("explore");
+  });
+
+  // Buckets that used to collapse into "feed" alongside the For You page, so a
+  // sound page and the algorithmic feed were one undifferentiated list.
+  it("gives sounds, playlists, discover, following and live their own buckets", () => {
+    expect(ttSurfaceKey("/@ivy/playlist/Tarot-7123456789", "")).toBe("playlist:7123456789");
+    expect(ttSurfaceKey("/music/som-legal-6987654321", "")).toBe("music:6987654321");
+    expect(ttSurfaceKey("/discover/Tarot", "")).toBe("search:tarot");
+    expect(ttSurfaceKey("/following", "")).toBe("following");
+    expect(ttSurfaceKey("/live", "")).toBe("live");
+  });
+
+  // Measured live 2026-09-22 on the shared probe Chrome: clicking a tile on
+  // /tag/soulmate pushes /@whatspeterdoingnow/video/7668715391899716886, and that
+  // page's recommendation rail (mrbeast, adv.devedores, cinemaaquiagora…) used to
+  // be stamped `profile:whatspeterdoingnow`. The hashtag list went 25 items -> 2.
+  it("treats a video detail route as transparent", () => {
+    expect(ttSurfaceKey("/@veloria691/video/765", "")).toBe(null);
+    expect(ttSurfaceKey("/video/765", "")).toBe(null);
+  });
+
+  it("keeps the grid you came from while a video is open", () => {
+    const t = makeSurfaceTracker(ttSurfaceKey);
+    expect(t.read("/tag/soulmate", "")).toEqual({ view: "tag:soulmate", stamp: "tag:soulmate" });
+    // The rail captured here is KEPT — filed as related, never as the hashtag.
+    expect(t.read("/@whatspeterdoingnow/video/7668715391899716886", "")).toEqual({
+      view: "tag:soulmate",
+      stamp: "related:tag:soulmate",
+    });
+    // Back to the grid: nothing sticky left behind.
+    expect(t.read("/tag/soulmate", "")).toEqual({ view: "tag:soulmate", stamp: "tag:soulmate" });
+  });
+
+  it("falls back to the orphan bucket when a video link is opened cold", () => {
+    const t = makeSurfaceTracker(ttSurfaceKey);
+    expect(t.read("/@ivy/video/765", "")).toEqual({ view: "post", stamp: "related:post" });
+  });
+});
+
+describe("ttIdFromHref", () => {
+  it("reads the aweme id out of a video or photo permalink", () => {
+    expect(ttIdFromHref("https://www.tiktok.com/@khaby.lame/video/7689510970292489502")).toBe("7689510970292489502");
+    expect(ttIdFromHref("/@u/photo/7600000000000000001?lang=pt")).toBe("7600000000000000001");
+  });
+
+  it("returns null for anything else", () => {
+    expect(ttIdFromHref("/@khaby.lame")).toBe(null);
+    expect(ttIdFromHref(null)).toBe(null);
+  });
+});
+
+// VERIFIED live on tiktok.com/@khaby.lame (2026-09-26): the profile grid tile's
+// <a> parent (DivWrapper) carries the whole item struct — the same shape the
+// item_list API answers with — at `.children[1].props.children[3].props.item`.
+describe("ttFindPropsItem", () => {
+  const item = { id: "7689510970292489502", stats: { playCount: 2100000 }, statsV2: { playCount: "2100000" } };
+  const props = {
+    className: "DivWrapper",
+    children: [
+      { props: { className: "cover" } },
+      { props: { children: [null, "x", { props: {} }, { props: { item } }] } },
+    ],
+  };
+
+  it("finds the item struct nested in the tile's React props", () => {
+    expect(ttFindPropsItem(props, "7689510970292489502")).toBe(item);
+  });
+
+  it("also accepts the explore/search shape, which names it videoData", () => {
+    expect(ttFindPropsItem({ children: { props: { videoData: item } } }, item.id)).toBe(item);
+  });
+
+  it("refuses an item for a different video — a wrapper can hold a neighbour", () => {
+    expect(ttFindPropsItem(props, "1")).toBe(null);
+  });
+
+  it("refuses an item-like object without stats or video", () => {
+    expect(ttFindPropsItem({ children: { props: { item: { id: "5" } } } }, "5")).toBe(null);
+  });
+
+  it("stops at the depth cap instead of walking a huge tree", () => {
+    let deep = { props: { item } };
+    for (let i = 0; i < 30; i++) deep = { children: deep };
+    expect(ttFindPropsItem(deep, item.id)).toBe(null);
   });
 });

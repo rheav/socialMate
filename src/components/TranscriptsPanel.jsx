@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Bookmark, BookmarkCheck, Trash2, ExternalLink, ArrowDown, ArrowUp } from "lucide-react";
-import { downloadPath } from "@/lib/downloadPath";
+import { downloadPath, sanitizeFilenamePart } from "@/lib/downloadPath";
 import { fmtCount } from "@/lib/igMedia";
 import { sendBg } from "@/lib/bg";
 import { chunkIndexAt, centerScrollTop } from "@/lib/playhead.js";
@@ -63,6 +63,17 @@ function dl(platform, name, text) {
 // `dl()` defaults an unknown platform to facebook, so this map does too.
 const NAME_PREFIX = { facebook: "fb", instagram: "ig", tiktok: "tt", pinterest: "pin" };
 const namePrefix = (platform) => NAME_PREFIX[platform] || "fb";
+
+// "<handle>-ig-<videoId>.txt". The handle leads for the same reason every media
+// file's does (see downloadPath.js): with a flat download folder the name is the
+// only structure, and a transcript belongs next to the video it came from. The
+// record stores the author as a display name, which sanitizeFilenamePart is built
+// to scrub; a transcript filed before that field existed just has no prefix.
+function txName(it, ext) {
+  const who = sanitizeFilenamePart(it.author?.name);
+  const base = `${namePrefix(it.platform)}-${it.videoId}`;
+  return who ? `${who}-${base}.${ext}` : `${base}.${ext}`;
+}
 
 // ---- storage hooks ----
 function useStore(key) {
@@ -564,9 +575,9 @@ function VideoCard({ it, saved, onToggleSave, onDelete, deleteError, progress, p
               <button className="text-primary hover:underline" onClick={copy}>
                 {copied ? "copiado ✓" : "copiar"}
               </button>
-              <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.txt`, text)}>.txt</button>
+              <button className="text-primary hover:underline" onClick={() => dl(it.platform, txName(it, "txt"), text)}>.txt</button>
               {it.chunks?.length ? (
-                <button className="text-primary hover:underline" onClick={() => dl(it.platform, `${namePrefix(it.platform)}-${it.videoId}.srt`, srt(it.chunks))}>.srt</button>
+                <button className="text-primary hover:underline" onClick={() => dl(it.platform, txName(it, "srt"), srt(it.chunks))}>.srt</button>
               ) : null}
             </div>
           </>

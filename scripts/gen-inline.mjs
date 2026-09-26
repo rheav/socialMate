@@ -53,6 +53,7 @@ const TARGETS = {
   "src/content/ig/bridge.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/igCode.js",
+    "src/lib/shared/surfaceTracker.js",
     "src/lib/shared/igSurface.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/filenames.js",
@@ -64,27 +65,40 @@ const TARGETS = {
     "src/lib/shared/overlayUi.js",
     "src/lib/shared/txLang.js",
     "src/lib/shared/igPlayerHost.js",
+    "src/lib/shared/feedQuery.js",
+    "src/lib/shared/igQuery.js",
+    "src/lib/shared/gridSort.js",
+    "src/lib/shared/pageSorter.js",
+    // The reach grade (views ÷ followers) is TikTok's code, reused as-is so the
+    // two rails can never disagree on a tier or a number.
+    "src/lib/shared/ttFormat.js",
   ],
   "src/content/ig/main-world.js": [
     "src/lib/shared/igCode.js",
     "src/lib/shared/igFilters.js",
     "src/lib/shared/igEnrich.js",
+    "src/lib/shared/surfaceTracker.js",
     "src/lib/shared/igSurface.js",
     "src/lib/shared/igPlayerHost.js",
   ],
   // The MAIN-world TikTok capture maps payloads; the isolated bridge maps the SSR
   // blob AND draws the overlays, so it needs the formatting half as well.
-  "src/content/tt/tt-capture.js": ["src/lib/shared/ttItems.js"],
+  "src/content/tt/tt-capture.js": ["src/lib/shared/surfaceTracker.js", "src/lib/shared/ttItems.js"],
   "src/content/tt/tt-relay.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/overlayUi.js",
     "src/lib/shared/txLang.js",
     "src/lib/shared/harvest.js",
+    "src/lib/shared/surfaceTracker.js",
     "src/lib/shared/ttItems.js",
     "src/lib/shared/fmt.js",
     "src/lib/shared/ttFormat.js",
     "src/lib/shared/ttPlayerHost.js",
+    "src/lib/shared/feedQuery.js",
+    "src/lib/shared/ttQuery.js",
+    "src/lib/shared/gridSort.js",
+    "src/lib/shared/pageSorter.js",
   ],
 };
 
