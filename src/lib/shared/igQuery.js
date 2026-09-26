@@ -3,11 +3,13 @@
 // Keys the old sort select used (views, likes, comments, er, date) are kept, so a
 // stored choice survives the move to the query.
 import { engagementRate } from "./igFormat.js";
+import { viewsPerDay } from "./fmt.js";
 
 const igPer = (num, den) => (num == null || !den || den <= 0 ? null : (num / den) * 100);
 
 export const IG_QUERY_FIELDS = {
   views: { label: "Visualizações", short: "Visualiz.", kind: "number", get: (r) => r.play_count },
+  velocity: { label: "Velocidade (views/dia)", short: "Views/dia", kind: "number", get: (r) => viewsPerDay(r.play_count, r.taken_at) },
   likes: { label: "Curtidas", kind: "number", get: (r) => r.like_count },
   comments: { label: "Comentários", short: "Coment.", kind: "number", get: (r) => r.comment_count },
   reposts: { label: "Reposts", kind: "number", get: (r) => r.repost },

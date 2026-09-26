@@ -8,6 +8,7 @@ import {
   Zap,
   Users,
   TrendingUp,
+  RadioTower,
   Calendar,
   HelpCircle,
 } from "lucide-react";
@@ -48,9 +49,14 @@ export default function MetricLegend({ weights }) {
     ],
     [Users, "Seguidores do perfil", "O tamanho da conta que publicou."],
     [
-      TrendingUp,
+      RadioTower,
       "Alcance (views por seguidor)",
       "Views ÷ seguidores, e o primeiro número do card. 352× = o vídeo alcançou 352 vezes o próprio público. Acima de 1× ele saiu da base de seguidores e foi levado pelo Para Você; abaixo de 1× ficou dentro dela. É o número que diz se o formato funcionou, independente do tamanho da conta — por isso ele lidera e vem com cor.",
+    ],
+    [
+      TrendingUp,
+      "Velocidade (views por dia)",
+      "Views ÷ dias desde a postagem. 400K/dia = o vídeo está rodando agora; 8K/dia num post de dois anos é cauda longa. Não depende do tamanho da conta, então existe em todo vídeo — inclusive em hashtag e busca, onde o Instagram não informa os seguidores e o Alcance não aparece. Post com menos de um dia conta como um dia.",
     ],
     [Calendar, "Data de publicação", null],
   ];

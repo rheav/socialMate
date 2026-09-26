@@ -18,6 +18,23 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.2.0] — 2026-09-26
+
+### Adicionado
+- **Velocidade (views por dia) em todo vídeo.** Views ÷ dias desde a postagem
+  (post com menos de um dia conta como um dia). Diferente do Alcance, não depende
+  dos seguidores do autor — e em hashtag e busca o Instagram não manda esse número
+  (medido em #soulmate: 0 de 28 posts; e o endpoint de perfil respondeu 429 no
+  primeiro pedido, então buscar seguidor autor a autor ficou descartado). Por isso
+  a Velocidade existe onde o Alcance não existe: nos cards do Instagram e do
+  TikTok, na grade e no vídeo aberto, e como opção de ordenar na barra e no
+  painel ("Velocidade (views/dia)"). Ao vivo: #soulmate 24/24 cards, grade do
+  TikTok 16/16.
+- **Alcance ganhou ícone próprio** (antena de transmissão); a setinha ↗ passou a
+  ser a Velocidade — nos cards e na legenda "O que significam os números".
+
+---
+
 ## [1.1.2] — 2026-09-26
 
 ### Alterado

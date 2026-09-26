@@ -69,3 +69,19 @@ describe("which fields a sort can use", () => {
     expect(isSortableField(IG_QUERY_FIELDS.type)).toBe(false);
   });
 });
+
+describe("velocity (views per day)", () => {
+  it("exists on both networks as a sortable number, read from each record's own date field", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ig = { play_count: 3000, taken_at: now - 3 * 86400 };
+    const tt = { play_count: 3000, create_time: now - 3 * 86400 };
+    expect(IG_QUERY_FIELDS.velocity.get(ig)).toBeCloseTo(1000, 0);
+    expect(TT_QUERY_FIELDS.velocity.get(tt)).toBeCloseTo(1000, 0);
+    expect(isSortableField(IG_QUERY_FIELDS.velocity)).toBe(true);
+    expect(isSortableField(TT_QUERY_FIELDS.velocity)).toBe(true);
+  });
+
+  it("is missing (sorts last) for a photo with no views", () => {
+    expect(IG_QUERY_FIELDS.velocity.get({ taken_at: 1, like_count: 5 })).toBe(null);
+  });
+});

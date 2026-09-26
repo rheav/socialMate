@@ -36,6 +36,9 @@ export const OVERLAY_ICONS = {
   // from `user` on purpose — the two used to share a row behind the follower
   // icon, which said "followers" over a number that is not a follower count.
   trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  // Reach (views ÷ followers): how far past its own audience a post travelled.
+  // lucide "radio-tower". The trend arrow above is velocity (views per day).
+  tower: '<path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/>',
   // The sound a reel rides, so a trend can be traced to its audio.
   audio: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
 };

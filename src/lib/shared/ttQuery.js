@@ -3,12 +3,14 @@
 // old sort select used (vpf, views, likes, comments, shares, saves, er, followers,
 // date) are kept, so a stored choice survives the move to the query.
 import { ttEngagementRate, ttViewsPerFollower } from "./ttFormat.js";
+import { viewsPerDay } from "./fmt.js";
 
 const ttPer = (num, den) => (num == null || !den || den <= 0 ? null : (num / den) * 100);
 
 export const TT_QUERY_FIELDS = {
   vpf: { label: "Alcance (×)", short: "Alcance", kind: "number", get: (r) => ttViewsPerFollower(r) },
   views: { label: "Visualizações", short: "Visualiz.", kind: "number", get: (r) => r.play_count },
+  velocity: { label: "Velocidade (views/dia)", short: "Views/dia", kind: "number", get: (r) => viewsPerDay(r.play_count, r.create_time) },
   likes: { label: "Curtidas", kind: "number", get: (r) => r.digg_count },
   comments: { label: "Comentários", short: "Coment.", kind: "number", get: (r) => r.comment_count },
   shares: { label: "Compartilhamentos", short: "Compart.", kind: "number", get: (r) => r.share_count },

@@ -25,7 +25,7 @@ import {
   Square,
   Sheet,
   Users,
-  TrendingUp,
+  RadioTower,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -673,7 +673,7 @@ export default function TtSortTool() {
                       style={{ color: tier.color, textShadow: `0 0 10px ${tier.color}66` }}
                       title={`${tier.label} — ${fmtRatio(c.viewsPerFollower)} o próprio público (views ÷ seguidores)`}
                     >
-                      <TrendingUp className="size-3.5" />
+                      <RadioTower className="size-3.5" />
                       {fmtRatio(c.viewsPerFollower)}
                     </div>
                   )}
