@@ -3300,7 +3300,8 @@ function recordReachTier(rec) {
   // mosaic (tile sizes are part of its layout), not a post, reel or story.
   function igGridRoute(p) {
     if (/^\/explore\/(?:search\/keyword|tags|locations)\//.test(p)) return true;
-    const m = p.match(/^\/([\w.]+)\/(?:(?:reels|tagged|saved)(?:\/.*)?)?$/);
+    // Shared profile links can omit the trailing slash; tab separators cannot.
+    const m = p.match(/^\/([\w.]+)(?:\/(?:reels|tagged|saved)(?:\/.*)?)?\/?$/);
     return !!m && !IG_RESERVED_SEGMENTS.includes(m[1]);
   }
   igPageSorter = makePageSorter({

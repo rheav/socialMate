@@ -18,6 +18,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.2.3] — 2026-09-28
+
+### Corrigido
+- **Seletor de ordenação em perfis do Instagram sem barra final.** Links como
+  `/jeanniejonh?stkn=…` agora exibem a barra, assim como `/jeanniejonh/`, mantendo
+  as restrições para páginas que não são grades de posts.
+- O script de abertura do navegador deste projeto usa o lançador compartilhado
+  `~/.local/bin/open-agent-chrome`, preservando o mesmo perfil entre as IAs.
+
+---
+
 ## [1.2.2] — 2026-09-26
 
 ### Corrigido
