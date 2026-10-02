@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Flame, Library as LibraryIcon, Search as SearchIcon, Settings } from "lucide-react";
+import { ChevronRight, Eye, Flame, Library as LibraryIcon, Search as SearchIcon, Settings } from "lucide-react";
 import { PLATFORMS, PLATFORM_ORDER, platformAccent } from "@/lib/platforms";
 import { workspaceToolsForPlatform, getTool } from "@/lib/tools";
 import { detectActivePlatform, hasChromeTabs } from "@/lib/tabs";
@@ -20,6 +20,7 @@ import HubStatusDot from "@/components/ui/HubStatusDot";
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import ToolFrame from "@/components/ui/ToolFrame";
 import PlatformSwitcher from "@/components/ui/PlatformSwitcher";
+import SpyTool from "@/components/tools/SpyTool";
 import LibraryTool from "@/components/tools/LibraryTool";
 
 const THEME_KEY = "sw_theme";
@@ -90,7 +91,7 @@ function useTheme() {
 
 // The icon each top-level tab wears. The tab LIST itself lives in lib/uiPrefs.js,
 // which is pure — icons are React, so they are mapped back in here.
-const TAB_ICONS = { research: SearchIcon, warm: Flame, library: LibraryIcon };
+const TAB_ICONS = { research: SearchIcon, warm: Flame, library: LibraryIcon, spy: Eye };
 
 // Panel-wide preferences (today: whether the Aquecer tab is shown). Stored and
 // followed exactly like the theme — the panel is per-window, so a switch flipped
@@ -143,6 +144,7 @@ function useUiPrefs() {
 export default function Shell() {
   const [nav, setNav] = useState(emptyNav);
   const [ready, setReady] = useState(false);
+  const [activeUrl, setActiveUrl] = useState("");
 
   // ---- load (migrating the legacy flat key) + land on the active tab's platform ----
   const ownWindowId = useRef(null);
@@ -188,7 +190,7 @@ export default function Shell() {
     return () => clearTimeout(t);
   }, [nav, ready]);
 
-  useFollowActiveTab(ready, ownWindowId, setNav);
+  useFollowActiveTab(ready, ownWindowId, setNav, setActiveUrl);
 
   const [theme, setTheme] = useTheme();
   const [prefs, setPrefs] = useUiPrefs();
@@ -292,7 +294,9 @@ export default function Shell() {
           branches into the same DOM and the content simply changes underneath
           you, which is the part that read as abrupt. */}
       <main key={tab} className="sw-swap min-w-0 flex-1 px-4 py-3 space-y-3">
-        {tab === "library" ? (
+        {tab === "spy" ? (
+          <SpyTool activeUrl={activeUrl} />
+        ) : tab === "library" ? (
           <LibraryTool />
         ) : tab === "warm" ? (
           <WarmTab platform={platform} setPlatform={setPlatform} />
@@ -331,7 +335,7 @@ export default function Shell() {
 //   • a non-platform tab (gmail, localhost…) resolves to null and is ignored, so the
 //     panel stays on your last workspace instead of blanking.
 //   • withPlatform returns the same object when unchanged → no re-render.
-function useFollowActiveTab(ready, ownWindowId, setNav) {
+function useFollowActiveTab(ready, ownWindowId, setNav, setActiveUrl) {
   useEffect(() => {
     if (!ready || !hasChromeTabs()) return;
     let timer = null;
@@ -341,9 +345,11 @@ function useFollowActiveTab(ready, ownWindowId, setNav) {
     const sync = async () => {
       const mine = ++ticket;
       try {
+        const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
         const p = await detectActivePlatform();
-        if (dead || mine !== ticket || !p) return;
-        setNav((n) => withPlatform(n, p));
+        if (dead || mine !== ticket) return;
+        setActiveUrl(active?.url || "");
+        if (p) setNav((n) => withPlatform(n, p));
       } catch {
         /* transient (window teardown) — the next event re-syncs */
       }
@@ -381,6 +387,7 @@ function useFollowActiveTab(ready, ownWindowId, setNav) {
       if (document.visibilityState === "visible") schedule();
     };
 
+    sync();
     chrome.tabs.onActivated.addListener(onActivated);
     chrome.tabs.onUpdated.addListener(onUpdated);
     document.addEventListener("visibilitychange", onVisible);
@@ -391,7 +398,7 @@ function useFollowActiveTab(ready, ownWindowId, setNav) {
       chrome.tabs.onUpdated.removeListener(onUpdated);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [ready, ownWindowId, setNav]);
+  }, [ready, ownWindowId, setNav, setActiveUrl]);
 }
 
 // Shared by Pesquisa and Aquecer: neither can render anything until a platform is

@@ -15,6 +15,7 @@ export const TOP_TABS = [
   { id: "research", label: "Pesquisa" },
   { id: "warm", label: "Aquecer", optional: true },
   { id: "library", label: "Arquivo" },
+  { id: "spy", label: "Spy" },
 ];
 
 export const DEFAULT_UI_PREFS = { showWarm: true };

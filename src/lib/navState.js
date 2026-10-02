@@ -3,7 +3,7 @@
 // The panel keeps ONE workspace per platform so switching browser tabs (and coming
 // back) resumes where you were. Shape:
 //
-//   { tab: "research"|"warm"|"library", // top-level tab — GLOBAL, not per-platform
+//   { tab: "research"|"warm"|"library"|"spy", // top-level tab — GLOBAL, not per-platform
 //     platform: "facebook"|"instagram"|"tiktok"|"pinterest"|null,
 //     perPlatform: { <platform>: { toolId } } }
 //
@@ -21,7 +21,7 @@ const isPlatform = (p) => NAV_PLATFORMS.includes(p);
 // promoted out of that workspace) and Arquivo (the library). "warm" keeps its id
 // and its meaning — the warmer — so a stored value from before the promotion still
 // lands the user on the tool they were last using.
-const isTab = (t) => t === "research" || t === "warm" || t === "library";
+const isTab = (t) => t === "research" || t === "warm" || t === "library" || t === "spy";
 
 export function emptyNav() {
   return { tab: "research", platform: null, perPlatform: {} };

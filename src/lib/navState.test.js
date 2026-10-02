@@ -165,3 +165,16 @@ describe("research tab", () => {
     expect(migrateNav(null, { tab: "library" }).tab).toBe("library");
   });
 });
+
+
+describe("spy tab", () => {
+  it("survives selection, normalization and migration without losing platform memory", () => {
+    const nav = { tab: "research", platform: "instagram", perPlatform: { instagram: { toolId: "ig-sort" } } };
+    const spy = withTab(nav, "spy");
+    expect(spy.tab).toBe("spy");
+    expect(spy.perPlatform).toEqual(nav.perPlatform);
+    expect(normalizeNav(spy).tab).toBe("spy");
+    expect(migrateNav(null, { tab: "spy" }).tab).toBe("spy");
+    expect(withTab(spy, "spy")).toBe(spy);
+  });
+});

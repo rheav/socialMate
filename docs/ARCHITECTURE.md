@@ -85,7 +85,25 @@ Thumbnail repair: `FBW_THUMB_RECOVER` (`{brokenIds}`) starts the sweep,
 `FBW_THUMB_STATUS` reads it, and the worker broadcasts `FBW_THUMB_PROGRESS`.
 Hub sync: `FBW_SYNC_PING` (config check), `FBW_SYNC_ALL` (push both stores),
 `FBW_SYNC_NOW` (drain the queue).
-Área Spy: `FBW_SPY_SAVE` (`{ platform, key }` / `{ url }`), `FBW_SPY_REMOVE` (`{ id }`), `FBW_SPY_REFRESH_LIST`, `FBW_SPY_RUN`, `FBW_SPY_IG_BATCH` (bg → bridge), `FBW_SPY_IG_RESULT` / `FBW_SPY_IG_DONE` (bridge → bg), `FBW_SPY_OBSERVE` (bridge → bg).
+Spy area: `FBW_SPY_SAVE` (`{ platform, key }` / `{ url }`),
+`FBW_SPY_REMOVE` (`{ id }`), `FBW_SPY_REFRESH_LIST`, `FBW_SPY_RUN` (test console,
+no UI button), and `FBW_SPY_OBSERVE` (`{ platform, key, data }`, IG bridge →
+background). The background validates the sender and saved identity, throttles
+visits to ten minutes per profile across tabs, and stores `source: "daily"` only
+for the current profile in its own batch tab. `FBW_SPY_IG_BATCH` (background →
+bridge, `{ usernames }`) asks for passive cache replay after navigation. Path B
+does not use the API-based `FBW_SPY_IG_RESULT` / `FBW_SPY_IG_DONE` loop.
+
+Instagram path B persists `igBatch` with `current` and `nextAt` alongside the
+pending usernames, tab ownership and start time. It navigates an inactive owned
+tab, oldest measurements first, at 20–40 second intervals; `igDaily: { day,
+count }` enforces twenty profile navigations per local day across worker restarts.
+The regular alarm resumes a suspended batch conservatively (it may run later
+than its deadline); a batch expires after fifteen minutes. The `#socialmate-spy`
+fragment marks the owned document and suppresses per-media enrichment there;
+profile measurement only uses the existing passive capture. A repurposed tab is
+relinquished. Login/checkpoint redirects or 401/403/429 responses from the owned
+tab stop the batch. No cookies leave the browser.
 
 Panel code talks to the worker through `src/lib/bg.js` (`sendBg` / `requireOk`),
 which reads `chrome.runtime.lastError` and surfaces `.ok` — the per-pane `bg()`
@@ -140,10 +158,10 @@ still handled in `content.js` despite being listed as removed.)
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |
 | `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
-| `fbw_spy` | background | `{ profiles: { [id]: profile }, fetchedAt }` — cópia da lista de perfis do hub |
-| `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {} }` — fila de envio para o hub |
-| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, igBatch: null, lastPassAt, lastError }` — estado de execução e paradas |
-| `fbw_spy_prefs` | Opções modal | `{ daily: true }` — interruptor da passada automática diária |
+| `fbw_spy` | background | `{ profiles: { [id]: profile }, fetchedAt }` — hub profile-list cache; local `name`, `lastObservedAt`, `avatarUpdatedAt` support display and throttling |
+| `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {} }` — persistent hub upload queue |
+| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, igDaily: { day, count }, igBatch, lastPassAt, lastError }` — persisted daily budget, navigation and pauses |
+| `fbw_spy_prefs` | Opções modal | `{ daily: true }` — daily measurement switch; independent of archive automatic upload |
 | `fbw_tx_rep_penalty` | Opções modal | `{ enabled, value }` — Whisper repetition penalty, off by default; read by the background per job and filed on the transcript as `repetitionPenalty` (1 = off) |
 | IndexedDB `emb:<djb2>:<len>` | offscreen, idb-keyval | MiniLM embedding cache |
 
@@ -366,7 +384,12 @@ which is the whole reason it exists.
 ## 7. Panel navigation
 
 `Shell` holds one `nav` object `{tab, platform, perPlatform:{platform:{toolId}}}`
-under `sw_nav3`. Top-level `tab` picks Library vs Warmer. Inside Warmer,
+under `sw_nav3`. Top-level `tab` picks Pesquisa, Aquecer, Arquivo or Spy. Spy follows the active
+profile URL through `useFollowActiveTab`, reads the hub-list cache via `useSpy`,
+and offers save, confirmed removal, profile links and daily-pass status. It has
+no manual-refresh control. The daily toggle lives under Acervo in Options.
+The shared `Segmented` measures its labels with `ResizeObserver` and collapses
+them to accessible icons at narrow widths, including the four-tab row at 260 px. Inside Warmer,
 `platform` is set at load by `detectActivePlatform()` (active tab beats restored
 value) and kept live by `useFollowActiveTab` — panel-side, debounced 150 ms,
 own-window-filtered, ticket-guarded. `toolIdFor(nav, platform)` recalls that

@@ -4,6 +4,7 @@ import { Cloud, Moon, Sun, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import useStoredFlag from "@/lib/useStoredFlag";
+import { useSpyPrefs } from "@/lib/useSpy";
 import { useSyncSettings } from "@/lib/useSyncSettings";
 import {
   TRANSCRIPT_CAP_KEY,
@@ -279,6 +280,7 @@ function TxPenaltySetting() {
 // exactly like everything working.
 function HubSection() {
   const { settings, state, ready, save, ensureHost, ping, syncAll } = useSyncSettings();
+  const [spyDaily, saveSpyDaily] = useSpyPrefs();
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -364,6 +366,14 @@ function HubSection() {
         hint="Cada transcrição e cada vídeo salvo sobem para o acervo logo depois de serem gravados aqui."
         checked={settings.enabled}
         onChange={(v) => save({ enabled: v })}
+      />
+
+      <Row
+        id="opt-spy-daily"
+        label="Atualizar perfis salvos uma vez por dia"
+        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão, e manda só os números para o acervo."
+        checked={spyDaily}
+        onChange={(v) => saveSpyDaily(v).catch(() => setResult({ ok: false, error: "Não consegui salvar essa opção." }))}
       />
 
       {result && (

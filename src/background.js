@@ -645,6 +645,14 @@ const SPY_DEBOUNCE_MS = 4000;
 let spyFlushTimer = null;
 let spyFlushing = false;
 let spyTicking = false;
+// All spy writers share this short storage critical section. Network requests
+// stay outside it; removing a profile cannot race a capture or an upload ACK.
+let spyMutation = Promise.resolve();
+function mutateSpy(work) {
+  const next = spyMutation.then(work, work);
+  spyMutation = next.catch(() => {});
+  return next;
+}
 
 function scheduleFlushSpy(delay = SPY_DEBOUNCE_MS, attempt = 0) {
   if (spyFlushTimer) clearTimeout(spyFlushTimer);
@@ -692,29 +700,29 @@ async function scheduleSpy() {
 
 async function flushSpy({ attempt = 0 } = {}) {
   if (spyFlushing) return { ok: true, skipped: "busy" };
-  const settings = await readSyncSettings();
-  if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
-
-  const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
-  const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
-  const currentSpy = r[SPY_KEY] || { profiles: {} };
-
-  const opsToSend = [...(queue.ops || [])];
-  const profilesToSend = Object.values(queue.profiles || {});
-  const snapshotsToSend = Object.values(queue.snapshots || {});
-  const errorsToSend = Object.values(queue.errors || {});
-
-  if (
-    !opsToSend.length &&
-    !profilesToSend.length &&
-    !snapshotsToSend.length &&
-    !errorsToSend.length
-  ) {
-    return { ok: true, sent: 0 };
-  }
-
   spyFlushing = true;
   try {
+    const settings = await readSyncSettings();
+    if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+
+    const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+    const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+    const currentSpy = r[SPY_KEY] || { profiles: {} };
+
+    const opsToSend = [...(queue.ops || [])];
+    const profilesToSend = Object.values(queue.profiles || {});
+    const snapshotsToSend = Object.values(queue.snapshots || {});
+    const errorsToSend = Object.values(queue.errors || {});
+
+    if (
+      !opsToSend.length &&
+      !profilesToSend.length &&
+      !snapshotsToSend.length &&
+      !errorsToSend.length
+    ) {
+      return { ok: true, sent: 0 };
+    }
+
     const profileBatches = profilesToSend.length ? batchRecords(profilesToSend) : [[]];
     let lastRes = null;
 
@@ -735,51 +743,54 @@ async function flushSpy({ attempt = 0 } = {}) {
       }
     }
 
-    const freshR = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
-    const freshQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
-    const freshSpy = freshR[SPY_KEY] || currentSpy;
+    await mutateSpy(async () => {
+      const freshR = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+      const freshQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
+      const freshSpy = freshR[SPY_KEY] || currentSpy;
 
-    const remainingOps = freshQueue.ops ? freshQueue.ops.slice(opsToSend.length) : [];
+      const remainingOps = freshQueue.ops ? freshQueue.ops.slice(opsToSend.length) : [];
 
-    const remainingProfiles = { ...(freshQueue.profiles || {}) };
-    for (const p of profilesToSend) {
-      const pid = p.id || (p.platform && p.key ? `${p.platform}:${p.key}` : null);
-      if (pid && JSON.stringify(remainingProfiles[pid]) === JSON.stringify(queue.profiles[pid])) {
-        delete remainingProfiles[pid];
+      const remainingProfiles = { ...(freshQueue.profiles || {}) };
+      for (const p of profilesToSend) {
+        const pid = p.id || (p.platform && p.key ? `${p.platform}:${p.key}` : null);
+        if (pid && JSON.stringify(remainingProfiles[pid]) === JSON.stringify(queue.profiles[pid])) {
+          delete remainingProfiles[pid];
+        }
       }
-    }
 
-    const remainingSnapshots = { ...(freshQueue.snapshots || {}) };
-    for (const s of snapshotsToSend) {
-      const pid = s.profileId || s.profile_id || s.id;
-      const key = `${pid}|${s.day}`;
-      if (JSON.stringify(remainingSnapshots[key]) === JSON.stringify(queue.snapshots[key])) {
-        delete remainingSnapshots[key];
+      const remainingSnapshots = { ...(freshQueue.snapshots || {}) };
+      for (const s of snapshotsToSend) {
+        const pid = s.profileId || s.profile_id || s.id;
+        const key = `${pid}|${s.day}`;
+        if (JSON.stringify(remainingSnapshots[key]) === JSON.stringify(queue.snapshots[key])) {
+          delete remainingSnapshots[key];
+        }
       }
-    }
 
-    const remainingErrors = { ...(freshQueue.errors || {}) };
-    for (const e of errorsToSend) {
-      if (JSON.stringify(remainingErrors[e.id]) === JSON.stringify(queue.errors[e.id])) {
-        delete remainingErrors[e.id];
+      const remainingErrors = { ...(freshQueue.errors || {}) };
+      for (const e of errorsToSend) {
+        if (JSON.stringify(remainingErrors[e.id]) === JSON.stringify(queue.errors[e.id])) {
+          delete remainingErrors[e.id];
+        }
       }
-    }
 
-    const nextQueue = {
-      ops: remainingOps,
-      profiles: remainingProfiles,
-      snapshots: remainingSnapshots,
-      errors: remainingErrors,
-    };
+      const nextQueue = {
+        ops: remainingOps,
+        profiles: remainingProfiles,
+        snapshots: remainingSnapshots,
+        errors: remainingErrors,
+      };
 
-    let nextSpy = freshSpy;
-    if (lastRes?.profiles) {
-      nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps);
-    }
+      let nextSpy = freshSpy;
+      if (lastRes?.profiles) {
+        nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps);
+      }
 
-    await chrome.storage.local.set({
-      [SPY_QUEUE_KEY]: nextQueue,
-      [SPY_KEY]: nextSpy,
+      await chrome.storage.local.set({
+        [SPY_QUEUE_KEY]: nextQueue,
+        [SPY_KEY]: nextSpy,
+      });
+
     });
 
     scheduleSpy().catch(() => {});
@@ -814,6 +825,7 @@ function recordAttempt(state, profileId, success, now = Date.now()) {
 }
 
 async function blockPlatform(platform, errorCode, profileId) {
+  return mutateSpy(async () => {
   const now = Date.now();
   const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY]);
   let state = r[SPY_STATE_KEY] || emptySpyState(now);
@@ -838,9 +850,11 @@ async function blockPlatform(platform, errorCode, profileId) {
   });
 
   scheduleFlushSpy();
+  });
 }
 
 async function recordProfileError(profileId, errorCode) {
+  return mutateSpy(async () => {
   const now = Date.now();
   const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_STATE_KEY]);
   let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
@@ -858,6 +872,7 @@ async function recordProfileError(profileId, errorCode) {
   });
 
   scheduleFlushSpy();
+  });
 }
 
 async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
@@ -927,47 +942,53 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
       at: now,
     };
 
-    const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
-    let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
-    let spy = r[SPY_KEY] || { profiles: {} };
-    let state = r[SPY_STATE_KEY] || emptySpyState(now);
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
+      let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+      let spy = r[SPY_KEY] || { profiles: {} };
+      let state = r[SPY_STATE_KEY] || emptySpyState(now);
 
-    queue = queueSnapshot(queue, snapshot);
-    if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef) {
-      queue = queueProfile(queue, profilePatch);
-    }
+      queue = queueSnapshot(queue, snapshot);
+      if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef) {
+        queue = queueProfile(queue, profilePatch);
+      }
 
-    if (spy.profiles?.[profile.id]) {
-      spy = {
-        ...spy,
-        profiles: {
-          ...spy.profiles,
-          [profile.id]: {
-            ...spy.profiles[profile.id],
-            lastMeasuredAt: now,
-            hasAvatar: avatarThumb ? true : spy.profiles[profile.id].hasAvatar,
-            userId: parsed.userId || spy.profiles[profile.id].userId,
+      if (spy.profiles?.[profile.id]) {
+        spy = {
+          ...spy,
+          profiles: {
+            ...spy.profiles,
+            [profile.id]: {
+              ...spy.profiles[profile.id],
+              lastMeasuredAt: now,
+              hasAvatar: avatarThumb ? true : spy.profiles[profile.id].hasAvatar,
+              userId: parsed.userId || spy.profiles[profile.id].userId,
+            },
           },
-        },
-      };
-    }
+        };
+      }
 
-    state = recordAttempt(state, profile.id, true, now);
+      state = recordAttempt(state, profile.id, true, now);
 
-    await chrome.storage.local.set({
-      [SPY_QUEUE_KEY]: queue,
-      [SPY_KEY]: spy,
-      [SPY_STATE_KEY]: state,
+      await chrome.storage.local.set({
+        [SPY_QUEUE_KEY]: queue,
+        [SPY_KEY]: spy,
+        [SPY_STATE_KEY]: state,
+      });
+
     });
 
     scheduleFlushSpy();
     return { ok: true, snapshot };
   } catch (err) {
     const now = Date.now();
-    const r = await chrome.storage.local.get(SPY_STATE_KEY);
-    let state = r[SPY_STATE_KEY] || emptySpyState(now);
-    state = recordAttempt(state, profile.id, false, now);
-    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get(SPY_STATE_KEY);
+      let state = r[SPY_STATE_KEY] || emptySpyState(now);
+      state = recordAttempt(state, profile.id, false, now);
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    });
+
     await recordProfileError(profile.id, "network");
     return { ok: false, error: "network" };
   }
@@ -1000,20 +1021,24 @@ function armIgStep(at) {
 async function closeIgBatch({ abandoned = false } = {}) {
   clearTimeout(igStepTimer);
   igStepTimer = null;
-  const r = await chrome.storage.local.get(SPY_STATE_KEY);
-  let state = r[SPY_STATE_KEY] || emptySpyState();
-  const batch = state.igBatch;
-  if (!batch) return;
-  igOwnedTab = null;
-  igStopReason = null;
-  if (abandoned) {
-    for (const key of batch.pending) {
-      // A navigation already spent its attempt; only untouched pending items
-      // need accounting on timeout.
-      if (key !== batch.current) state = recordAttempt(state, spyId("instagram", key), false);
+  const batch = await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    let state = r[SPY_STATE_KEY] || emptySpyState();
+    const batch = state.igBatch;
+    if (!batch) return null;
+    igOwnedTab = null;
+    igStopReason = null;
+    if (abandoned) {
+      for (const key of batch.pending) {
+        // A navigation already spent its attempt; only untouched pending items
+        // need accounting on timeout.
+        if (key !== batch.current) state = recordAttempt(state, spyId("instagram", key), false);
+      }
     }
-  }
-  await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: null } });
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: null } });
+    return batch;
+  });
+  if (!batch) return;
   if (batch.own) {
     try {
       const tab = await chrome.tabs.get(batch.tabId);
@@ -1050,8 +1075,11 @@ async function advanceIgBatch() {
     igOwnedTab = tab.id;
     igStopReason = null;
     batch = { tabId: tab.id, own: true, startedAt: now, pending, current: null, nextAt: now };
-    state = { ...state, igBatch: batch };
-    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    await mutateSpy(async () => {
+      const latest = await chrome.storage.local.get(SPY_STATE_KEY);
+      state = { ...(latest[SPY_STATE_KEY] || state), igBatch: batch };
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    });
     // Poll only our bridge, for at most 20 seconds. These are extension messages,
     // not requests to Instagram.
     let ready = false;
@@ -1080,26 +1108,35 @@ async function advanceIgBatch() {
     await recordProfileError(spyId("instagram", batch.current), "parse_failed");
     batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null };
   }
-  const currentR = await chrome.storage.local.get([SPY_STATE_KEY, SPY_KEY, SPY_PREFS_KEY]);
-  state = currentR[SPY_STATE_KEY] || state;
-  if (currentR[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram")) { await closeIgBatch(); return; }
-  const live = currentR[SPY_KEY]?.profiles || {};
-  batch.pending = batch.pending.filter((key) => {
-    const p = live[spyId("instagram", key)];
-    return p && p.removedAt == null && (!p.lastMeasuredAt || dayKey(p.lastMeasuredAt) !== dayKey());
+  const navigate = await mutateSpy(async () => {
+    const currentR = await chrome.storage.local.get([SPY_STATE_KEY, SPY_KEY, SPY_PREFS_KEY]);
+    state = currentR[SPY_STATE_KEY] || state;
+    if (currentR[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram")) return false;
+    const live = currentR[SPY_KEY]?.profiles || {};
+    batch.pending = batch.pending.filter((key) => {
+      const p = live[spyId("instagram", key)];
+      return p && p.removedAt == null && (!p.lastMeasuredAt || dayKey(p.lastMeasuredAt) !== dayKey());
+    });
+    if (!batch.pending.length || igDailyCount(state) >= IG_SPY_LIMIT) return false;
+    const key = batch.pending[0];
+    const at = Date.now();
+    batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
+    state = recordAttempt(state, spyId("instagram", key), false, at);
+    state = { ...state, igBatch: batch, igDaily: { day: dayKey(at), count: igDailyCount(state, at) + 1 } };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    return true;
   });
-  if (!batch.pending.length || igDailyCount(state) >= IG_SPY_LIMIT) { await closeIgBatch(); return; }
-  const key = batch.pending[0];
-  const at = Date.now();
-  batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
-  state = recordAttempt(state, spyId("instagram", key), false, at);
-  state = { ...state, igBatch: batch, igDaily: { day: dayKey(at), count: igDailyCount(state, at) + 1 } };
-  await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+  if (!navigate) { await closeIgBatch(); return; }
+  if (igStopReason) {
+    await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null);
+    await closeIgBatch();
+    return;
+  }
   try {
-    await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", key) + IG_SPY_MARKER });
+    await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", batch.current) + IG_SPY_MARKER });
     armIgStep(batch.nextAt);
   } catch {
-    await recordProfileError(spyId("instagram", key), "network");
+    await recordProfileError(spyId("instagram", batch.current), "network");
     await closeIgBatch();
   }
 }
@@ -1130,29 +1167,33 @@ async function observeIgProfile(msg, sender) {
     avatar = await durableThumb(parsed.avatarUrl);
   }
   // Re-read after fetching the avatar: a concurrent removal must win.
-  r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY]);
-  state = r[SPY_STATE_KEY] || state;
-  profile = r[SPY_KEY]?.profiles?.[id];
-  if (!profile || profile.removedAt != null) return { ok: false, error: "unknown" };
-  let queue = queueSnapshot(r[SPY_QUEUE_KEY], { profileId: id, day: dayKey(now), measuredAt: now,
-    followers: parsed.followers, followersApprox: false, following: parsed.following, posts: parsed.posts,
-    hasStory: null, source: daily ? "daily" : "visit" });
-  const patch = { id, at: now, userId: parsed.userId, name: parsed.name, bio: parsed.bio,
-    externalUrl: parsed.externalUrl, verified: parsed.verified, private: parsed.private };
-  if (avatar) patch.avatar = avatar;
-  queue = queueProfile(queue, patch);
-  if (daily && state.igBatch?.tabId === sender.tab.id) {
-    state = { ...state, igBatch: { ...state.igBatch, current: null,
-      pending: state.igBatch.pending.filter((u) => u !== key) } };
-  }
-  await chrome.storage.local.set({
-    [SPY_QUEUE_KEY]: queue,
-    [SPY_KEY]: { ...r[SPY_KEY], profiles: { ...r[SPY_KEY].profiles, [id]: { ...profile,
-      name: parsed.name || profile.name, userId: parsed.userId || profile.userId, lastMeasuredAt: now,
-      ...(!daily ? { lastObservedAt: now } : {}),
-      ...(avatar ? { hasAvatar: true, avatarUpdatedAt: now } : {}) } } },
-    [SPY_STATE_KEY]: state,
+  const recorded = await mutateSpy(async () => {
+    r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY]);
+    state = r[SPY_STATE_KEY] || state;
+    profile = r[SPY_KEY]?.profiles?.[id];
+    if (!profile || profile.removedAt != null) return false;
+    let queue = queueSnapshot(r[SPY_QUEUE_KEY], { profileId: id, day: dayKey(now), measuredAt: now,
+      followers: parsed.followers, followersApprox: false, following: parsed.following, posts: parsed.posts,
+      hasStory: null, source: daily ? "daily" : "visit" });
+    const patch = { id, at: now, userId: parsed.userId, name: parsed.name, bio: parsed.bio,
+      externalUrl: parsed.externalUrl, verified: parsed.verified, private: parsed.private };
+    if (avatar) patch.avatar = avatar;
+    queue = queueProfile(queue, patch);
+    if (daily && state.igBatch?.tabId === sender.tab.id) {
+      state = { ...state, igBatch: { ...state.igBatch, current: null,
+        pending: state.igBatch.pending.filter((u) => u !== key) } };
+    }
+    await chrome.storage.local.set({
+      [SPY_QUEUE_KEY]: queue,
+      [SPY_KEY]: { ...r[SPY_KEY], profiles: { ...r[SPY_KEY].profiles, [id]: { ...profile,
+        name: parsed.name || profile.name, userId: parsed.userId || profile.userId, lastMeasuredAt: now,
+        ...(!daily ? { lastObservedAt: now } : {}),
+        ...(avatar ? { hasAvatar: true, avatarUpdatedAt: now } : {}) } } },
+      [SPY_STATE_KEY]: state,
+    });
+    return true;
   });
+  if (!recorded) return { ok: false, error: "unknown" };
   if (daily) {
     if (!state.igBatch?.pending.length) await closeIgBatch();
     else armIgStep(state.igBatch.nextAt);
@@ -1207,13 +1248,14 @@ async function spyTick({ manual = false } = {}) {
     let state = r[SPY_STATE_KEY] || emptySpyState(now);
 
     if (state.day !== today) {
-      state = {
-        ...state,
-        day: today,
-        attempts: {},
-        lastError: null,
-      };
-      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+      await mutateSpy(async () => {
+        const fresh = await chrome.storage.local.get(SPY_STATE_KEY);
+        state = fresh[SPY_STATE_KEY] || state;
+        if (state.day !== today) {
+          state = { ...state, day: today, attempts: {}, lastError: null };
+          await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+        }
+      });
     }
 
     const prefs = await chrome.storage.local.get(SPY_PREFS_KEY);
@@ -1228,16 +1270,21 @@ async function spyTick({ manual = false } = {}) {
       try {
         const res = await getSpyProfiles(settings);
         if (res?.profiles) {
-          const freshR = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
-          const currentSpy = freshR[SPY_KEY] || spy;
-          const currentQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
-          spy = mergeList(currentSpy, res.profiles, currentQueue.ops || []);
-          await chrome.storage.local.set({ [SPY_KEY]: spy });
+          await mutateSpy(async () => {
+            const freshR = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
+            const currentSpy = freshR[SPY_KEY] || spy;
+            const currentQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
+            spy = mergeList(currentSpy, res.profiles, currentQueue.ops || []);
+            await chrome.storage.local.set({ [SPY_KEY]: spy });
+          });
+
         }
       } catch (e) {
         if (e?.status === 404) {
-          state.lastError = "hub_sem_spy";
-          await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+          await mutateSpy(async () => {
+            const fresh = await chrome.storage.local.get(SPY_STATE_KEY);
+            await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...(fresh[SPY_STATE_KEY] || state), lastError: "hub_sem_spy" } });
+          });
           return { ok: false, error: "hub_sem_spy" };
         }
       }
@@ -1257,7 +1304,7 @@ async function spyTick({ manual = false } = {}) {
     // 4. Flush spy queue
     await flushSpy();
 
-    await serializeIg(async () => {
+    await mutateSpy(async () => {
       const latestState = await chrome.storage.local.get(SPY_STATE_KEY);
       await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...(latestState[SPY_STATE_KEY] || state), lastPassAt: Date.now() } });
     });
@@ -2432,32 +2479,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const id = spyId(platform, key);
           const now = Date.now();
 
-          const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
-          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
-          const spy = r[SPY_KEY] || { profiles: {} };
+          await mutateSpy(async () => {
+            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+            const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+            const spy = r[SPY_KEY] || { profiles: {} };
 
-          const nextQueue = queueOp(queue, "save", { platform, key, id }, now);
+            const nextQueue = queueOp(queue, "save", { platform, key, id }, now);
 
-          const prev = spy.profiles?.[id] || {};
-          const nextSpy = {
-            ...spy,
-            profiles: {
-              ...(spy.profiles || {}),
-              [id]: {
-                ...prev,
-                id,
-                platform,
-                key: String(key).toLowerCase(),
-                savedAt: prev.savedAt || now,
-                listUpdatedAt: now,
-                removedAt: null,
+            const prev = spy.profiles?.[id] || {};
+            const nextSpy = {
+              ...spy,
+              profiles: {
+                ...(spy.profiles || {}),
+                [id]: {
+                  ...prev,
+                  id,
+                  platform,
+                  key: String(key).toLowerCase(),
+                  savedAt: prev.savedAt || now,
+                  listUpdatedAt: now,
+                  removedAt: null,
+                },
               },
-            },
-          };
+            };
 
-          await chrome.storage.local.set({
-            [SPY_QUEUE_KEY]: nextQueue,
-            [SPY_KEY]: nextSpy,
+            await chrome.storage.local.set({
+              [SPY_QUEUE_KEY]: nextQueue,
+              [SPY_KEY]: nextSpy,
+            });
+
           });
 
           flushSpy().catch(() => {});
@@ -2480,22 +2530,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
 
           const now = Date.now();
-          const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
-          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
-          const spy = r[SPY_KEY] || { profiles: {} };
+          await mutateSpy(async () => {
+            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+            const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+            const spy = r[SPY_KEY] || { profiles: {} };
 
-          const nextQueue = queueOp(queue, "remove", { id }, now);
+            const split = id.indexOf(":");
+            const platform = id.slice(0, split);
+            const key = id.slice(split + 1);
+            const nextQueue = queueOp(queue, "remove", { id, platform, key }, now);
 
-          const nextProfiles = { ...(spy.profiles || {}) };
-          delete nextProfiles[id];
-          const nextSpy = {
-            ...spy,
-            profiles: nextProfiles,
-          };
+            const nextProfiles = { ...(spy.profiles || {}) };
+            delete nextProfiles[id];
+            const nextSpy = {
+              ...spy,
+              profiles: nextProfiles,
+            };
 
-          await chrome.storage.local.set({
-            [SPY_QUEUE_KEY]: nextQueue,
-            [SPY_KEY]: nextSpy,
+            await chrome.storage.local.set({
+              [SPY_QUEUE_KEY]: nextQueue,
+              [SPY_KEY]: nextSpy,
+            });
+
           });
 
           flushSpy().catch(() => {});
@@ -2517,11 +2573,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
           }
           const res = await getSpyProfiles(settings);
-          const r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
-          const currentSpy = r[SPY_KEY] || { profiles: {} };
-          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
-          const nextSpy = mergeList(currentSpy, res?.profiles || [], queue.ops || []);
-          await chrome.storage.local.set({ [SPY_KEY]: nextSpy });
+          const nextSpy = await mutateSpy(async () => {
+            const r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
+            const currentSpy = r[SPY_KEY] || { profiles: {} };
+            const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+            const nextSpy = mergeList(currentSpy, res?.profiles || [], queue.ops || []);
+            await chrome.storage.local.set({ [SPY_KEY]: nextSpy });
+            return nextSpy;
+          });
+
           scheduleSpy().catch(() => {});
           sendResponse({ ok: true, count: Object.keys(nextSpy.profiles || {}).length });
         } catch (err) {

@@ -22,19 +22,21 @@ describe("normalizeUiPrefs", () => {
 });
 
 describe("visibleTabs", () => {
-  it("lists all three by default, in nav order", () => {
-    expect(visibleTabs().map((t) => t.id)).toEqual(["research", "warm", "library"]);
+  it("lists all four by default, in nav order", () => {
+    expect(visibleTabs().map((t) => t.id)).toEqual(["research", "warm", "library", "spy"]);
   });
   it("drops the warmer when it is switched off", () => {
     expect(visibleTabs({ showWarm: false }).map((t) => t.id)).toEqual([
       "research",
       "library",
+      "spy",
     ]);
   });
 });
 
 describe("resolveTab", () => {
   it("leaves a visible tab alone", () => {
+    expect(resolveTab("spy", { showWarm: false })).toBe("spy");
     expect(resolveTab("library", { showWarm: false })).toBe("library");
     expect(resolveTab("warm", { showWarm: true })).toBe("warm");
   });

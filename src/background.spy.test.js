@@ -418,6 +418,41 @@ describe("Instagram path B", () => {
     expect(chrome.tabs.remove).toHaveBeenCalledWith(90);
   });
 
+  it("does not navigate if 429 arrives during the ownership check", async () => {
+    data.fbw_spy.profiles["instagram:second"] = profile("second");
+    await spyTick();
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    chrome.tabs.get = vi.fn(async () => {
+      igResponseListener({ tabId: 90, statusCode: 429 });
+      return { id: 90, url: "https://www.instagram.com/nasa/#socialmate-spy" };
+    });
+    await spyTick();
+    expect(chrome.tabs.update).toHaveBeenCalledTimes(1);
+    expect(data.fbw_spy_state.igBatch).toBeNull();
+  });
+
+  it("a concurrent confirmed removal wins over passive capture and remains queued", async () => {
+    data.fbw_sync = {}; // keep the pending operation visible, with no upload
+    const originalGet = chrome.storage.local.get;
+    let removal;
+    chrome.storage.local.get = async (keys) => {
+      const value = await originalGet(keys);
+      if (!removal && Array.isArray(keys) && keys[0] === "fbw_spy" && keys.includes("fbw_spy_queue") && keys.includes("fbw_spy_state")) {
+        removal = sendMessage({ type: "FBW_SPY_REMOVE", id: "instagram:nasa" });
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      }
+      return value;
+    };
+    try {
+      await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: "nasa",
+        data: { username: "nasa", follower_count: 9 } },
+        { tab: { id: 1 }, url: "https://www.instagram.com/nasa/" });
+      expect(await removal).toEqual({ ok: true });
+      expect(data.fbw_spy.profiles["instagram:nasa"]).toBeUndefined();
+      expect(data.fbw_spy_queue.ops).toContainEqual(expect.objectContaining({ op: "remove", platform: "instagram", key: "nasa" }));
+    } finally { chrome.storage.local.get = originalGet; }
+  });
+
   it("relinquishes a tab the user repurposed instead of navigating or closing it", async () => {
     data.fbw_spy_state.igBatch = { tabId: 90, own: true, startedAt: now, pending: ["nasa"], nextAt: now };
     chrome.tabs.get = vi.fn(async () => ({ id: 90, url: "https://example.com/" }));
@@ -444,6 +479,20 @@ describe("Instagram path B", () => {
 
 
 describe("spy queue acknowledgement", () => {
+  it("has one upload owner even when two callers enter before storage resolves", async () => {
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy_queue = { ops: [{ op: "save", platform: "instagram", key: "nasa", at: 1 }], profiles: {}, snapshots: {}, errors: {} };
+    const bodies = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      bodies.push(JSON.parse(options.body));
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }));
+    const [first, second] = await Promise.all([flushSpy(), flushSpy()]);
+    expect(first.ok).toBe(true);
+    expect(second.skipped).toBe("busy");
+    expect(bodies).toHaveLength(1);
+  });
+
   it("removes acknowledged cloned entries while retaining captures arriving during upload", async () => {
     data.fbw_sync = { url: "https://hub", token: "secret" };
     data.fbw_spy_queue = { ops: [], profiles: { old: { id: "old", at: 1 } },
