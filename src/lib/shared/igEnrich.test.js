@@ -8,6 +8,7 @@ import {
   visibleFirst,
   igViewCount,
   stripJsonGuard,
+  sameIgUserStats,
 } from "./igEnrich.js";
 
 // VERIFIED live on /explore/search/keyword/?q=%23auralytrend (2026-08-15):
@@ -95,6 +96,7 @@ describe("igUserStats", () => {
       biography: "bio",
       external_url: "https://x.dev",
       is_business: true,
+      full_name: null, profile_pic_url: null, is_verified: null, is_private: null,
     });
   });
 
@@ -177,5 +179,22 @@ describe("stripJsonGuard", () => {
 
   it("leaves plain JSON alone", () => {
     expect(stripJsonGuard('{"a":1}')).toBe('{"a":1}');
+  });
+});
+
+
+describe("spy profile metadata", () => {
+  it("preserves explicit false and leaves missing flags unknown", () => {
+    const stats = igUserStats({ pk: 7, username: "nasa", follower_count: 0,
+      full_name: "NASA", profile_pic_url: "https://cdn/avatar", is_verified: false, is_private: true });
+    expect(stats).toMatchObject({ full_name: "NASA", profile_pic_url: "https://cdn/avatar",
+      is_verified: false, is_private: true });
+    expect(igUserStats({ pk: 8, follower_count: 1 })).toMatchObject({ is_verified: null, is_private: null });
+  });
+  it("ignores avatar signature rotation but detects metric and name changes", () => {
+    const a = { userid: "7", follower_count: 10, full_name: "NASA", profile_pic_url: "old" };
+    expect(sameIgUserStats(a, { ...a, profile_pic_url: "new" })).toBe(true);
+    expect(sameIgUserStats(a, { ...a, follower_count: 11 })).toBe(false);
+    expect(sameIgUserStats(a, { ...a, full_name: "New" })).toBe(false);
   });
 });

@@ -94,6 +94,10 @@ export function igUserStats(u) {
   return {
     userid: id,
     username: u.username || null,
+    full_name: u.full_name || null,
+    profile_pic_url: u.profile_pic_url || null,
+    is_verified: typeof u.is_verified === "boolean" ? u.is_verified : null,
+    is_private: typeof u.is_private === "boolean" ? u.is_private : null,
     follower_count,
     following_count: num(u.following_count),
     media_count,
@@ -139,4 +143,14 @@ export function mergeIgRecord(prev, next) {
   const out = { ...prev };
   for (const [k, v] of Object.entries(next || {})) if (v != null) out[k] = v;
   return out;
+}
+
+
+// Signed avatar URLs rotate without the profile changing. Keep the latest URL
+// in the replay cache, but do not emit a new sighting just for that rotation.
+export function sameIgUserStats(prev, next) {
+  if (!prev || !next) return false;
+  const { profile_pic_url: _prevAvatar, ...a } = prev;
+  const { profile_pic_url: _nextAvatar, ...b } = next;
+  return JSON.stringify(a) === JSON.stringify(b);
 }

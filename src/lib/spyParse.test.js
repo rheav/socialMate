@@ -125,7 +125,7 @@ describe("spyParse", () => {
         avatarUrl: "https://instagram.cdn/nasa_hd.jpg",
         bio: "Exploring the secrets of the universe.",
         externalUrl: "https://www.nasa.gov",
-        hasStory: true,
+        hasStory: null,
       });
     });
 
@@ -157,4 +157,10 @@ describe("spyParse", () => {
       expect(parseIgProfile({ data: {} })).toEqual({ ok: false, error: "parse_failed" });
     });
   });
+});
+
+
+it("parses the passive capture userid without treating highlights as active stories", () => {
+  expect(parseIgProfile({ userid: "123", username: "nasa", follower_count: 42,
+    has_highlight_reels: true })).toMatchObject({ userId: "123", followers: 42, hasStory: null });
 });

@@ -248,6 +248,7 @@ function openTxLangMenu(btn, onPick) {
     if (e.source !== window || !e.data || e.data.__fbwIgTakeover === undefined) return;
     if (e.data.__fbwIgTakeover === GEN || disabled) return;
     disabled = true;
+    chrome.storage.onChanged.removeListener(onSpyStorage);
     clearInterval(storyInterval);
     clearInterval(storyPathWatcher);
     window.removeEventListener("popstate", syncStoryTicker);
@@ -587,6 +588,41 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // author — so a post carries how big the account behind it is.
   const igUsers = new Map();
   const igUsersByName = new Map();
+  let spyNames = new Set();
+  const spyObservedAt = new Map();
+  function observeSpyUser(user) {
+    if (disabled) return;
+    const key = String(user.username || "").toLowerCase();
+    if (!spyNames.has(key) || !Number.isInteger(user.follower_count) || user.follower_count < 0) return;
+    const now = Date.now();
+    if (now - (spyObservedAt.get(key) ?? -Infinity) < 600000) return;
+    spyObservedAt.set(key, now);
+    try {
+      chrome.runtime.sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key, data: user }, (res) => {
+        if (chrome.runtime.lastError || !res?.ok) spyObservedAt.delete(key);
+      });
+    } catch { spyObservedAt.delete(key); }
+  }
+  function readSpyNames(spy) {
+    if (disabled) return;
+    const previous = spyNames;
+    spyNames = new Set(Object.values(spy?.profiles || {})
+      .filter((p) => p.platform === "instagram" && p.removedAt == null)
+      .map((p) => p.key.toLowerCase()));
+    for (const key of spyObservedAt.keys()) if (!spyNames.has(key)) spyObservedAt.delete(key);
+    // Capture can arrive before the asynchronous storage read (or before Save).
+    for (const user of igUsers.values()) {
+      if (!previous.has(String(user.username || "").toLowerCase())) observeSpyUser(user);
+    }
+  }
+  function onSpyStorage(changes, area) {
+    if (area === "local" && changes.fbw_spy) readSpyNames(changes.fbw_spy.newValue);
+  }
+  chrome.storage.onChanged.addListener(onSpyStorage);
+  chrome.storage.local.get("fbw_spy", (r) => {
+    if (!chrome.runtime.lastError) readSpyNames(r?.fbw_spy);
+  });
+
   function applyUserStats(rec) {
     // By id when the post names its author, by @handle when it doesn't — the
     // profile timeline's own items carry no `user` object at all.
@@ -618,6 +654,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         const merged = { ...(igUsers.get(r.userid) || {}), ...r };
         igUsers.set(r.userid, merged);
         if (merged.username) igUsersByName.set(merged.username, merged);
+        observeSpyUser(merged);
         // Backfill the posts already listed for this creator.
         for (const rec of byId.values())
           if (rec.userid === r.userid || (merged.username && rec.username === merged.username)) applyUserStats(rec);
@@ -785,6 +822,18 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
 
   // ---- run a job on request from the panel (relayed by background) ----
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (disabled) return;
+    if (msg?.type === "FBW_SPY_IG_BATCH") {
+      // Path B only reads the passive cache on this document; navigation belongs
+      // to the worker and survives this document being replaced.
+      if (location.hash !== "#socialmate-spy") { sendResponse({ ok: false }); return; }
+      for (const key of msg.usernames || []) {
+        const user = igUsersByName.get(key);
+        if (user) observeSpyUser(user);
+      }
+      sendResponse({ ok: true });
+      return;
+    }
     if (msg?.type === "FBW_VOICE_STATUS") {
       applyVoiceStatus(msg);
       return;
@@ -869,7 +918,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     }
     if (msg?.type === "FBW_IG_SCROLL_STOP") { igScrollStop = true; sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_IG_TOP") { window.scrollTo({ top: 0, behavior: "smooth" }); sendResponse?.({ ok: true }); return; }
-    if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true }); } // liveness ack (clears the panel's reload hint)
+    if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true, spy: true }); } // liveness ack (clears the panel's reload hint)
   });
 
   // ============================================================

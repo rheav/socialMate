@@ -49,7 +49,7 @@ import {
 } from "./lib/syncClient.js";
 
 import { parseProfileUrl, profileUrl, spyId } from "./lib/spyProfile.js";
-import { parseFbProfileHtml } from "./lib/spyParse.js";
+import { parseFbProfileHtml, parseIgProfile } from "./lib/spyParse.js";
 import {
   SPY_KEY,
   SPY_PREFS_KEY,
@@ -668,10 +668,12 @@ async function scheduleSpy() {
 
     if (!isConfigured || !dailyOn) {
       await chrome.alarms.clear("fbw-spy-tick");
+      serializeIg(() => closeIgBatch()).catch(() => {});
       return;
     }
 
-    const dues = dueProfiles(spy.profiles, state, Date.now());
+    const dues = dueProfiles(spy.profiles, state, Date.now())
+      .filter((p) => p.platform !== "instagram" || igDailyCount(state) < IG_SPY_LIMIT);
     const hasIgBatch = !!state.igBatch;
 
     if (dues.length > 0 || hasIgBatch) {
@@ -722,7 +724,7 @@ async function flushSpy({ attempt = 0 } = {}) {
       if (i === 0) {
         if (opsToSend.length) body.ops = opsToSend;
         if (snapshotsToSend.length) body.snapshots = snapshotsToSend;
-        if (errorsToSend.length) body.errors = errorsToSend;
+        if (errorsToSend.length) body.errors = errorsToSend.map((e) => ({ ...e, profileId: e.profileId || e.id }));
       }
       if (batchProfiles.length) {
         body.profiles = batchProfiles;
@@ -742,7 +744,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     const remainingProfiles = { ...(freshQueue.profiles || {}) };
     for (const p of profilesToSend) {
       const pid = p.id || (p.platform && p.key ? `${p.platform}:${p.key}` : null);
-      if (pid && remainingProfiles[pid] === queue.profiles[pid]) {
+      if (pid && JSON.stringify(remainingProfiles[pid]) === JSON.stringify(queue.profiles[pid])) {
         delete remainingProfiles[pid];
       }
     }
@@ -751,14 +753,14 @@ async function flushSpy({ attempt = 0 } = {}) {
     for (const s of snapshotsToSend) {
       const pid = s.profileId || s.profile_id || s.id;
       const key = `${pid}|${s.day}`;
-      if (remainingSnapshots[key] === queue.snapshots[key]) {
+      if (JSON.stringify(remainingSnapshots[key]) === JSON.stringify(queue.snapshots[key])) {
         delete remainingSnapshots[key];
       }
     }
 
     const remainingErrors = { ...(freshQueue.errors || {}) };
     for (const e of errorsToSend) {
-      if (remainingErrors[e.id] === queue.errors[e.id]) {
+      if (JSON.stringify(remainingErrors[e.id]) === JSON.stringify(queue.errors[e.id])) {
         delete remainingErrors[e.id];
       }
     }
@@ -922,7 +924,7 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
       avatar: avatarThumb || undefined,
       verified: parsed.verified !== null && parsed.verified !== undefined ? (parsed.verified ? 1 : 0) : undefined,
       storyRef: parsed.storyRef || undefined,
-      metaUpdatedAt: now,
+      at: now,
     };
 
     const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
@@ -971,6 +973,224 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
   }
 }
 
+// Path B: the worker owns navigation; page capture remains passive. Persist the
+// deadline and request budget before navigating so a worker restart cannot repeat
+// a profile or reset the daily cap. The ordinary alarm is the recovery watchdog.
+let igStepTimer = null;
+let igOwnedTab = null;
+let igStopReason = null;
+let igWork = Promise.resolve();
+function serializeIg(work) {
+  const next = igWork.then(work, work);
+  igWork = next.catch(() => {});
+  return next;
+}
+const IG_SPY_MARKER = "#socialmate-spy";
+const IG_SPY_LIMIT = 20;
+function igDailyCount(state, now = Date.now()) {
+  return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
+}
+function armIgStep(at) {
+  clearTimeout(igStepTimer);
+  igStepTimer = setTimeout(() => {
+    igStepTimer = null;
+    serializeIg(advanceIgBatch).catch(() => {});
+  }, Math.max(0, at - Date.now()));
+}
+async function closeIgBatch({ abandoned = false } = {}) {
+  clearTimeout(igStepTimer);
+  igStepTimer = null;
+  const r = await chrome.storage.local.get(SPY_STATE_KEY);
+  let state = r[SPY_STATE_KEY] || emptySpyState();
+  const batch = state.igBatch;
+  if (!batch) return;
+  igOwnedTab = null;
+  igStopReason = null;
+  if (abandoned) {
+    for (const key of batch.pending) {
+      // A navigation already spent its attempt; only untouched pending items
+      // need accounting on timeout.
+      if (key !== batch.current) state = recordAttempt(state, spyId("instagram", key), false);
+    }
+  }
+  await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: null } });
+  if (batch.own) {
+    try {
+      const tab = await chrome.tabs.get(batch.tabId);
+      // If the user repurposed the tab, relinquish it.
+      if (tab?.url?.endsWith(IG_SPY_MARKER) || /instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(tab?.url || "")) {
+        await chrome.tabs.remove(batch.tabId);
+      }
+    } catch { /* tab already closed */ }
+  }
+}
+async function advanceIgBatch() {
+  const settings = await readSyncSettings();
+  const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
+  const now = Date.now();
+  let state = r[SPY_STATE_KEY] || emptySpyState(now);
+  const profiles = r[SPY_KEY]?.profiles || {};
+  let batch = state.igBatch;
+  if (!isSyncConfigured(settings) || r[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram", now)) {
+    await closeIgBatch();
+    return;
+  }
+  if (batch && (now - batch.startedAt >= 900000 || dayKey(batch.startedAt) !== dayKey(now))) {
+    await closeIgBatch({ abandoned: true });
+    return;
+  }
+  if (!batch) {
+    const remaining = IG_SPY_LIMIT - igDailyCount(state, now);
+    const pending = dueProfiles(profiles, state, now)
+      .filter((p) => p.platform === "instagram")
+      .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0))
+      .slice(0, Math.max(0, remaining)).map((p) => p.key);
+    if (!pending.length) return;
+    const tab = await chrome.tabs.create({ url: "https://www.instagram.com/" + IG_SPY_MARKER, active: false });
+    igOwnedTab = tab.id;
+    igStopReason = null;
+    batch = { tabId: tab.id, own: true, startedAt: now, pending, current: null, nextAt: now };
+    state = { ...state, igBatch: batch };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    // Poll only our bridge, for at most 20 seconds. These are extension messages,
+    // not requests to Instagram.
+    let ready = false;
+    for (let i = 0; i < 20; i++) {
+      try {
+        const pong = await chrome.tabs.sendMessage(tab.id, { type: "FBW_PING" });
+        if (pong?.spy) { ready = true; break; }
+      } catch { /* document still loading */ }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    if (igStopReason) {
+      await blockPlatform("instagram", igStopReason, null);
+      await closeIgBatch();
+      return;
+    }
+    if (!ready) { await closeIgBatch({ abandoned: true }); return; }
+  }
+  if (!batch.own) { await closeIgBatch(); return; }
+  igOwnedTab = batch.tabId;
+  if (batch.nextAt > Date.now()) { armIgStep(batch.nextAt); return; }
+  try {
+    const tab = await chrome.tabs.get(batch.tabId);
+    if (!tab?.url?.endsWith(IG_SPY_MARKER)) { await closeIgBatch(); return; }
+  } catch { await closeIgBatch(); return; }
+  if (batch.current) {
+    await recordProfileError(spyId("instagram", batch.current), "parse_failed");
+    batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null };
+  }
+  const currentR = await chrome.storage.local.get([SPY_STATE_KEY, SPY_KEY, SPY_PREFS_KEY]);
+  state = currentR[SPY_STATE_KEY] || state;
+  if (currentR[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram")) { await closeIgBatch(); return; }
+  const live = currentR[SPY_KEY]?.profiles || {};
+  batch.pending = batch.pending.filter((key) => {
+    const p = live[spyId("instagram", key)];
+    return p && p.removedAt == null && (!p.lastMeasuredAt || dayKey(p.lastMeasuredAt) !== dayKey());
+  });
+  if (!batch.pending.length || igDailyCount(state) >= IG_SPY_LIMIT) { await closeIgBatch(); return; }
+  const key = batch.pending[0];
+  const at = Date.now();
+  batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
+  state = recordAttempt(state, spyId("instagram", key), false, at);
+  state = { ...state, igBatch: batch, igDaily: { day: dayKey(at), count: igDailyCount(state, at) + 1 } };
+  await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+  try {
+    await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", key) + IG_SPY_MARKER });
+    armIgStep(batch.nextAt);
+  } catch {
+    await recordProfileError(spyId("instagram", key), "network");
+    await closeIgBatch();
+  }
+}
+async function observeIgProfile(msg, sender) {
+  if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
+  let origin;
+  try { origin = new URL(sender.url || sender.tab?.url).hostname; } catch { return { ok: false }; }
+  if (!sender.tab || !(origin === "instagram.com" || origin.endsWith(".instagram.com"))) return { ok: false };
+  const key = String(msg.key || "").toLowerCase();
+  if (msg.platform !== "instagram" || String(msg.data?.username || "").toLowerCase() !== key) return { ok: false };
+  const id = spyId("instagram", key);
+  let r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY]);
+  let state = r[SPY_STATE_KEY] || emptySpyState();
+  let profile = r[SPY_KEY]?.profiles?.[id];
+  if (!profile || profile.removedAt != null) return { ok: false, error: "unknown" };
+  const batch = state.igBatch;
+  const inOwnTab = batch?.own && batch.tabId === sender.tab.id;
+  if (inOwnTab && batch.current !== key) return { ok: false };
+  const daily = !!inOwnTab;
+  const now = Date.now();
+  if (!daily && now - (profile.lastObservedAt || 0) < 600000) return { ok: true, skipped: true };
+  // An old document in a completed batch must not turn a daily result into a visit.
+  if (!daily && (sender.url || "").endsWith(IG_SPY_MARKER)) return { ok: false };
+  const parsed = parseIgProfile(msg.data);
+  if (!parsed.ok || !Number.isInteger(parsed.followers) || parsed.followers < 0) return { ok: false, error: "parse_failed" };
+  let avatar = null;
+  if (parsed.avatarUrl && (!profile.hasAvatar || now - (profile.avatarUpdatedAt || 0) >= 7 * 86400000)) {
+    avatar = await durableThumb(parsed.avatarUrl);
+  }
+  // Re-read after fetching the avatar: a concurrent removal must win.
+  r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY]);
+  state = r[SPY_STATE_KEY] || state;
+  profile = r[SPY_KEY]?.profiles?.[id];
+  if (!profile || profile.removedAt != null) return { ok: false, error: "unknown" };
+  let queue = queueSnapshot(r[SPY_QUEUE_KEY], { profileId: id, day: dayKey(now), measuredAt: now,
+    followers: parsed.followers, followersApprox: false, following: parsed.following, posts: parsed.posts,
+    hasStory: null, source: daily ? "daily" : "visit" });
+  const patch = { id, at: now, userId: parsed.userId, name: parsed.name, bio: parsed.bio,
+    externalUrl: parsed.externalUrl, verified: parsed.verified, private: parsed.private };
+  if (avatar) patch.avatar = avatar;
+  queue = queueProfile(queue, patch);
+  if (daily && state.igBatch?.tabId === sender.tab.id) {
+    state = { ...state, igBatch: { ...state.igBatch, current: null,
+      pending: state.igBatch.pending.filter((u) => u !== key) } };
+  }
+  await chrome.storage.local.set({
+    [SPY_QUEUE_KEY]: queue,
+    [SPY_KEY]: { ...r[SPY_KEY], profiles: { ...r[SPY_KEY].profiles, [id]: { ...profile,
+      name: parsed.name || profile.name, userId: parsed.userId || profile.userId, lastMeasuredAt: now,
+      ...(!daily ? { lastObservedAt: now } : {}),
+      ...(avatar ? { hasAvatar: true, avatarUpdatedAt: now } : {}) } } },
+    [SPY_STATE_KEY]: state,
+  });
+  if (daily) {
+    if (!state.igBatch?.pending.length) await closeIgBatch();
+    else armIgStep(state.igBatch.nextAt);
+  }
+  scheduleFlushSpy();
+  return { ok: true };
+}
+// Inspect only traffic belonging to the tab this batch opened. A rate-limit or
+// login response stops this network; no request is made by this observer.
+chrome.webRequest?.onCompleted?.addListener((details) => {
+  if (![401, 403, 429].includes(details.statusCode)) return;
+  if (details.tabId === igOwnedTab) igStopReason = details.statusCode === 429 ? "rate_limited" : "login_required";
+  serializeIg(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const batch = r[SPY_STATE_KEY]?.igBatch;
+    if (!batch?.own || batch.tabId !== details.tabId) return;
+    await blockPlatform("instagram", details.statusCode === 429 ? "rate_limited" : "login_required",
+      batch.current ? spyId("instagram", batch.current) : null);
+    await closeIgBatch();
+  }).catch(() => {});
+}, { urls: ["https://*.instagram.com/*"] });
+chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
+  if (!change.url && change.status !== "complete") return;
+  if (tabId === igOwnedTab && /instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(change.url || tab?.url || "")) igStopReason = "login_required";
+  serializeIg(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const batch = r[SPY_STATE_KEY]?.igBatch;
+    if (!batch?.own || batch.tabId !== tabId) return;
+    const url = change.url || tab?.url || "";
+    if (/instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(url)) {
+      await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null);
+      await closeIgBatch();
+    } else if (change.status === "complete" && batch.current) {
+      try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [batch.current] }); } catch { /* alarm handles missing bridge */ }
+    }
+  }).catch(() => {});
+});
+
 async function spyTick({ manual = false } = {}) {
   if (spyTicking) return { ok: false, error: "busy" };
   spyTicking = true;
@@ -993,6 +1213,13 @@ async function spyTick({ manual = false } = {}) {
         attempts: {},
         lastError: null,
       };
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    }
+
+    const prefs = await chrome.storage.local.get(SPY_PREFS_KEY);
+    if (prefs[SPY_PREFS_KEY]?.daily === false) {
+      await serializeIg(() => closeIgBatch());
+      return { ok: true, skipped: "disabled" };
     }
 
     // 1. Refresh profile list if older than 10 minutes or manual
@@ -1024,13 +1251,16 @@ async function spyTick({ manual = false } = {}) {
       }
     }
 
-    // 3. Instagram measurement (hook for E4)
+    // 3. Instagram path B (resumes the persisted batch after a worker wake).
+    await serializeIg(advanceIgBatch);
 
     // 4. Flush spy queue
     await flushSpy();
 
-    state.lastPassAt = Date.now();
-    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    await serializeIg(async () => {
+      const latestState = await chrome.storage.local.get(SPY_STATE_KEY);
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...(latestState[SPY_STATE_KEY] || state), lastPassAt: Date.now() } });
+    });
 
     // 5. Schedule next tick
     await scheduleSpy();
@@ -2173,6 +2403,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       flushSync({ manual: true })
         .then(sendResponse)
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    case "FBW_SPY_OBSERVE": {
+      serializeIg(() => observeIgProfile(msg, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "network" }));
       return true;
     }
     // panel → bg: Spy area operations

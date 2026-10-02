@@ -138,11 +138,12 @@ export function parseIgProfile(json) {
   }
 
   const user = json.data?.user || json.graphql?.user || json.user || json;
-  if (!user || (!user.id && !user.pk && !user.username)) {
+  if (!user || (!user.id && !user.pk && !user.userid && !user.username)) {
     return { ok: false, error: "parse_failed" };
   }
 
-  const userId = user.id ? String(user.id) : user.pk ? String(user.pk) : null;
+  const rawId = user.userid ?? user.id ?? user.pk;
+  const userId = rawId == null ? null : String(rawId);
   const name = user.full_name ?? user.name ?? null;
   const bio = user.biography ?? user.bio ?? null;
   const externalUrl = user.external_url ?? user.externalUrl ?? null;
@@ -171,12 +172,8 @@ export function parseIgProfile(json) {
     posts = user.edge_owner_to_timeline_media.count;
   }
 
-  let hasStory = null;
-  if (typeof user.has_highlight_reels === "boolean") {
-    hasStory = user.has_highlight_reels;
-  } else if (typeof user.hasStory === "boolean") {
-    hasStory = user.hasStory;
-  }
+  // P0 did not establish an active-story signal. Highlights are not live stories.
+  const hasStory = null;
 
   return {
     ok: true,

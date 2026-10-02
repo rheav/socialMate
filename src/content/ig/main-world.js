@@ -110,8 +110,8 @@
         if (!stats) continue;
         const prev = users.get(stats.userid);
         const next = mergeIgRecord(prev, stats);
-        if (prev && JSON.stringify(prev) === JSON.stringify(next)) continue;
         users.set(stats.userid, next);
+        if (sameIgUserStats(prev, next)) continue;
         out.push({ __kind: "user", ...next });
       }
       while (users.size > 400) users.delete(users.keys().next().value);
@@ -477,6 +477,10 @@ function igUserStats(u) {
   return {
     userid: id,
     username: u.username || null,
+    full_name: u.full_name || null,
+    profile_pic_url: u.profile_pic_url || null,
+    is_verified: typeof u.is_verified === "boolean" ? u.is_verified : null,
+    is_private: typeof u.is_private === "boolean" ? u.is_private : null,
     follower_count,
     following_count: num(u.following_count),
     media_count,
@@ -522,6 +526,16 @@ function mergeIgRecord(prev, next) {
   const out = { ...prev };
   for (const [k, v] of Object.entries(next || {})) if (v != null) out[k] = v;
   return out;
+}
+
+
+// Signed avatar URLs rotate without the profile changing. Keep the latest URL
+// in the replay cache, but do not emit a new sighting just for that rotation.
+function sameIgUserStats(prev, next) {
+  if (!prev || !next) return false;
+  const { profile_pic_url: _prevAvatar, ...a } = prev;
+  const { profile_pic_url: _nextAvatar, ...b } = next;
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 // >>> inline:end
 // <<< inline:src/lib/shared/igPlayerHost.js
@@ -975,6 +989,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   }
 
   function queueEnrichment(rec) {
+    if (location.hash === "#socialmate-spy") return;
     if (!needsEnrichment(rec) || enrichAsked.has(rec.pk)) return;
     enrichAsked.add(rec.pk);
     // The surface travels WITH the pk: stamping the live surface when the answer
@@ -1019,6 +1034,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // Relay store, so there is nothing richer to read there — but the shortcode IS
   // the pk (igPkFromCode), and media/info answers for any media type.
   function enrichUnseenTiles() {
+    if (location.hash === "#socialmate-spy") return;
     if (document.visibilityState !== "visible") return;
     let codes;
     try { codes = onScreenCodes(); } catch (_) { return; }
