@@ -715,22 +715,30 @@ function ruleKey(rule) {
     // to re-arm it. A page with no rule set gets no chip at all.
     if (!rule.on && !activeMetrics(rule).length) return removeChip();
     if (!chip) {
-      chip = document.createElement("div");
+      chip = document.createElement("button");
+      chip.type = "button";
       chip.id = "sw-fbfilter-chip";
+      // Same surface as the Instagram sort bar (shared/pageSorter.js PS_CSS).
       chip.style.cssText = [
         "position:fixed",
-        "left:16px",
-        "bottom:16px",
+        "left:50%",
+        "bottom:18px",
+        "transform:translateX(-50%)",
         "z-index:2147483000",
         "display:flex",
         "align-items:center",
-        "gap:8px",
-        "padding:8px 12px",
+        "gap:6px",
+        "padding:6px 8px 6px 10px",
+        "min-height:40px",
+        "max-width:calc(100vw - 32px)",
+        "box-sizing:border-box",
         "border-radius:999px",
-        "font:600 12px/1.2 system-ui,-apple-system,Segoe UI,sans-serif",
+        "font:600 12px/1 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
         "color:#fff",
-        "background:linear-gradient(135deg,#3c7cfc 0%,#59c0e8 100%)",
-        "box-shadow:0 6px 20px rgba(0,0,0,.25)",
+        "background:rgba(17,20,32,.92)",
+        "border:1px solid rgba(150,185,255,.35)",
+        "box-shadow:0 6px 24px rgba(0,0,0,.45)",
+        "backdrop-filter:blur(8px)",
         "cursor:pointer",
         "user-select:none",
       ].join(";");
@@ -743,6 +751,8 @@ function ruleKey(rule) {
     chip.textContent = rule.on
       ? `${stats.shown} exibidos · ${stats.hidden} ocultos`
       : `filtro desligado · ${stats.total} posts`;
+    chip.setAttribute("aria-pressed", String(rule.on));
+    chip.setAttribute("aria-label", `${chip.textContent}. ${rule.on ? "Desligar" : "Ligar"} filtro de engajamento`);
     chip.style.opacity = rule.on ? "1" : "0.6";
   }
 

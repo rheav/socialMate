@@ -45,3 +45,16 @@ export function boundMediaIsStale({ floating, connected, railRect, boundRect }, 
   if (!floating) return false;
   return !railHitsMedia(railRect, boundRect, slack);
 }
+
+// Caption jobs may finish before earlier Whisper jobs. Match their actual ID,
+// preserving FIFO only for legacy jobs whose ID wasn't known when dispatched.
+export function takePendingMediaJobs(queue, videoId, button) {
+  let matches = button ? queue.filter(b => b === button)
+    : videoId ? queue.filter(b => b._jobVideoId === videoId) : [];
+  if (!matches.length && !button) {
+    const legacy = queue.find(b => !b._jobVideoId);
+    if (legacy) matches = [legacy];
+  }
+  for (const b of matches) queue.splice(queue.indexOf(b), 1);
+  return matches;
+}

@@ -76,6 +76,12 @@ export default defineManifest({
       js: ["src/content/transcription/inject.js"],
       run_at: "document_idle",
     },
+    {
+      matches: ["*://*.facebook.com/*"],
+      js: ["src/content/fb/video-capture.js"],
+      run_at: "document_start",
+      world: "MAIN",
+    },
     // FB reels-tab grid capture (DOM tiles + embedded JSON) → panel Reels Sort.
     {
       matches: ["*://*.facebook.com/*"],

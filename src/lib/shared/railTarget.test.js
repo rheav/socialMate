@@ -1,5 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { railHitsMedia, mediaUnderRail, boundMediaIsStale } from "./railTarget.js";
+import { railHitsMedia, mediaUnderRail, boundMediaIsStale, takePendingMediaJobs } from "./railTarget.js";
+
+describe("media job feedback", () => {
+  it("resolves the second video's result without clearing the first spinner", () => {
+    const a = { _jobVideoId: "111" }, b = { _jobVideoId: "222" };
+    const queue = [a, b];
+    expect(takePendingMediaJobs(queue, "222")).toEqual([b]);
+    expect(queue).toEqual([a]);
+    expect(takePendingMediaJobs(queue, "333")).toEqual([]);
+    expect(queue).toEqual([a]);
+  });
+  it("releases all buttons waiting for the same deduplicated job", () => {
+    const a = { _jobVideoId: "111" }, b = { _jobVideoId: "111" };
+    const queue = [a, b];
+    expect(takePendingMediaJobs(queue, "111")).toEqual([a, b]);
+    expect(queue).toEqual([]);
+  });
+  it("handles a local capture error on its own button only", () => {
+    const a = {}, b = {};
+    const queue = [a, b];
+    expect(takePendingMediaJobs(queue, null, b)).toEqual([b]);
+    expect(queue).toEqual([a]);
+  });
+});
 
 // Numbers taken from the live repro on facebook.com/hashtag/soulmate (2026-08-10):
 // three feed videos, the viewport 1134px tall, and rails frozen at the positions

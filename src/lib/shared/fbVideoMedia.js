@@ -1,0 +1,121 @@
+// Facebook search hydration and streamed GraphQL → bounded, per-video records.
+// Inlined into MAIN capture and the isolated transcription script.
+export function fbSearchVideosSurface(path) {
+  return /^\/search\/(top|posts|videos)\/?$/.test(path);
+}
+
+export function fbMediaUrl(value) {
+  if (typeof value !== "string" || value.length > 16000) return null;
+  try {
+    const u = new URL(value);
+    return u.protocol === "https:" && u.hostname.endsWith(".fbcdn.net") ? value : null;
+  } catch { return null; }
+}
+
+export function fbCoverKey(url) {
+  const safe = fbMediaUrl(url);
+  // CDN hosts and crop/signature parameters vary; the asset path does not.
+  return safe ? new URL(safe).pathname : null;
+}
+
+export function mergeFbVideo(prev, next) {
+  return {
+    id: next.id,
+    durationS: next.durationS || prev?.durationS || null,
+    permalink: next.permalink || prev?.permalink || null,
+    audio: next.audio || prev?.audio || null,
+    progressive: next.progressive || prev?.progressive || null,
+    thumbs: [...new Set([...(prev?.thumbs || []), ...(next.thumbs || [])])].slice(-12),
+    captions: [...new Map([...(prev?.captions || []), ...(next.captions || [])].map(c => [c.lang, c])).values()].slice(-30),
+  };
+}
+
+export function collectFbVideos(root) {
+  const records = new Map();
+  const seen = new WeakSet();
+  let budget = 180000;
+  function walk(o, depth) {
+    if (!o || typeof o !== "object" || depth > 60 || budget-- <= 0 || seen.has(o)) return;
+    seen.add(o);
+    if (o.__typename === "Video" && /^\d{6,}$/.test(o.id || "")) {
+      const result = o.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
+      const legacy = o.videoDeliveryLegacyFields;
+      const thumbs = [o.first_frame_thumbnail, o.preferred_thumbnail?.image?.uri,
+        o.thumbnailImage?.uri, o.image?.uri, o.imageLargeAspect?.uri,
+        o.imageFlexible?.uri, o.imageServerSelected?.uri].map(fbMediaUrl).filter(Boolean);
+      let audio = null;
+      let progressive = null;
+      for (const row of result?.progressive_urls || []) {
+        const url = fbMediaUrl(row.progressive_url);
+        if (url && (!progressive || /hd/i.test(row.metadata?.quality || ""))) progressive = url;
+      }
+      for (const row of result?.dash_manifests || []) {
+        if (typeof row.manifest_xml !== "string") continue;
+        try {
+          const xml = new DOMParser().parseFromString(row.manifest_xml, "application/xml");
+          for (const rep of xml.querySelectorAll("Representation")) {
+            const mime = rep.getAttribute("mimeType") || rep.parentElement?.getAttribute("mimeType");
+            if (mime?.startsWith("audio/")) audio ||= fbMediaUrl(rep.querySelector("BaseURL")?.textContent?.trim());
+          }
+        } catch { /* Keep progressive/fallback when a manifest is malformed. */ }
+      }
+      // Older delivery payloads still occur on other Facebook surfaces.
+      if (legacy) {
+        progressive ||= fbMediaUrl(legacy.browser_native_hd_url) || fbMediaUrl(legacy.browser_native_sd_url);
+      }
+      const captions = (o.video_available_captions_locales || []).flatMap(c => {
+        const url = fbMediaUrl(c.captions_url);
+        return url && typeof c.locale === "string" ? [{ url, lang: c.locale.slice(0, 20) }] : [];
+      });
+      let permalink = null;
+      try {
+        const u = new URL(o.permalink_url);
+        if (u.protocol === "https:" && /(^|\.)facebook\.com$/.test(u.hostname) &&
+          (u.pathname.includes(`/reel/${o.id}`) || u.pathname.includes(`/videos/${o.id}`) || u.searchParams.get("v") === o.id))
+          permalink = u.origin + u.pathname + (u.searchParams.get("v") ? `?v=${o.id}` : "");
+      } catch {}
+      const durationS = Number.isFinite(o.playable_duration_in_ms) && o.playable_duration_in_ms > 0
+        ? o.playable_duration_in_ms / 1000 : null;
+      if (audio || progressive || thumbs.length || durationS || captions.length) {
+        const row = { id: o.id, durationS, permalink, audio, progressive, thumbs, captions };
+        records.set(o.id, mergeFbVideo(records.get(o.id), row));
+      }
+    }
+    for (const v of Object.values(o)) walk(v, depth + 1);
+  }
+  walk(root, 0);
+  return [...records.values()];
+}
+
+export function parseFbVideoResponse(text) {
+  const records = new Map();
+  for (const line of String(text).split("\n")) {
+    try {
+      const data = JSON.parse(line.replace(/^for\s*\(;;\);\s*/, ""));
+      for (const row of collectFbVideos(data)) records.set(row.id, mergeFbVideo(records.get(row.id), row));
+    } catch { /* A broken deferred part must not discard the other parts. */ }
+  }
+  return [...records.values()];
+}
+
+export function matchFbVideo(records, hint = {}) {
+  const rows = [...records];
+  const covers = new Set((hint.thumbs || []).map(fbCoverKey).filter(Boolean));
+  if (hint.id) {
+    const record = rows.find(r => r.id === hint.id);
+    // A caption may link to a different reel. A conflicting cover vetoes that
+    // link instead of silently using the linked video's audio for this post.
+    return record && (!covers.size || record.thumbs.some(t => covers.has(fbCoverKey(t)))) ? record : null;
+  }
+  if (!covers.size) return null; // duration/recency alone is never an identity
+  const matches = rows.filter(r => r.thumbs.some(t => covers.has(fbCoverKey(t))) &&
+    !(r.durationS && Number.isFinite(hint.durationS) && Math.abs(r.durationS - hint.durationS) > 1.5));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function fbCaptionFor(record, language) {
+  // Auto is resolved by Whisper from the post text. Do not silently substitute
+  // a translated or unknown-language caption when the user chose Auto/BR/EN.
+  const lang = language === "br" || language === "pt" ? "pt" : language === "en" ? "en" : null;
+  return lang ? record?.captions?.find(c => c.lang.split(/[-_]/)[0].toLowerCase() === lang) || null : null;
+}
