@@ -120,3 +120,22 @@ export function postSync(settings, body, fetchImpl = fetch) {
     fetchImpl,
   );
 }
+
+/** Fetch spy profiles tracked on the hub. */
+export function getSpyProfiles(settings, fetchImpl = fetch) {
+  const s = syncSettings(settings);
+  return send(s.url, s.token, "/api/sync/spy/profiles", { method: "GET" }, fetchImpl);
+}
+
+/** Push a batch of spy operations, metadata, snapshots, and errors. */
+export function postSpy(settings, body, fetchImpl = fetch) {
+  const s = syncSettings(settings);
+  return send(
+    s.url,
+    s.token,
+    "/api/sync/spy",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    fetchImpl,
+  );
+}
+

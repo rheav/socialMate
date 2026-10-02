@@ -4,10 +4,12 @@ import {
   isSyncConfigured,
   backoffDelay,
   batchRecords,
+  getSpyProfiles,
   isRetryable,
   isSyncReady,
   pingSync,
   postSync,
+  postSpy,
   syncSettings,
 } from "./syncClient.js";
 
@@ -84,5 +86,37 @@ describe("requests", () => {
   it("surfaces the status code so the caller can decide whether to retry", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 401 }));
     await expect(pingSync({ url: "https://h", token: "bad" }, fetchImpl)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("getSpyProfiles sends the token and fetches /api/sync/spy/profiles", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, profiles: [] }) }));
+    const res = await getSpyProfiles({ enabled: true, url: "https://h", token: "secret" }, fetchImpl);
+    expect(res).toEqual({ ok: true, profiles: [] });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://h/api/sync/spy/profiles");
+    expect(init.method).toBe("GET");
+    expect(init.headers["X-Sync-Token"]).toBe("secret");
+  });
+
+  it("getSpyProfiles surfaces status errors like 404 or 401", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 404 }));
+    await expect(getSpyProfiles({ url: "https://h", token: "secret" }, fetchImpl)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("postSpy sends the token and posts to /api/sync/spy", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, results: {} }) }));
+    const body = { ops: [{ op: "save", platform: "instagram", key: "nasa", at: 1000 }] };
+    await postSpy({ enabled: true, url: "https://h", token: "secret" }, body, fetchImpl);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://h/api/sync/spy");
+    expect(init.method).toBe("POST");
+    expect(init.headers["X-Sync-Token"]).toBe("secret");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual(body);
+  });
+
+  it("postSpy surfaces status errors like 400 or 503", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 503 }));
+    await expect(postSpy({ url: "https://h", token: "secret" }, {}, fetchImpl)).rejects.toMatchObject({ status: 503 });
   });
 });

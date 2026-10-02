@@ -1,0 +1,337 @@
+import { describe, expect, it } from "vitest";
+import {
+  dayKey,
+  dueProfiles,
+  emptySpyQueue,
+  emptySpyState,
+  isBlocked,
+  mergeList,
+  queueError,
+  queueOp,
+  queueProfile,
+  queueSnapshot,
+} from "./spyStore.js";
+
+describe("spyStore", () => {
+  describe("dayKey", () => {
+    it("formats local YYYY-MM-DD and handles day turnover", () => {
+      // Create dates in local time
+      const today = new Date(2026, 9, 2, 23, 59, 59); // Oct 2, 2026 23:59:59
+      const tomorrow = new Date(2026, 9, 3, 0, 0, 1);  // Oct 3, 2026 00:00:01
+
+      expect(dayKey(today.getTime())).toBe("2026-10-02");
+      expect(dayKey(tomorrow.getTime())).toBe("2026-10-03");
+    });
+  });
+
+  describe("mergeList", () => {
+    it("removes server-deleted profiles from local copy", () => {
+      const cache = {
+        profiles: {
+          "instagram:nasa": {
+            id: "instagram:nasa",
+            platform: "instagram",
+            key: "nasa",
+            listUpdatedAt: 1000,
+            removedAt: null,
+          },
+        },
+      };
+
+      const serverList = [
+        {
+          id: "instagram:nasa",
+          platform: "instagram",
+          key: "nasa",
+          listUpdatedAt: 2000,
+          removedAt: 2000,
+        },
+      ];
+
+      const merged = mergeList(cache, serverList);
+      expect(merged.profiles["instagram:nasa"]).toBeUndefined();
+    });
+
+    it("drops local profiles absent from an updated server list", () => {
+      const cache = {
+        profiles: {
+          "instagram:old": {
+            id: "instagram:old",
+            platform: "instagram",
+            key: "old",
+            listUpdatedAt: 1000,
+          },
+        },
+      };
+
+      const serverList = [
+        {
+          id: "instagram:fresh",
+          platform: "instagram",
+          key: "fresh",
+          listUpdatedAt: 2000,
+          removedAt: null,
+        },
+      ];
+
+      const merged = mergeList(cache, serverList);
+      expect(merged.profiles["instagram:old"]).toBeUndefined();
+      expect(merged.profiles["instagram:fresh"]).toBeDefined();
+    });
+
+    it("preserves local operations in queue from being undone by an older server list", () => {
+      // 1. Local optimistic save with newer listUpdatedAt
+      const cache = {
+        profiles: {
+          "instagram:nasa": {
+            id: "instagram:nasa",
+            platform: "instagram",
+            key: "nasa",
+            listUpdatedAt: 3000,
+            removedAt: null,
+          },
+        },
+      };
+
+      // Older server list arrived (e.g. from an earlier fetch or delayed sync)
+      const olderServerList = [
+        {
+          id: "instagram:nasa",
+          platform: "instagram",
+          key: "nasa",
+          listUpdatedAt: 1000,
+          removedAt: 1000,
+        },
+      ];
+
+      const merged1 = mergeList(cache, olderServerList);
+      expect(merged1.profiles["instagram:nasa"]).toBeDefined();
+      expect(merged1.profiles["instagram:nasa"].listUpdatedAt).toBe(3000);
+
+      // 2. Pending save in pendingOps
+      const pendingOps = [{ op: "save", id: "facebook:meta", at: 3000 }];
+      const olderServerList2 = [
+        {
+          id: "facebook:meta",
+          platform: "facebook",
+          key: "meta",
+          listUpdatedAt: 1000,
+          removedAt: 1000,
+        },
+      ];
+
+      const merged2 = mergeList({ profiles: {} }, olderServerList2, pendingOps);
+      expect(merged2.profiles["facebook:meta"]).toBeDefined();
+
+      // 3. Pending remove in pendingOps prevents older active server entry
+      const pendingRemove = [{ op: "remove", id: "instagram:nasa", at: 4000 }];
+      const serverActive = [
+        {
+          id: "instagram:nasa",
+          platform: "instagram",
+          key: "nasa",
+          listUpdatedAt: 2000,
+          removedAt: null,
+        },
+      ];
+      const merged3 = mergeList(cache, serverActive, pendingRemove);
+      expect(merged3.profiles["instagram:nasa"]).toBeUndefined();
+    });
+  });
+
+  describe("queue helpers", () => {
+    it("queueOp appends operations purely", () => {
+      const q0 = emptySpyQueue();
+      const q1 = queueOp(q0, "save", { platform: "instagram", key: "nasa" }, 1000);
+      expect(q0.ops).toHaveLength(0);
+      expect(q1.ops).toEqual([{ op: "save", platform: "instagram", key: "nasa", at: 1000 }]);
+
+      const q2 = queueOp(q1, { op: "remove", id: "instagram:nasa", at: 2000 });
+      expect(q2.ops).toHaveLength(2);
+    });
+
+    it("queueSnapshot keeps newest snapshot by id|day and does not let null erase followers", () => {
+      const q0 = emptySpyQueue();
+      const snap1 = {
+        profileId: "instagram:nasa",
+        day: "2026-10-02",
+        measuredAt: 1000,
+        followers: 50000,
+        followersApprox: false,
+        source: "daily",
+      };
+
+      const q1 = queueSnapshot(q0, snap1);
+      expect(q1.snapshots["instagram:nasa|2026-10-02"].followers).toBe(50000);
+
+      // Newer snapshot arrives with null followers: should NOT erase 50000
+      const snap2 = {
+        profileId: "instagram:nasa",
+        day: "2026-10-02",
+        measuredAt: 2000,
+        followers: null,
+        source: "visit",
+      };
+      const q2 = queueSnapshot(q1, snap2);
+      expect(q2.snapshots["instagram:nasa|2026-10-02"].followers).toBe(50000);
+      expect(q2.snapshots["instagram:nasa|2026-10-02"].source).toBe("visit");
+      expect(q2.snapshots["instagram:nasa|2026-10-02"].measuredAt).toBe(2000);
+
+      // Newer snapshot with real followers updates count
+      const snap3 = {
+        profileId: "instagram:nasa",
+        day: "2026-10-02",
+        measuredAt: 3000,
+        followers: 52000,
+        source: "visit",
+      };
+      const q3 = queueSnapshot(q2, snap3);
+      expect(q3.snapshots["instagram:nasa|2026-10-02"].followers).toBe(52000);
+
+      // Older snapshot arriving late does not overwrite newer count
+      const snapOld = {
+        profileId: "instagram:nasa",
+        day: "2026-10-02",
+        measuredAt: 500,
+        followers: 40000,
+        source: "daily",
+      };
+      const q4 = queueSnapshot(q3, snapOld);
+      expect(q4.snapshots["instagram:nasa|2026-10-02"].followers).toBe(52000);
+    });
+
+    it("queueProfile merges profile patches", () => {
+      const q0 = emptySpyQueue();
+      const q1 = queueProfile(q0, { id: "instagram:nasa", name: "NASA" });
+      const q2 = queueProfile(q1, { id: "instagram:nasa", verified: true });
+      expect(q2.profiles["instagram:nasa"]).toEqual({
+        id: "instagram:nasa",
+        name: "NASA",
+        verified: true,
+      });
+    });
+
+    it("queueError records error by profile id", () => {
+      const q0 = emptySpyQueue();
+      const q1 = queueError(q0, "instagram:nasa", "rate_limited", 5000);
+      expect(q1.errors["instagram:nasa"]).toEqual({
+        id: "instagram:nasa",
+        error: "rate_limited",
+        at: 5000,
+      });
+    });
+  });
+
+  describe("isBlocked", () => {
+    it("checks whether platform is blocked until a future timestamp", () => {
+      const now = 10000;
+      const state = {
+        blocked: {
+          instagram: 20000,
+          facebook: 5000,
+        },
+      };
+
+      expect(isBlocked(state, "instagram", now)).toBe(true);
+      expect(isBlocked(state, "facebook", now)).toBe(false);
+      expect(isBlocked(state, "tiktok", now)).toBe(false);
+      expect(isBlocked(null, "instagram", now)).toBe(false);
+    });
+  });
+
+  describe("dueProfiles", () => {
+    const now = new Date(2026, 9, 2, 12, 0, 0).getTime();
+    const today = dayKey(now); // "2026-10-02"
+
+    const baseProfile = {
+      id: "instagram:test",
+      platform: "instagram",
+      key: "test",
+      removedAt: null,
+      lastMeasuredAt: null,
+    };
+
+    it("includes active profiles never measured or not measured today", () => {
+      const state = emptySpyState(now);
+      const list = [
+        { ...baseProfile, id: "p1" },
+        { ...baseProfile, id: "p2", lastMeasuredAt: new Date(2026, 9, 1, 12, 0, 0).getTime() },
+      ];
+
+      expect(dueProfiles(list, state, now).map((p) => p.id)).toEqual(["p1", "p2"]);
+    });
+
+    it("excludes profiles already measured today", () => {
+      const state = emptySpyState(now);
+      const list = [
+        { ...baseProfile, id: "p1", lastMeasuredAt: new Date(2026, 9, 2, 8, 0, 0).getTime() },
+      ];
+
+      expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("excludes removed profiles", () => {
+      const state = emptySpyState(now);
+      const list = [{ ...baseProfile, id: "p1", removedAt: 1000 }];
+      expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("excludes profiles when platform is blocked", () => {
+      const state = {
+        day: today,
+        blocked: { instagram: now + 3600000 },
+        attempts: {},
+      };
+      const list = [{ ...baseProfile, id: "p1" }];
+      expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("excludes profiles that reached 2 attempts today", () => {
+      const state = {
+        day: today,
+        blocked: {},
+        attempts: {
+          p1: { n: 2, at: now - 7 * 3600 * 1000 },
+        },
+      };
+      const list = [{ ...baseProfile, id: "p1" }];
+      expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("excludes profiles whose last attempt was less than 6 hours ago", () => {
+      const state = {
+        day: today,
+        blocked: {},
+        attempts: {
+          p1: { n: 1, at: now - 3 * 3600 * 1000 }, // 3h ago
+        },
+      };
+      const list = [{ ...baseProfile, id: "p1" }];
+      expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("allows a second attempt if the first attempt was more than 6 hours ago", () => {
+      const state = {
+        day: today,
+        blocked: {},
+        attempts: {
+          p1: { n: 1, at: now - 7 * 3600 * 1000 }, // 7h ago
+        },
+      };
+      const list = [{ ...baseProfile, id: "p1" }];
+      expect(dueProfiles(list, state, now).map((p) => p.id)).toEqual(["p1"]);
+    });
+
+    it("resets attempts when day changes", () => {
+      const state = {
+        day: "2026-10-01", // yesterday
+        blocked: {},
+        attempts: {
+          p1: { n: 2, at: now - 1000 },
+        },
+      };
+      const list = [{ ...baseProfile, id: "p1" }];
+      expect(dueProfiles(list, state, now).map((p) => p.id)).toEqual(["p1"]);
+    });
+  });
+});
