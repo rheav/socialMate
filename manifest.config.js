@@ -42,7 +42,9 @@ export default defineManifest({
   //   webRequest — read-only observer that builds the fbcdn DASH track registry.
   //   declarativeNetRequest — one session rule adding a Referer for TikTok's CDN,
   //     which fetch/downloads cannot set themselves (forbidden header).
-  permissions: ["storage", "unlimitedStorage", "sidePanel", "tabs", "webRequest", "declarativeNetRequest", "offscreen", "downloads", "scripting"],
+  //   alarms — o tique da passada diária da área spy; um setTimeout não sobrevive à
+  //     morte do worker.
+  permissions: ["storage", "unlimitedStorage", "sidePanel", "tabs", "webRequest", "declarativeNetRequest", "offscreen", "downloads", "scripting", "alarms"],
   host_permissions: [
     "*://*.facebook.com/*",
     "*://*.instagram.com/*",

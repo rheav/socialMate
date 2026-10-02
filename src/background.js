@@ -43,8 +43,28 @@ import {
   isSyncReady,
   pingSync,
   postSync,
+  getSpyProfiles,
+  postSpy,
   syncSettings,
 } from "./lib/syncClient.js";
+
+import { parseProfileUrl, spyId } from "./lib/spyProfile.js";
+import {
+  SPY_KEY,
+  SPY_PREFS_KEY,
+  SPY_QUEUE_KEY,
+  SPY_STATE_KEY,
+  dayKey,
+  dueProfiles,
+  emptySpyQueue,
+  emptySpyState,
+  isBlocked,
+  mergeList,
+  queueError,
+  queueOp,
+  queueProfile,
+  queueSnapshot,
+} from "./lib/spyStore.js";
 
 import { createVoiceJobs } from "./lib/voiceJobs.js";
 
@@ -125,12 +145,19 @@ function syncBadge() {
   chrome.storage.local.get(SESSION_KEY, (r) => updateBadge(r[SESSION_KEY]));
 }
 
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm.name === "fbw-spy-tick") {
+    spyTick().catch(() => {});
+  }
+});
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch(() => {});
   syncBadge();
   reinjectContentScripts();
+  scheduleSpy().catch(() => {});
   // Per-run event telemetry (and the JSON it used to download after every run)
   // was removed; drop the buffer key left behind by pre-0.68 versions so it
   // doesn't sit in storage forever holding a few thousand stale events.
@@ -253,12 +280,16 @@ chrome.runtime.onStartup?.addListener(() => {
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch(() => {});
   syncBadge();
+  scheduleSpy().catch(() => {});
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes[SESSION_KEY]) updateBadge(changes[SESSION_KEY].newValue);
   if (changes[SAVED_KEY]) capSavedStore(changes[SAVED_KEY].newValue);
+  if (changes[SPY_PREFS_KEY] || changes[SYNC_KEY] || changes[SPY_KEY]) {
+    scheduleSpy().catch(() => {});
+  }
 });
 
 // `fbw_saved` is the shared Library. It used to be written from TEN places (six
@@ -604,6 +635,228 @@ async function syncAll() {
 // A queue that survived the worker's death (or the browser's) gets one attempt on
 // the way up, before anything else asks for it.
 chrome.runtime.onStartup?.addListener(() => scheduleSync(8000));
+
+// ============================================================================
+// SPY AREA — PROFILE MEASUREMENT & HUB SYNC
+// ============================================================================
+
+const SPY_DEBOUNCE_MS = 4000;
+let spyFlushTimer = null;
+let spyFlushing = false;
+let spyTicking = false;
+
+function scheduleFlushSpy(delay = SPY_DEBOUNCE_MS, attempt = 0) {
+  if (spyFlushTimer) clearTimeout(spyFlushTimer);
+  spyFlushTimer = setTimeout(() => {
+    spyFlushTimer = null;
+    flushSpy({ attempt }).catch(() => {});
+  }, delay);
+}
+
+async function scheduleSpy() {
+  if (!chrome.alarms?.create) return;
+  try {
+    const settings = await readSyncSettings();
+    const r = await chrome.storage.local.get([SPY_PREFS_KEY, SPY_KEY, SPY_STATE_KEY]);
+    const prefs = r[SPY_PREFS_KEY] ?? { daily: true };
+    const spy = r[SPY_KEY] || { profiles: {} };
+    const state = r[SPY_STATE_KEY] || emptySpyState();
+
+    const isConfigured = isSyncConfigured(settings);
+    const dailyOn = prefs.daily !== false;
+
+    if (!isConfigured || !dailyOn) {
+      await chrome.alarms.clear("fbw-spy-tick");
+      return;
+    }
+
+    const dues = dueProfiles(spy.profiles, state, Date.now());
+    const hasIgBatch = !!state.igBatch;
+
+    if (dues.length > 0 || hasIgBatch) {
+      chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
+    } else {
+      const now = new Date();
+      const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+      const randomDelayMs = (10 + Math.floor(Math.random() * 80)) * 60 * 1000;
+      const when = nextDay.getTime() + randomDelayMs;
+      chrome.alarms.create("fbw-spy-tick", { when });
+    }
+  } catch {
+    /* storage or alarms unavailable during teardown */
+  }
+}
+
+async function flushSpy({ attempt = 0 } = {}) {
+  if (spyFlushing) return { ok: true, skipped: "busy" };
+  const settings = await readSyncSettings();
+  if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+
+  const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+  const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+  const currentSpy = r[SPY_KEY] || { profiles: {} };
+
+  const opsToSend = [...(queue.ops || [])];
+  const profilesToSend = Object.values(queue.profiles || {});
+  const snapshotsToSend = Object.values(queue.snapshots || {});
+  const errorsToSend = Object.values(queue.errors || {});
+
+  if (
+    !opsToSend.length &&
+    !profilesToSend.length &&
+    !snapshotsToSend.length &&
+    !errorsToSend.length
+  ) {
+    return { ok: true, sent: 0 };
+  }
+
+  spyFlushing = true;
+  try {
+    const profileBatches = profilesToSend.length ? batchRecords(profilesToSend) : [[]];
+    let lastRes = null;
+
+    for (let i = 0; i < profileBatches.length; i++) {
+      const batchProfiles = profileBatches[i];
+      const body = {};
+      if (i === 0) {
+        if (opsToSend.length) body.ops = opsToSend;
+        if (snapshotsToSend.length) body.snapshots = snapshotsToSend;
+        if (errorsToSend.length) body.errors = errorsToSend;
+      }
+      if (batchProfiles.length) {
+        body.profiles = batchProfiles;
+      }
+
+      if (Object.keys(body).length > 0) {
+        lastRes = await postSpy(settings, body);
+      }
+    }
+
+    const freshR = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+    const freshQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
+    const freshSpy = freshR[SPY_KEY] || currentSpy;
+
+    const remainingOps = freshQueue.ops ? freshQueue.ops.slice(opsToSend.length) : [];
+
+    const remainingProfiles = { ...(freshQueue.profiles || {}) };
+    for (const p of profilesToSend) {
+      const pid = p.id || (p.platform && p.key ? `${p.platform}:${p.key}` : null);
+      if (pid && remainingProfiles[pid] === queue.profiles[pid]) {
+        delete remainingProfiles[pid];
+      }
+    }
+
+    const remainingSnapshots = { ...(freshQueue.snapshots || {}) };
+    for (const s of snapshotsToSend) {
+      const pid = s.profileId || s.profile_id || s.id;
+      const key = `${pid}|${s.day}`;
+      if (remainingSnapshots[key] === queue.snapshots[key]) {
+        delete remainingSnapshots[key];
+      }
+    }
+
+    const remainingErrors = { ...(freshQueue.errors || {}) };
+    for (const e of errorsToSend) {
+      if (remainingErrors[e.id] === queue.errors[e.id]) {
+        delete remainingErrors[e.id];
+      }
+    }
+
+    const nextQueue = {
+      ops: remainingOps,
+      profiles: remainingProfiles,
+      snapshots: remainingSnapshots,
+      errors: remainingErrors,
+    };
+
+    let nextSpy = freshSpy;
+    if (lastRes?.profiles) {
+      nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps);
+    }
+
+    await chrome.storage.local.set({
+      [SPY_QUEUE_KEY]: nextQueue,
+      [SPY_KEY]: nextSpy,
+    });
+
+    scheduleSpy().catch(() => {});
+    return {
+      ok: true,
+      sent: opsToSend.length + profilesToSend.length + snapshotsToSend.length + errorsToSend.length,
+    };
+  } catch (err) {
+    const status = err?.status || 0;
+    if (isRetryable(status) && attempt < 4) {
+      scheduleFlushSpy(backoffDelay(attempt), attempt + 1);
+    }
+    return { ok: false, error: String(err?.message || err), status };
+  } finally {
+    spyFlushing = false;
+  }
+}
+
+async function spyTick({ manual = false } = {}) {
+  if (spyTicking) return { ok: false, error: "busy" };
+  spyTicking = true;
+
+  try {
+    const settings = await readSyncSettings();
+    if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+
+    const now = Date.now();
+    const today = dayKey(now);
+
+    const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY]);
+    let spy = r[SPY_KEY] || { profiles: {} };
+    let state = r[SPY_STATE_KEY] || emptySpyState(now);
+
+    if (state.day !== today) {
+      state = {
+        ...state,
+        day: today,
+        attempts: {},
+        lastError: null,
+      };
+    }
+
+    // 1. Refresh profile list if older than 10 minutes or manual
+    const tenMinAgo = now - 10 * 60 * 1000;
+    if (!spy.fetchedAt || spy.fetchedAt < tenMinAgo || manual) {
+      try {
+        const res = await getSpyProfiles(settings);
+        if (res?.profiles) {
+          const freshR = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
+          const currentSpy = freshR[SPY_KEY] || spy;
+          const currentQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
+          spy = mergeList(currentSpy, res.profiles, currentQueue.ops || []);
+          await chrome.storage.local.set({ [SPY_KEY]: spy });
+        }
+      } catch (e) {
+        if (e?.status === 404) {
+          state.lastError = "hub_sem_spy";
+          await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+          return { ok: false, error: "hub_sem_spy" };
+        }
+      }
+    }
+
+    // 2. Facebook measurement (hook for E3)
+    // 3. Instagram measurement (hook for E4)
+
+    // 4. Flush spy queue
+    await flushSpy();
+
+    state.lastPassAt = Date.now();
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+
+    // 5. Schedule next tick
+    await scheduleSpy();
+
+    return { ok: true };
+  } finally {
+    spyTicking = false;
+  }
+}
 
 // initial paint (SW may spin up mid-session)
 syncBadge();
@@ -1705,6 +1958,138 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
       return true;
     }
+    // panel → bg: Spy area operations
+    case "FBW_SPY_SAVE": {
+      (async () => {
+        try {
+          let platform = msg.platform;
+          let key = msg.key;
+          if (msg.url) {
+            const parsed = parseProfileUrl(msg.url);
+            if (!parsed) {
+              sendResponse({ ok: false, error: "invalid_profile" });
+              return;
+            }
+            platform = parsed.platform;
+            key = parsed.key;
+          }
+          if (!platform || !key) {
+            sendResponse({ ok: false, error: "invalid_profile" });
+            return;
+          }
+
+          const id = spyId(platform, key);
+          const now = Date.now();
+
+          const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+          const spy = r[SPY_KEY] || { profiles: {} };
+
+          const nextQueue = queueOp(queue, "save", { platform, key, id }, now);
+
+          const prev = spy.profiles?.[id] || {};
+          const nextSpy = {
+            ...spy,
+            profiles: {
+              ...(spy.profiles || {}),
+              [id]: {
+                ...prev,
+                id,
+                platform,
+                key: String(key).toLowerCase(),
+                savedAt: prev.savedAt || now,
+                listUpdatedAt: now,
+                removedAt: null,
+              },
+            },
+          };
+
+          await chrome.storage.local.set({
+            [SPY_QUEUE_KEY]: nextQueue,
+            [SPY_KEY]: nextSpy,
+          });
+
+          flushSpy().catch(() => {});
+          scheduleSpy().catch(() => {});
+
+          sendResponse({ ok: true, id });
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err?.message || err) });
+        }
+      })();
+      return true;
+    }
+    case "FBW_SPY_REMOVE": {
+      (async () => {
+        try {
+          const id = msg.id;
+          if (!id) {
+            sendResponse({ ok: false, error: "missing_id" });
+            return;
+          }
+
+          const now = Date.now();
+          const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+          const spy = r[SPY_KEY] || { profiles: {} };
+
+          const nextQueue = queueOp(queue, "remove", { id }, now);
+
+          const nextProfiles = { ...(spy.profiles || {}) };
+          delete nextProfiles[id];
+          const nextSpy = {
+            ...spy,
+            profiles: nextProfiles,
+          };
+
+          await chrome.storage.local.set({
+            [SPY_QUEUE_KEY]: nextQueue,
+            [SPY_KEY]: nextSpy,
+          });
+
+          flushSpy().catch(() => {});
+          scheduleSpy().catch(() => {});
+
+          sendResponse({ ok: true });
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err?.message || err) });
+        }
+      })();
+      return true;
+    }
+    case "FBW_SPY_REFRESH_LIST": {
+      (async () => {
+        try {
+          const settings = await readSyncSettings();
+          if (!isSyncConfigured(settings)) {
+            sendResponse({ ok: false, error: "acervo não configurado" });
+            return;
+          }
+          const res = await getSpyProfiles(settings);
+          const r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
+          const currentSpy = r[SPY_KEY] || { profiles: {} };
+          const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+          const nextSpy = mergeList(currentSpy, res?.profiles || [], queue.ops || []);
+          await chrome.storage.local.set({ [SPY_KEY]: nextSpy });
+          scheduleSpy().catch(() => {});
+          sendResponse({ ok: true, count: Object.keys(nextSpy.profiles || {}).length });
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err?.message || err) });
+        }
+      })();
+      return true;
+    }
+    case "FBW_SPY_RUN": {
+      (async () => {
+        try {
+          const res = await spyTick({ manual: true });
+          sendResponse(res);
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err?.message || err) });
+        }
+      })();
+      return true;
+    }
     case "FBW_SAVED_REMOVE": {
       removeSaved(msg.ids ?? msg.id)
         .then((removed) => sendResponse({ ok: true, removed }))
@@ -1806,3 +2191,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
   }
 });
+
+export { scheduleSpy, flushSpy, spyTick }; // test seam
+
