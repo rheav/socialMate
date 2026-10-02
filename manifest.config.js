@@ -58,11 +58,11 @@ export default defineManifest({
     // pushed so it outlives the local caps. Any OTHER host the user points the
     // sync at is asked for at runtime — see optional_host_permissions.
     "https://socialmate.rheav.dev/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
   ],
-  // Only requested when someone changes the hub URL in Opções, from the click
-  // that changes it. Shipping "https://*/*" as a granted permission would mean
-  // the extension asks for the whole web at install time to serve one setting.
-  optional_host_permissions: ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  // Only requested when someone changes the hub URL in Opções to an arbitrary remote host.
+  optional_host_permissions: ["https://*/*"],
   content_scripts: [
     {
       matches: [
