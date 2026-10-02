@@ -35,6 +35,18 @@ const TARGETS = {
   "src/content/fb/reels-capture.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/fbReelThumb.js",
+    "src/lib/shared/fbVideoMedia.js",
+    "src/lib/shared/fbReelsData.js",
+    "src/lib/shared/savedEntry.js",
+    "src/lib/shared/txLang.js",
+    "src/lib/shared/fbReelActions.js",
+    "src/lib/shared/fmt.js",
+    "src/lib/shared/fbQuery.js",
+    "src/lib/shared/feedQuery.js",
+    "src/lib/shared/gridSort.js",
+    "src/lib/shared/pageSorter.js",
+    "src/lib/shared/overlayUi.js",
+    "src/lib/shared/fbReelsDom.js",
   ],
   "src/content/fb/feed-filter.js": [
     "src/lib/shared/counts.js",
@@ -51,7 +63,7 @@ const TARGETS = {
     "src/lib/shared/fbReelThumb.js",
   ],
   "src/content/fb/photos-scrape.js": ["src/lib/shared/fbPhotoIds.js"],
-  "src/content/fb/video-capture.js": ["src/lib/shared/fbVideoMedia.js"],
+  "src/content/fb/video-capture.js": ["src/lib/shared/fbVideoMedia.js", "src/lib/shared/counts.js", "src/lib/shared/fbReelsData.js"],
   "src/content/ig/bridge.js": [
     "src/lib/shared/counts.js",
     "src/lib/shared/igCode.js",

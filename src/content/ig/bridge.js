@@ -1661,6 +1661,7 @@ const OVERLAY_ICONS = {
   save: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
   img: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
   tx: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   layers: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   msg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
   heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
@@ -2092,6 +2093,7 @@ function makePageSorter(opts) {
   const ctx = opts.ctx || (() => ({}));
   const linkOk = opts.linkOk || (() => true);
   const routeOk = opts.routeOk || (() => true);
+  const routeKey = opts.routeKey || (() => location.pathname);
   let query = emptyQuery();
   let timer = null;
   let dead = false;
@@ -2125,8 +2127,8 @@ function makePageSorter(opts) {
     timer = null;
     if (dead) return 0;
     const onRoute = routeOk(location.pathname);
-    if (loaded && onRoute && location.pathname !== gridPath) {
-      gridPath = location.pathname;
+    if (loaded && onRoute && routeKey() !== gridPath) {
+      gridPath = routeKey();
       if (query.sorts.length) {
         query = { ...query, sorts: [] };
         storage.set({ [storageKey]: query });

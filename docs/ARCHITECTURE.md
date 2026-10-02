@@ -43,7 +43,8 @@ live:
 |---|---|---|
 | Facebook photos | MAIN-world **XHR tee** on `*graphql*` + sweep of `script[type="application/json"]` hydration blobs | grid pages over XHR (17 XHR / 0 fetch measured); first grid page is server-rendered and never requested |
 | Facebook video | `chrome.webRequest` on `*.fbcdn.net/*` → DASH track registry | tracks are byte-ranged split streams; `efg` param decodes to `{video_id, xpv_asset_id, duration_s}` |
-| Facebook reels/comments | DOM only | FB paginates reels off the main thread — no parse hook can see it |
+| Facebook reels | MAIN-world XHR tee + hydration sweep (`video-capture.js`), isolated DOM bridge (`reels-capture.js`) | streamed/deferred GraphQL joined by reel ID; bounded compact metadata index; DOM membership scopes profile collections |
+| Facebook comments | DOM scraper | native comment expansion and collection |
 | Instagram | MAIN-world **`JSON.parse` hook** | IG parses feed/post JSON on the main thread |
 | TikTok | MAIN-world **fetch/XHR response-body tee** | TikTok uses native `fetch().json()` — a parse hook caught 0/167 |
 | Pinterest | **Active fetch** of `/resource/*` (cookie-auth, unsigned) | the only non-passive platform; board id is not in the DOM |
@@ -95,9 +96,12 @@ helpers it replaced did neither, so a failed download reported success.
 ### background → offscreen (all carry `target:"offscreen"`)
 `transcribeFromAudioUrl`, `relevanceScore`, `muxDownload`.
 
+Facebook reels: `FBW_FB_REELS_LIST` returns profile records and action/voice states; `FBW_FB_REELS_HARVEST` / `FBW_FB_REELS_STOP` control collection; `FBW_FB_REEL_ACTION` routes exact-ID actions to the current surface. Library writes and media jobs reuse the existing worker contracts.
+
 ### Same-page window events / postMessage
 - Relay: `__fbwFbPh` / `__fbwFbPhReq` (FB photos), `__fbwIg` / `__fbwIgReq`,
   `__fbwTt` / `__fbwTtReq`.
+- Facebook reels: `__fbwReelRecords` / `__fbwReelRecordsRequest` / `__fbwReelRecordsSweep` publish compact records, replay the bounded index, and scan newly inserted hydration fragments. No raw responses or credentials are persisted.
 - Generation takeover: `__fbwEngineTakeover`, `__fbwTakeover`, `__fbwCmTakeover`,
   `__fbwPhTakeover`, `__fbwIgTakeover`, `__fbwTtTakeover`.
 - Cross-script: `__fbw_auto_capture` (warmer → transcription inject),
@@ -129,8 +133,8 @@ still handled in `content.js` despite being listed as removed.)
 | `swOptions` | WarmTool | persisted subset of warm settings |
 | `sw_nav3` / `sw_nav2` | Shell (300 ms debounce) | nav state; v2 is legacy, still read forever |
 | `sw_theme` | Shell | light/dark |
-| `sw_ig_overlay` / `sw_pin_overlay` | IgSortTool / pin-api | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
-| `sw_ig_query` / `sw_tt_query` | IgSortTool / TtSortTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
+| `sw_ig_overlay` / `sw_pin_overlay` / `sw_fb_overlay` | IgSortTool / pin-api / FbReelsTool | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
+| `sw_ig_query` / `sw_tt_query` / `sw_fb_query` | IgSortTool / TtSortTool / FbReelsTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
 | `fbw_dl` | Opções modal | `{ folder, flat }` — download folder + bucketing; cached synchronously by `lib/downloadPath.js` in BOTH the panel and the worker |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |

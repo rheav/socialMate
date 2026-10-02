@@ -218,6 +218,23 @@ function fbCaptionFor(record, language) {
     });
   }
 
+  // Rich reel data shares the exact-ID index used by the profile grid.
+  const richReels = new Map();
+  window.addEventListener('message', e => {
+    if (fbwDisabled || e.source !== window || e.data?.type !== '__fbwReelRecords' || !Array.isArray(e.data.rows)) return;
+    for (const row of e.data.rows.slice(0,1000)) {
+      if (/^\d{6,}$/.test(row?.id || '')) richReels.set(row.id, row);
+    }
+    while (richReels.size > 1000) richReels.delete(richReels.keys().next().value);
+  });
+  function richReelFor(video) {
+    const id = location.pathname.match(/^\/reel\/(\d+)/)?.[1];
+    const row = id && richReels.get(id);
+    if (!row || !video || video !== pickActiveVideo() || !Number.isFinite(video.duration)) return null;
+    if (row.duration && Math.abs(row.duration-video.duration)>1.5) return null;
+    return row;
+  }
+
   // ---- FB embedded-JSON duration table (accurate, unlike efg) ----
   // FB's initial <script type="application/json"> blocks carry each video's
   // real id, its true playable_duration_in_ms, and (in the same subtree) the
@@ -994,7 +1011,7 @@ function sameCapture(a, b) {
   function grabMeta(videoEl) {
     const container = findPostUnit(videoEl);
     const captured = searchVideoFor(videoEl, container);
-    return {
+    const meta = {
       videoId: captured?.id || grabVideoId(container, videoEl),
       platform: PLATFORM,
       thumb: grabThumb(videoEl),
@@ -1003,19 +1020,17 @@ function sameCapture(a, b) {
       caption: grabCaption(container),
       sourceUrl: captured?.permalink || currentSourceUrl(container, videoEl),
       videoKind: captured?.permalink ? fbVideoRef(captured.permalink)?.kind : currentVideoKind(container, videoEl),
-      // The one piece of post metadata Facebook gives up for free. It is read off
-      // the DOM video, NOT from `durationHint`: that hint is deliberately withheld
-      // for permalink ids (it must never cross to a same-length neighbour), so a
-      // reel opened on its own page would have carried no duration at all.
-      // Everything else the Library line would like — post date, view count,
-      // follower count — is genuinely absent here: verified live on a reel that
-      // the embedded JSON we already walk has no creation_time and an `owner` of
-      // just `{__typename, id}`, and that the DOM carries no date element either.
       durationS:
         videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 1
           ? Math.round(videoEl.duration * 10) / 10
           : null,
     };
+    const reel = richReelFor(videoEl);
+    if (reel) return { ...meta, thumb: reel.thumb || meta.thumb, caption: reel.caption || meta.caption,
+      author: { name: reel.authorName || meta.author?.name, url: reel.authorUrl || meta.author?.url },
+      counts: { like: reel.likes, comment: reel.comments, share: reel.shares, views: reel.views },
+      takenAt: reel.taken_at, followers: reel.followers, durationS: reel.duration || meta.durationS };
+    return meta;
   }
   // A scrape you can trust. A reel page updates location.href ~150-175 ms BEFORE
   // it swaps the mounted card (measured live over three reel changes), and the id
@@ -1584,16 +1599,17 @@ function reelIdFromHref(href) {
     s.id = "fbw-btn-style";
     s.textContent = `
       .fbw-acts{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;gap:6px;z-index:8;pointer-events:none}
-      .fbw-acts.reel{top:26%;left:auto;right:12px}
-      .fbw-acts.tile{top:8px;left:auto;right:8px;gap:4px}
+      .fbw-acts.reel{top:52px;left:10px;right:auto}
+      .fbw-acts.tile{top:8px;left:8px;right:auto;gap:4px}
       .fbw-acts.tile .fbw-actbtn{width:26px;height:26px;border-radius:8px}
       .fbw-acts.tile .fbw-actbtn svg{width:14px;height:14px}
-      .fbw-actbtn{position:relative;pointer-events:auto;display:grid;place-items:center;width:${BTN.size}px;height:${BTN.size}px;
-        border-radius:9px;cursor:pointer;color:#fff;background:rgba(30,64,140,.92);
-        border:1px solid rgba(150,185,255,.5);box-shadow:0 2px 10px rgba(20,60,160,.35);
+      .fbw-actbtn{position:relative;pointer-events:auto;display:grid;place-items:center;width:26px;height:26px;padding:0;
+        border-radius:7px;cursor:pointer;color:#fff;background:rgba(17,20,32,.9);
+        border:1px solid rgba(150,185,255,.35);box-shadow:0 2px 8px #0005;
         transition:background .15s,color .15s,transform .1s}
-      .fbw-actbtn:hover{background:rgba(32,112,244,.92);transform:translateY(-1px)}
-      .fbw-actbtn[data-tip]:hover::after{content:attr(data-tip);position:absolute;right:calc(100% + 8px);top:50%;
+      .fbw-actbtn svg{width:15px;height:15px}
+      .fbw-actbtn:hover,.fbw-actbtn:focus-visible{background:#263b59;outline:2px solid #88c0d0;outline-offset:1px}
+      .fbw-actbtn[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:calc(100% + 8px);top:50%;
         transform:translateY(-50%);background:rgba(17,24,44,.96);color:#fff;font:600 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         padding:5px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:12;
         box-shadow:0 2px 8px rgba(0,0,0,.45);border:1px solid rgba(150,185,255,.28)}
@@ -1606,12 +1622,10 @@ function reelIdFromHref(href) {
       /* .fbw-lang-badge / .fbw-lang-menu live in src/lib/shared/txLang.js, which
          injects its own <style> — the same rules now serve IG and TikTok too. */
       @keyframes fbw-spin{to{transform:rotate(360deg)}}
-      .fbw-thumbbtn{position:fixed;right:20px;bottom:20px;z-index:2147483000;display:flex;align-items:center;gap:8px;
-        padding:10px 15px;border-radius:11px;cursor:pointer;color:#fff;font-size:13px;font-weight:600;
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border:1px solid rgba(160,190,255,.3);
-        background:linear-gradient(135deg,#1877f2,#3c7cfc);box-shadow:0 4px 16px rgba(24,119,242,.4);transition:transform .12s,box-shadow .12s}
-      .fbw-thumbbtn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(24,119,242,.5)}
-      .fbw-thumbbtn:active{transform:translateY(0)}`;
+      #sw-psort .fbw-thumbbtn{display:flex;align-items:center;gap:6px;white-space:nowrap}
+      #sw-psort .fbw-thumbbtn[data-busy="1"]{color:#88c0d0}
+      #sw-psort .fbw-thumbbtn[data-error="1"]{color:#fb7185}
+      #sw-psort[data-min="1"] .fbw-thumbbtn{display:none}`;
     (document.head || document.documentElement).appendChild(s);
   }
 
@@ -1745,6 +1759,19 @@ function reelIdFromHref(href) {
         mediaUrl: captured.audio || captured.progressive,
         ...(caption ? { captionUrl: caption.url, captionLang: caption.lang, captionFormat: "srt" } : {}),
       };
+    }
+    const reel = richReelFor(video);
+    if (reel && (fbMediaUrl(reel.audio) || fbMediaUrl(reel.progressive))) {
+      if (kind === 'download' && fbMediaUrl(reel.progressive)) return {
+        type: 'FBW_DOWNLOAD', videoId: reel.id, idConfident: true,
+        mediaUrl: reel.progressive, mediaName: `fb-${reel.id}.mp4`,
+      };
+      if (kind === 'transcribe') {
+        const lang = normTxLang(language || txLangCache), cap = fbCaptionFor(reel,lang);
+        return {type:'FBW_TRANSCRIBE',...meta,videoId:reel.id,idConfident:true,language:lang,
+          mediaUrl:fbMediaUrl(reel.audio)||fbMediaUrl(reel.progressive),
+          ...(cap?{captionUrl:cap.url,captionLang:cap.lang,captionFormat:'srt'}:{})};
+      }
     }
     const candidates = grabVideoIdCandidates(unit, video);
     const durationHint =
@@ -2314,6 +2341,7 @@ function reelIdFromHref(href) {
     }
     // Standalone photo posts: a large fbcdn image with NO video in its post unit.
     for (const img of document.querySelectorAll('img[src*="fbcdn"], img[src*="scontent"]')) {
+      if (document.documentElement.dataset.swFbReelsUi && img.closest('a[href*="/reel/"]')) continue;
       const r = img.getBoundingClientRect();
       if (r.width < BTN.minImg || r.height < BTN.minImg) continue;
       if (r.bottom < -vh || r.top > vh * 2) continue;
@@ -2327,7 +2355,7 @@ function reelIdFromHref(href) {
     // Size-gated the same way reels-capture.js gates its scan, so the tab-bar
     // "Reels" link and other small anchors don't collect a button. The photo loop
     // above never reaches these: a 160px tile is under BTN.minImg.
-    if (isReelsGridUrl(location.href)) {
+    if (isReelsGridUrl(location.href) && !document.documentElement.dataset.swFbReelsUi) {
       for (const a of document.querySelectorAll('a[href*="/reel/"]')) {
         const r = a.getBoundingClientRect();
         if (r.width < 100 || r.height < 150) continue;
@@ -2356,7 +2384,7 @@ function reelIdFromHref(href) {
     }
     if (btnObserver) observeForBtns();
   }
-  // ---- profile Reels tab: one floating "Download reel thumbnails" button ----
+  // ---- Facebook-only bulk thumbnails action inside the sorting bar ----
   // Restores the old panel feature on-page, where it's contextually relevant.
   // Only shows on a profile's Reels tab (not the /reel/<id> player, not the feed).
   let thumbBtn = null;
@@ -2368,21 +2396,29 @@ function reelIdFromHref(href) {
     return document.querySelectorAll('a[href*="/reel/"] img').length >= 4;
   }
   function ensureThumbBtn() {
-    if (!onReelsTab()) {
+    const bar = document.getElementById("sw-psort");
+    if (!onReelsTab() || !bar) {
       if (thumbBtn) { thumbBtn.remove(); thumbBtn = null; }
       return;
     }
-    if (thumbBtn) return;
+    if (thumbBtn?.isConnected) return;
     ensureBtnStyle();
     thumbBtn = document.createElement("button");
     thumbBtn.type = "button";
-    thumbBtn.className = "fbw-thumbbtn";
-    thumbBtn.innerHTML = `${btnIcon("dl", 15)}<span>Baixar miniaturas dos reels</span>`;
+    thumbBtn.className = "fbw-thumbbtn ps-full";
+    thumbBtn.title = "Baixar miniaturas dos reels";
+    thumbBtn.setAttribute("aria-label", thumbBtn.title);
+    thumbBtn.innerHTML = `${btnIcon("dl", 15)}<span>Miniaturas</span>`;
     thumbBtn.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      if (thumbBtn.dataset.busy) return;
-      thumbBtn.dataset.busy = "1";
-      const span = thumbBtn.querySelector("span");
+      const button = e.currentTarget;
+      if (button.dataset.busy) return;
+      button.dataset.busy = "1";
+      delete button.dataset.error;
+      const span = button.querySelector("span");
+      const startUrl = location.href, startY = window.scrollY;
+      const stillHere = () => button.isConnected && location.href === startUrl;
+      try {
       const seen = new Map();
       const harvest = () => {
         for (const a of document.querySelectorAll('a[href*="/reel/"]')) {
@@ -2395,19 +2431,22 @@ function reelIdFromHref(href) {
       // lazy grid → scroll to the bottom until it stops growing
       harvest();
       let stable = 0;
-      for (let i = 0; i < 40 && stable < 3; i++) {
+      for (let i = 0; i < 40 && stable < 3 && stillHere(); i++) {
         const before = seen.size;
         window.scrollTo({ top: document.body.scrollHeight });
         span.textContent = `Coletando… ${seen.size}`;
         await new Promise((r) => setTimeout(r, 1200));
+        if (!stillHere()) return;
         harvest();
         stable = seen.size === before ? stable + 1 : 0;
       }
-      window.scrollTo({ top: 0 });
+      if (!stillHere()) return;
+      window.scrollTo({ top: startY });
       const author = sanitFb(reelGridOwner()) || "page";
       let done = 0;
       for (const [id, url] of seen) {
-        chrome.runtime.sendMessage({
+        if (!stillHere()) return;
+        const result = await chrome.runtime.sendMessage({
           type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", folder: "thumb", url,
           // Was a hardcoded "socialMate-thumbs/" folder (note the stray capital M),
           // then a per-author sub-folder. Flat now, like every other download this
@@ -2415,13 +2454,21 @@ function reelIdFromHref(href) {
           // only added a directory to click through. downloadPath puts it in
           // social-mate/imagens/ and sanitises the name.
           filename: `fb-${author}-${id}.jpg`,
-        }).catch(() => {});
+        });
+        if (!result?.ok) throw new Error(result?.error || "Falha ao baixar miniatura");
         span.textContent = `Baixando ${++done}/${seen.size}`;
       }
       span.textContent = `✓ ${seen.size} miniaturas`;
-      setTimeout(() => { if (thumbBtn) { thumbBtn.querySelector("span").textContent = "Baixar miniaturas dos reels"; delete thumbBtn.dataset.busy; } }, 3000);
+      } catch (err) {
+        button.dataset.error = "1";
+        button.title = err.message || "Falha ao baixar miniaturas";
+        span.textContent = "Falha ao baixar";
+      } finally {
+        delete button.dataset.busy;
+        setTimeout(() => { if (button.isConnected) { span.textContent = "Miniaturas"; button.title = "Baixar miniaturas dos reels"; } }, 3000);
+      }
     });
-    document.body.appendChild(thumbBtn);
+    bar.appendChild(thumbBtn);
   }
 
   // An extension reload re-injects this script but leaves the previous

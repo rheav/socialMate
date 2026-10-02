@@ -18,6 +18,25 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.3.0] — 2026-10-02
+
+### Adicionado
+- Reels do Facebook com ordenação e filtros sincronizados entre a grade e o painel: curtidas, comentários, compartilhamentos, publicação, views/dia e taxas de engajamento.
+- Captura passiva dos dados de hidratação e paginação, incluindo mídia, autor, publicação e métricas associadas pelo ID do reel.
+- Salvar na biblioteca, baixar vídeo/miniatura, transcrever, extrair voz e copiar link nos cards; salvar, miniatura, voz e link também no player.
+
+### Alterado
+- Ações do Facebook unificadas em uma coluna à esquerda, com ícone de elo para copiar link e métricas sem o prefixo de aproximação.
+- Download de miniaturas em lote integrado à direita da barra de ordenação do Facebook, com progresso e erros.
+
+### Corrigido
+- Contagens abreviadas preservam a escala; valores ausentes continuam desconhecidos.
+- Navegação entre perfis numéricos não mistura a grade anterior; filtros preservam cards ocultos.
+- Busca iniciada a partir de um reel mantém a captura de mídia durante a navegação interna.
+- Fragmentos que contêm apenas o autor também enriquecem o reel aberto diretamente.
+
+---
+
 ## [1.2.3] — 2026-09-28
 
 ### Corrigido

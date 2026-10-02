@@ -45,6 +45,7 @@ export function makePageSorter(opts) {
   const ctx = opts.ctx || (() => ({}));
   const linkOk = opts.linkOk || (() => true);
   const routeOk = opts.routeOk || (() => true);
+  const routeKey = opts.routeKey || (() => location.pathname);
   let query = emptyQuery();
   let timer = null;
   let dead = false;
@@ -78,8 +79,8 @@ export function makePageSorter(opts) {
     timer = null;
     if (dead) return 0;
     const onRoute = routeOk(location.pathname);
-    if (loaded && onRoute && location.pathname !== gridPath) {
-      gridPath = location.pathname;
+    if (loaded && onRoute && routeKey() !== gridPath) {
+      gridPath = routeKey();
       if (query.sorts.length) {
         query = { ...query, sorts: [] };
         storage.set({ [storageKey]: query });

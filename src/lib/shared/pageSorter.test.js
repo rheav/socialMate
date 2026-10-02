@@ -49,6 +49,17 @@ function mount(storage, recs = RECS, extra = {}) {
 function track(ps) { live.push(ps); return ps; }
 
 describe("makePageSorter", () => {
+  it('resets sort when a platform surface changes only its query string', async () => {
+    let surface = 'profile:123';
+    const st = fakeStorage({});
+    const ps = mount(st, RECS, { routeKey: () => surface });
+    await flush(); ps.applyNow();
+    st.fire('q', { sorts: [{key:'views',dir:'desc'}] }); ps.applyNow();
+    expect(order()).toEqual(['b','c','a','x']);
+    surface = 'profile:456'; ps.applyNow();
+    expect(ps.getQuery().sorts).toEqual([]);
+    expect(order()).toEqual(['a','b','c','x']);
+  });
   beforeEach(() => { document.body.innerHTML = ""; });
   afterEach(() => { while (live.length) live.pop().destroy(); });
 
@@ -143,4 +154,3 @@ describe("makePageSorter", () => {
     history.pushState({}, "", "/");
   });
 });
-
