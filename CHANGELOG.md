@@ -18,6 +18,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 
 ---
 
+## [1.4.0] — 2026-10-02
+
+### Adicionado
+- **Área Spy no painel lateral:** aba Spy dedicada para salvar e gerenciar perfis monitorados de Instagram e Facebook com detecção do perfil aberto na aba ativa.
+- **Medição autônoma e agendada:** alarme diário (`fbw-spy-tick`) que mede seguidores de perfis salvos uma vez por dia (lote de Instagram via aba isolada sem intervenção do usuário e Facebook via requisição direta no service worker).
+- **Observação passiva on-visit:** detecção e registro de contagens de seguidores ao navegar normalmente em perfis salvos do Instagram e Facebook.
+- **Sincronização com o Acervo:** envio bidirecional de lista e snapshots para o backend socialMate Hub.
+- **Opção em configurações:** switch para ativar/desativar a passada diária em segundo plano.
+
+---
+
 ## [1.3.0] — 2026-10-02
 
 ### Adicionado
