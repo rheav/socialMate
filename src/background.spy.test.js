@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 const data = {};
 const alarms = {};
 let messageListener = null;
+let tabsUpdatedListener = null;
 
 function chromeStub() {
   const node = () => {
@@ -47,14 +48,18 @@ function chromeStub() {
     messageListener = fn;
   };
 
+  stub.tabs.onUpdated.addListener = (fn) => {
+    tabsUpdatedListener = fn;
+  };
+
   return stub;
 }
 
-let scheduleSpy, flushSpy, spyTick;
+let scheduleSpy, flushSpy, spyTick, measureFbProfile;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ scheduleSpy, flushSpy, spyTick } = await import("./background.js"));
+  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile } = await import("./background.js"));
 });
 
 beforeEach(() => {
@@ -69,7 +74,7 @@ function sendMessage(msg) {
   });
 }
 
-describe("background spy area (phase E2)", () => {
+describe("background spy area (phase E2/E3)", () => {
   describe("scheduleSpy", () => {
     it("clears alarm if sync is not configured", async () => {
       data.fbw_sync = { enabled: true, url: "", token: "" };
@@ -118,7 +123,7 @@ describe("background spy area (phase E2)", () => {
             platform: "instagram",
             key: "nasa",
             removedAt: null,
-            lastMeasuredAt: Date.now(), // measured today
+            lastMeasuredAt: Date.now(),
           },
         },
       };
@@ -195,6 +200,115 @@ describe("background spy area (phase E2)", () => {
         id: "instagram:nasa",
       });
       expect(data.fbw_spy.profiles["instagram:nasa"]).toBeUndefined();
+    });
+  });
+
+  describe("measureFbProfile", () => {
+    it("measures Facebook profile successfully and queues snapshot", async () => {
+      const fakeHtml = `
+        "profile_social_context": {
+          "content": [{ "text": { "text": "28M followers" } }]
+        }
+        "actors": [{ "id": "100044561550831", "name": "NASA" }]
+      `;
+      const fakeFetch = vi.fn(async () => ({
+        status: 200,
+        text: async () => fakeHtml,
+      }));
+
+      const profile = { id: "facebook:nasa", platform: "facebook", key: "nasa", hasAvatar: true };
+      const res = await measureFbProfile(profile, "daily", fakeFetch);
+
+      expect(res.ok).toBe(true);
+      expect(res.snapshot).toMatchObject({
+        profileId: "facebook:nasa",
+        followers: 28_000_000,
+        followersApprox: true,
+        source: "daily",
+      });
+      expect(data.fbw_spy_queue.snapshots["facebook:nasa|" + res.snapshot.day]).toBeDefined();
+    });
+
+    it("blocks Facebook for 12 hours on 429 response", async () => {
+      const fakeFetch = vi.fn(async () => ({
+        status: 429,
+        text: async () => "",
+      }));
+
+      const profile = { id: "facebook:nasa", platform: "facebook", key: "nasa" };
+      const res = await measureFbProfile(profile, "daily", fakeFetch);
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe("rate_limited");
+      expect(data.fbw_spy_state.blocked.facebook).toBeGreaterThan(Date.now());
+      expect(data.fbw_spy_queue.errors["facebook:nasa"]).toMatchObject({
+        error: "rate_limited",
+      });
+    });
+
+    it("records not_found without blocking on 404 response", async () => {
+      const fakeFetch = vi.fn(async () => ({
+        status: 404,
+        text: async () => "",
+      }));
+
+      const profile = { id: "facebook:ghost", platform: "facebook", key: "ghost" };
+      const res = await measureFbProfile(profile, "daily", fakeFetch);
+
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe("not_found");
+      expect(data.fbw_spy_state?.blocked?.facebook).toBeUndefined();
+      expect(data.fbw_spy_queue.errors["facebook:ghost"]).toMatchObject({
+        error: "not_found",
+      });
+    });
+  });
+
+  describe("on-visit trigger", () => {
+    it("triggers visit measurement for saved FB profile when not measured in last 6h", async () => {
+      data.fbw_spy = {
+        profiles: {
+          "facebook:nasa": {
+            id: "facebook:nasa",
+            platform: "facebook",
+            key: "nasa",
+            removedAt: null,
+            lastMeasuredAt: Date.now() - 7 * 3600 * 1000,
+          },
+        },
+      };
+
+      const fakeFetch = vi.fn(async () => ({
+        status: 200,
+        text: async () => '"profile_social_context":{"content":[{"text":{"text":"28M followers"}}]}',
+      }));
+      vi.stubGlobal("fetch", fakeFetch);
+
+      tabsUpdatedListener(1, { url: "https://www.facebook.com/NASA" });
+
+      await new Promise((r) => setTimeout(r, 60));
+      expect(fakeFetch).toHaveBeenCalled();
+    });
+
+    it("ignores visit if measured recently", async () => {
+      data.fbw_spy = {
+        profiles: {
+          "facebook:nasa": {
+            id: "facebook:nasa",
+            platform: "facebook",
+            key: "nasa",
+            removedAt: null,
+            lastMeasuredAt: Date.now() - 1 * 3600 * 1000,
+          },
+        },
+      };
+
+      const fakeFetch = vi.fn();
+      vi.stubGlobal("fetch", fakeFetch);
+
+      tabsUpdatedListener(1, { url: "https://www.facebook.com/NASA" });
+      await new Promise((r) => setTimeout(r, 60));
+      expect(fakeFetch).not.toHaveBeenCalled();
     });
   });
 });

@@ -48,7 +48,8 @@ import {
   syncSettings,
 } from "./lib/syncClient.js";
 
-import { parseProfileUrl, spyId } from "./lib/spyProfile.js";
+import { parseProfileUrl, profileUrl, spyId } from "./lib/spyProfile.js";
+import { parseFbProfileHtml } from "./lib/spyParse.js";
 import {
   SPY_KEY,
   SPY_PREFS_KEY,
@@ -795,6 +796,181 @@ async function flushSpy({ attempt = 0 } = {}) {
   }
 }
 
+function recordAttempt(state, profileId, success, now = Date.now()) {
+  const today = dayKey(now);
+  const attempts = { ...(state.attempts || {}) };
+  const prev = attempts[profileId] || { n: 0, at: 0 };
+  attempts[profileId] = {
+    n: prev.n + 1,
+    at: now,
+  };
+  return {
+    ...state,
+    day: today,
+    attempts,
+  };
+}
+
+async function blockPlatform(platform, errorCode, profileId) {
+  const now = Date.now();
+  const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY]);
+  let state = r[SPY_STATE_KEY] || emptySpyState(now);
+  let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+
+  state = {
+    ...state,
+    blocked: {
+      ...(state.blocked || {}),
+      [platform]: now + 12 * 3600 * 1000,
+    },
+    lastError: errorCode,
+  };
+
+  if (profileId) {
+    queue = queueError(queue, profileId, errorCode, now);
+  }
+
+  await chrome.storage.local.set({
+    [SPY_STATE_KEY]: state,
+    [SPY_QUEUE_KEY]: queue,
+  });
+
+  scheduleFlushSpy();
+}
+
+async function recordProfileError(profileId, errorCode) {
+  const now = Date.now();
+  const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_STATE_KEY]);
+  let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+  let state = r[SPY_STATE_KEY] || emptySpyState(now);
+
+  queue = queueError(queue, profileId, errorCode, now);
+  state = {
+    ...state,
+    lastError: errorCode,
+  };
+
+  await chrome.storage.local.set({
+    [SPY_QUEUE_KEY]: queue,
+    [SPY_STATE_KEY]: state,
+  });
+
+  scheduleFlushSpy();
+}
+
+async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
+  const url = profileUrl("facebook", profile.key);
+  try {
+    const res = await fetchImpl(url, {
+      credentials: "include",
+      headers: { Accept: "text/html,application/xhtml+xml" },
+    });
+
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      const errCode = res.status === 429 ? "rate_limited" : "login_required";
+      await blockPlatform("facebook", errCode, profile.id);
+      return { ok: false, error: errCode };
+    }
+
+    if (res.status === 404) {
+      await recordProfileError(profile.id, "not_found");
+      return { ok: false, error: "not_found" };
+    }
+
+    const finalUrl = res.url || url;
+    const html = await res.text();
+    const parsed = parseFbProfileHtml(html, finalUrl);
+
+    if (!parsed.ok) {
+      if (parsed.error === "login_required" || parsed.error === "rate_limited") {
+        await blockPlatform("facebook", parsed.error, profile.id);
+      } else {
+        await recordProfileError(profile.id, parsed.error || "parse_failed");
+      }
+      return parsed;
+    }
+
+    const now = Date.now();
+    const today = dayKey(now);
+
+    const snapshot = {
+      profileId: profile.id,
+      day: today,
+      measuredAt: now,
+      followers: parsed.followers,
+      followersApprox: parsed.followersApprox,
+      following: parsed.following ?? null,
+      posts: null,
+      hasStory: parsed.hasStory,
+      source,
+    };
+
+    let avatarThumb = null;
+    if (parsed.avatarUrl) {
+      const needsAvatar = !profile.hasAvatar;
+      if (needsAvatar) {
+        avatarThumb = await durableThumb(parsed.avatarUrl);
+      }
+    }
+
+    const profilePatch = {
+      id: profile.id,
+      platform: "facebook",
+      key: profile.key,
+      userId: parsed.userId || undefined,
+      name: parsed.name || undefined,
+      avatar: avatarThumb || undefined,
+      verified: parsed.verified !== null && parsed.verified !== undefined ? (parsed.verified ? 1 : 0) : undefined,
+      storyRef: parsed.storyRef || undefined,
+      metaUpdatedAt: now,
+    };
+
+    const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
+    let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+    let spy = r[SPY_KEY] || { profiles: {} };
+    let state = r[SPY_STATE_KEY] || emptySpyState(now);
+
+    queue = queueSnapshot(queue, snapshot);
+    if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef) {
+      queue = queueProfile(queue, profilePatch);
+    }
+
+    if (spy.profiles?.[profile.id]) {
+      spy = {
+        ...spy,
+        profiles: {
+          ...spy.profiles,
+          [profile.id]: {
+            ...spy.profiles[profile.id],
+            lastMeasuredAt: now,
+            hasAvatar: avatarThumb ? true : spy.profiles[profile.id].hasAvatar,
+            userId: parsed.userId || spy.profiles[profile.id].userId,
+          },
+        },
+      };
+    }
+
+    state = recordAttempt(state, profile.id, true, now);
+
+    await chrome.storage.local.set({
+      [SPY_QUEUE_KEY]: queue,
+      [SPY_KEY]: spy,
+      [SPY_STATE_KEY]: state,
+    });
+
+    scheduleFlushSpy();
+    return { ok: true, snapshot };
+  } catch (err) {
+    const now = Date.now();
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    let state = r[SPY_STATE_KEY] || emptySpyState(now);
+    state = recordAttempt(state, profile.id, false, now);
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    await recordProfileError(profile.id, "network");
+    return { ok: false, error: "network" };
+  }
+}
+
 async function spyTick({ manual = false } = {}) {
   if (spyTicking) return { ok: false, error: "busy" };
   spyTicking = true;
@@ -840,7 +1016,14 @@ async function spyTick({ manual = false } = {}) {
       }
     }
 
-    // 2. Facebook measurement (hook for E3)
+    // 2. Facebook measurement: measure ONE due profile per tick
+    if (!isBlocked(state, "facebook", now)) {
+      const fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
+      if (fbDues.length > 0) {
+        await measureFbProfile(fbDues[0], "daily");
+      }
+    }
+
     // 3. Instagram measurement (hook for E4)
 
     // 4. Flush spy queue
@@ -857,6 +1040,40 @@ async function spyTick({ manual = false } = {}) {
     spyTicking = false;
   }
 }
+
+// On-visit Facebook measurement trigger
+chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo?.url || tab?.url;
+  if (!url || typeof url !== "string") return;
+
+  // Early exit before reading storage if host is not facebook.com
+  if (!url.includes("facebook.com")) return;
+
+  const parsed = parseProfileUrl(url);
+  if (!parsed || parsed.platform !== "facebook") return;
+
+  const pid = spyId("facebook", parsed.key);
+
+  (async () => {
+    try {
+      const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY]);
+      const spy = r[SPY_KEY] || { profiles: {} };
+      const profile = spy.profiles?.[pid];
+      if (!profile || profile.removedAt != null) return;
+
+      const now = Date.now();
+      const last = profile.lastMeasuredAt || 0;
+      if (now - last < 6 * 3600 * 1000) return;
+
+      const state = r[SPY_STATE_KEY] || emptySpyState(now);
+      if (isBlocked(state, "facebook", now)) return;
+
+      await measureFbProfile(profile, "visit");
+    } catch {
+      /* ignore */
+    }
+  })();
+});
 
 // initial paint (SW may spin up mid-session)
 syncBadge();
@@ -2192,5 +2409,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-export { scheduleSpy, flushSpy, spyTick }; // test seam
+export { scheduleSpy, flushSpy, spyTick, measureFbProfile }; // test seam
 
