@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { profileStatus, syncStatus } from "./spyStatus.js";
+import { profileStatus, reelsLine, syncStatus } from "./spyStatus.js";
 
 const now = new Date(2026, 9, 3, 14, 0).getTime();
 const hour = 3600000;
@@ -47,5 +47,18 @@ describe("syncStatus", () => {
     expect(syncStatus({}, {})).toEqual({ pending: 0, text: "sincronizado com o hub" });
     expect(syncStatus({ ops: [{}] }, {}).text).toBe("1 alteração aguardando envio ao hub");
     expect(syncStatus({}, { lastError: "limit_reached" }).text).toBe("o hub recusou: limite de 100 perfis");
+  });
+});
+
+describe("reelsLine", () => {
+  const p = (reels) => ({ ...fb, reels });
+  it("follows the first full reading of a Facebook profile", () => {
+    expect(reelsLine(ig, {})).toBeNull();
+    expect(reelsLine(fb, {})).toBeNull();
+    expect(reelsLine(p({ status: "pending", count: 0 }), {})).toBe("reels: na fila para a primeira leitura");
+    expect(reelsLine(p({ status: "running", count: 140 }), { reelsJob: { profileId: fb.id, pages: 3 } })).toBe("lendo reels · 140 até agora");
+    expect(reelsLine(p({ status: "running", count: 300 }), {})).toBe("300+ reels · a leitura continua");
+    expect(reelsLine(p({ status: "done", count: 523 }), {})).toBe("523 reels");
+    expect(reelsLine(p({ status: "done", count: 523 }), { reelsJob: { profileId: fb.id, mode: "catchup" } })).toBe("523 reels · buscando novos");
   });
 });

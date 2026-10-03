@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
 import { dayKey } from "@/lib/spyStore";
-import { ago, profileStatus, syncStatus } from "@/lib/spyStatus";
+import { ago, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
 import { PLATFORMS } from "@/lib/platforms";
 
@@ -97,6 +97,7 @@ export default function SpyTool({ activeUrl = "" }) {
                         </p>
                       );
                     })()}
+                    {reelsLine(p, state) && <p className="text-[11px] text-muted-foreground">{reelsLine(p, state)}</p>}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {p.platform === "facebook" && <button

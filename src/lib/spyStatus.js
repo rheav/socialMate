@@ -47,3 +47,14 @@ export function syncStatus(queue = {}, state = {}) {
   if (!pending) return { pending, text: "sincronizado com o hub" };
   return { pending, text: `${pending} ${pending === 1 ? "alteração" : "alterações"} aguardando envio ao hub` };
 }
+
+/** Facebook only: where the reel count stands (first full reading, catch-up). */
+export function reelsLine(profile, state = {}) {
+  const reels = profile.platform === "facebook" ? profile.reels : null;
+  if (!reels) return null;
+  const job = state.reelsJob?.profileId === profile.id ? state.reelsJob : null;
+  if (reels.status === "done") return `${reels.count} reels${job ? " · buscando novos" : ""}`;
+  if (job) return `lendo reels · ${reels.count} até agora`;
+  if (reels.status === "running") return `${reels.count}+ reels · a leitura continua`;
+  return "reels: na fila para a primeira leitura";
+}
