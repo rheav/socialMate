@@ -16,6 +16,18 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.5.0] — 2026-10-02
+
+### Adicionado
+- **Exibição de nomes de perfil:** no painel lateral da aba Spy, perfis acompanhados exibem o nome do criador em vez de apenas identificadores numéricos.
+- **Status visual de medição:** indicador em tempo real ("medindo agora...", "aguardando medição" e "medido há...") e botão para disparar a medição sob demanda.
+
+### Alterado
+- **Pasta de download padrão:** a pasta padrão de downloads agora é a raiz da pasta de downloads do navegador (`""`), sem criar subpastas raiz desnecessárias.
+
+### Corrigido
+- **Avatar do perfil no Facebook:** isolamento da foto do perfil em relação ao avatar de navegação da barra superior e renovação do thumbnail em medições.
+
 ---
 
 ## [1.4.0] — 2026-10-02
