@@ -16,6 +16,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.5.3] — 2026-10-03
+
+### Adicionado
+- **Status por perfil no Spy:** cada perfil diz se está medindo, salvo localmente aguardando o hub, em pausa até um horário, no limite diário do Instagram, com nova tentativa marcada, com falha no dia ou medido aguardando envio. O rodapé mostra quantas alterações aguardam envio.
+
+### Alterado
+- **Pacote 21,6 MB menor:** a cópia com hash do wasm do ONNX Runtime, nunca carregada (os workers usam `assets/`), deixa de ser emitida.
+
+---
+
 ## [1.5.2] — 2026-10-03
 
 ### Corrigido
