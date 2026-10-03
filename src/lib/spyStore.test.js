@@ -342,13 +342,20 @@ describe("authoritative Spy upload reconciliation", () => {
       rejected: { id: "rejected", listUpdatedAt: 100, removedAt: null },
       pending: { id: "pending", listUpdatedAt: 101, removedAt: null },
     } };
-    const result = mergeList(cache, [], [{ id: "pending", op: "save", at: 101 }], { authoritative: true });
+    const result = mergeList(cache, [], [{ id: "pending", op: "save", at: 101 }], { settled: new Set(["rejected"]) });
     expect(result.profiles.rejected).toBeUndefined();
     expect(result.profiles.pending).toBeDefined();
   });
 
   it("accepts a server tombstone after a save was rejected despite a newer local timestamp", () => {
     const cache = { profiles: { p: { id: "p", listUpdatedAt: 200, removedAt: null } } };
-    expect(mergeList(cache, [{ id: "p", listUpdatedAt: 100, removedAt: 100 }], [], { authoritative: true }).profiles).toEqual({});
+    expect(mergeList(cache, [{ id: "p", listUpdatedAt: 100, removedAt: 100 }], [], { settled: new Set(["p"]) }).profiles).toEqual({});
+  });
+
+  it("keeps profiles the upload did not touch when the hub does not know them", () => {
+    // Measured live: a hub with an empty or restored database wiped the whole
+    // local list after an upload that only carried metadata and snapshots.
+    const cache = { profiles: { kept: { id: "kept", listUpdatedAt: 100, removedAt: null } } };
+    expect(mergeList(cache, [], [], { settled: new Set() }).profiles.kept).toBeDefined();
   });
 });

@@ -839,7 +839,8 @@ async function flushSpy({ attempt = 0 } = {}) {
 
       let nextSpy = freshSpy;
       if (lastRes?.profiles) {
-        nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps, { authoritative: true });
+        const settled = new Set(opsToSend.map((op) => op.id || spyId(op.platform, op.key)));
+        nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps, { settled });
       }
 
       await chrome.storage.local.set({

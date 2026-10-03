@@ -16,6 +16,21 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.5.2] — 2026-10-03
+
+### Corrigido
+- **Tentativas de coleta do Facebook:** toda coleta reserva a tentativa antes da requisição; 404 e falhas de leitura contam uma vez e respeitam intervalo de 6 h e limite diário. "Medir agora" continua imediato e só respeita o bloqueio da plataforma.
+- **Coleta duplicada em visitas:** eventos de carregamento e título não disparam coletas; requisições simultâneas do mesmo perfil (visita, diário, manual) compartilham uma só.
+- **Sincronização que não voltava:** alterações feitas durante um envio ganham novo envio; um alarme próprio retoma a fila após suspensão do service worker ou reinício do navegador, mesmo com a coleta diária desligada.
+- **Perfil fantasma:** salvar recusado pelo hub (limite de 100) é desfeito e informado.
+- **Lista apagada por hub sem os perfis:** um envio só reconcilia os perfis que ele próprio alterou.
+- **Replay do Instagram:** perfis capturados antes da ponte também são reenviados.
+- **Agendamento:** a próxima passada considera retentativas e fim de bloqueio no mesmo dia; tentativas de ontem não passam para hoje.
+- **Medir no Instagram:** o botão some; o link do perfil indica a medição por captura passiva.
+- **Lotes e prazos:** snapshots, operações e erros entram no particionamento por tamanho; requisições ao hub têm prazo de 120 s e a leitura do perfil Facebook, 30 s.
+
+---
+
 ## [1.5.1] — 2026-10-02
 
 ### Adicionado

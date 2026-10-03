@@ -206,7 +206,11 @@ export function dueProfiles(list, state, now = Date.now()) {
   });
 }
 
-export function mergeList(cache, serverList, pendingOps = [], { authoritative = false } = {}) {
+// `settled`: ids whose list ops the server has just answered. For those the
+// server reply is final (a rejected save must not linger); every other local
+// profile keeps the ordinary merge, so a hub that does not know the list (reset
+// or restored database, new URL) cannot wipe it.
+export function mergeList(cache, serverList, pendingOps = [], { settled = new Set() } = {}) {
   const rawCacheProfiles = cache?.profiles || cache || {};
   const sList = Array.isArray(serverList) ? serverList : (serverList?.profiles || []);
 
@@ -242,7 +246,7 @@ export function mergeList(cache, serverList, pendingOps = [], { authoritative = 
     const localUpdatedAt = Math.max(local?.listUpdatedAt || 0, pendingOp?.at || 0);
     const serverUpdatedAt = sProfile.listUpdatedAt || 0;
 
-    if (localUpdatedAt > serverUpdatedAt && (!authoritative || pendingOp)) {
+    if (localUpdatedAt > serverUpdatedAt && (!settled.has(id) || pendingOp)) {
       // Local is newer
       if (pendingOp) {
         if (pendingOp.op === "save") {
@@ -284,7 +288,7 @@ export function mergeList(cache, serverList, pendingOps = [], { authoritative = 
           listUpdatedAt: Math.max(local?.listUpdatedAt || 0, pendingOp.at || 0),
         };
       }
-    } else if (!authoritative && local && local.removedAt == null) {
+    } else if (!settled.has(id) && local && local.removedAt == null) {
       if ((local.listUpdatedAt || 0) > maxServerAt || sList.length === 0) {
         merged[id] = local;
       }

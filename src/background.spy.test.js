@@ -638,6 +638,13 @@ describe("Spy collection and synchronization regressions", () => {
     expect(data.fbw_spy_queue.snapshots).toEqual({});
   });
 
+  it("keeps the local list when a metadata-only upload reaches a hub that does not know it", async () => {
+    data.fbw_spy_queue = { ...emptyQueue(), snapshots: { [`${fb.id}|2026-10-03`]: { profileId: fb.id, day: "2026-10-03", measuredAt: now, followers: 1 } } };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, profiles: [] }) })));
+    await flushSpy();
+    expect(data.fbw_spy.profiles[fb.id]).toBeDefined();
+  });
+
   it("rolls back an unaccepted save and reports rejection instead of a phantom profile", async () => {
     const existing = { id: "instagram:existing", platform: "instagram", key: "existing", listUpdatedAt: 1, removedAt: null };
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true,
