@@ -16,6 +16,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.6.0] — 2026-10-03
+
+### Adicionado
+- **Reels do Facebook como "posts":** a leitura diária do Facebook busca a aba de reels — a mesma requisição única traz os seguidores e os 10 reels mais novos, que o hub guarda e conta.
+- **Leitura inicial completa:** cada perfil do Facebook é lido por inteiro uma vez, numa aba própria em segundo plano (`#socialmate-reels`), uma página a cada 20–40 s, até 30 páginas por perfil e 60 por dia; o cursor fica salvo e a leitura continua no dia seguinte. Dias com mais de 10 reels novos disparam uma continuação que para no primeiro reel conhecido.
+- **Histórico de leituras:** toda leitura (seguidores ou reels, sucesso ou falha, com a origem) vai para o hub, que mostra os últimos 3 dias na aba "Leituras".
+- **Painel:** cada perfil do Facebook mostra o andamento da contagem de reels.
+
+---
+
 ## [1.5.4] — 2026-10-03
 
 ### Alterado
