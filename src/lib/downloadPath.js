@@ -47,7 +47,7 @@ export { sanitizeFilenamePart };
 // folder setting means "straight into the browser's download directory", and
 // pointing that somewhere else is a browser setting (chrome://settings/downloads),
 // not something an extension can do.
-export const DOWNLOAD_ROOT = "social-mate";
+export const DOWNLOAD_ROOT = "";
 
 export const DL_PREFS_KEY = "fbw_dl";
 
@@ -62,8 +62,12 @@ export const DEFAULT_DL_PREFS = { folder: DOWNLOAD_ROOT, flat: false };
  */
 export function normalizeDlPrefs(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
+  let folder = r.folder === undefined ? DEFAULT_DL_PREFS.folder : r.folder;
+  if (folder === "social-mate") {
+    folder = "";
+  }
   return {
-    folder: folderSegments(r.folder === undefined ? DEFAULT_DL_PREFS.folder : r.folder).join("/"),
+    folder: folderSegments(folder).join("/"),
     flat: !!r.flat,
   };
 }

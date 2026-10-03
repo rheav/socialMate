@@ -44,7 +44,7 @@ export default function SpyTool({ activeUrl = "" }) {
   }, []);
   const active = parseProfileUrl(activeUrl);
   const activeId = active ? spyId(active.platform, active.key) : null;
-  const saved = profiles.some((p) => p.id === activeId);
+  const saved = profiles.find((p) => p.id === activeId);
   const run = async (id, action) => {
     setBusy(id); setError(null);
     try { await action(); }
@@ -60,7 +60,10 @@ export default function SpyTool({ activeUrl = "" }) {
       <section className="rounded-xl border border-border bg-card p-3 space-y-2.5" aria-label="Perfil da aba ativa">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfil da aba ativa</h2>
         {active ? <>
-          <p className="break-words text-sm font-medium">@{active.key}<span className="text-muted-foreground font-normal"> · {PLATFORMS[active.platform].name}</span></p>
+          <p className="break-words text-sm font-medium">
+            {saved?.name || (/^\d+$/.test(active.key) ? `Perfil ${active.key}` : `@${active.key}`)}
+            <span className="text-muted-foreground font-normal"> · {PLATFORMS[active.platform].name}</span>
+          </p>
           {saved ? <RemoveButton key={activeId} id={activeId} remove={removeProfile} disabled={busy != null} /> :
             <button type="button" className={buttonClass} disabled={!configured || busy != null}
               onClick={() => run(activeId, () => save(active.platform, active.key))}>
@@ -75,33 +78,42 @@ export default function SpyTool({ activeUrl = "" }) {
         {!ready ? <p className="text-xs text-muted-foreground">Carregando perfis…</p> : !profiles.length ?
           <p className="text-xs text-muted-foreground">Nenhum perfil salvo.</p> :
           <ul className="divide-y divide-border rounded-xl border border-border bg-card">
-            {profiles.map((p) => <li key={p.id} className="flex flex-wrap items-center gap-2 p-3">
-              <div className="min-w-0 basis-24 grow">
-                <p className="truncate text-sm font-medium" title={p.name || `@${p.key}`}>{p.name || `@${p.key}`}</p>
-                <p className="text-[11px] text-muted-foreground">{PLATFORMS[p.platform]?.name}</p>
-                {state.measuring?.id === p.id ? (
-                  <p className="text-[11px] font-medium text-primary flex items-center gap-1">
-                    <Loader2 className="size-3 animate-spin shrink-0" />
-                    medindo agora…
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    {p.lastMeasuredAt == null ? (
-                      <>
-                        <span className="inline-block size-1.5 rounded-full bg-primary/70 animate-pulse" />
-                        aguardando medição
-                      </>
+            {profiles.map((p) => {
+              const isNumeric = /^\d+$/.test(p.key);
+              const displayName = p.name || (isNumeric ? `Perfil ${p.key}` : `@${p.key}`);
+              const subtitle = p.name
+                ? `${PLATFORMS[p.platform]?.name || p.platform}${!isNumeric ? ` · @${p.key}` : ""}`
+                : (PLATFORMS[p.platform]?.name || p.platform);
+              return (
+                <li key={p.id} className="flex flex-wrap items-center gap-2 p-3">
+                  <div className="min-w-0 basis-24 grow">
+                    <p className="truncate text-sm font-medium" title={displayName}>{displayName}</p>
+                    <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+                    {state.measuring?.id === p.id ? (
+                      <p className="text-[11px] font-medium text-primary flex items-center gap-1">
+                        <Loader2 className="size-3 animate-spin shrink-0" />
+                        medindo agora…
+                      </p>
                     ) : (
-                      `medido ${ago(p.lastMeasuredAt, now)}`
+                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        {p.lastMeasuredAt == null ? (
+                          <>
+                            <span className="inline-block size-1.5 rounded-full bg-primary/70 animate-pulse" />
+                            aguardando medição
+                          </>
+                        ) : (
+                          `medido ${ago(p.lastMeasuredAt, now)}`
+                        )}
+                      </p>
                     )}
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass} aria-label={`Abrir perfil @${p.key}`}><ExternalLink className="size-3.5" /></a>
-                <RemoveButton id={p.id} remove={removeProfile} disabled={busy != null} />
-              </div>
-            </li>)}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass} aria-label={p.name ? `Abrir ${p.name}` : `Abrir perfil @${p.key}`}><ExternalLink className="size-3.5" /></a>
+                    <RemoveButton id={p.id} remove={removeProfile} disabled={busy != null} />
+                  </div>
+                </li>
+              );
+            })}
           </ul>}
       </section>
       <footer className="space-y-2 text-[11px] leading-relaxed text-muted-foreground" aria-live="polite">
@@ -109,7 +121,11 @@ export default function SpyTool({ activeUrl = "" }) {
           {state.measuring ? (
             <p className="text-primary font-medium flex items-center gap-1.5 py-1">
               <Loader2 className="size-3.5 animate-spin shrink-0" />
-              Medindo @{state.measuring.key} ({PLATFORMS[state.measuring.platform]?.name || state.measuring.platform})…
+              Medindo {(() => {
+                const activeP = profiles.find((p) => p.id === state.measuring.id);
+                const isNum = /^\d+$/.test(state.measuring.key);
+                return activeP?.name || (isNum ? `perfil ${state.measuring.key}` : `@${state.measuring.key}`);
+              })()} ({PLATFORMS[state.measuring.platform]?.name || state.measuring.platform})…
             </p>
           ) : (
             <div className="flex items-center justify-between gap-2">

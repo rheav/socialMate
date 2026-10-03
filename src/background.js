@@ -935,10 +935,7 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
 
     let avatarThumb = null;
     if (parsed.avatarUrl) {
-      const needsAvatar = !profile.hasAvatar || source === "visit";
-      if (needsAvatar) {
-        avatarThumb = await durableThumb(parsed.avatarUrl);
-      }
+      avatarThumb = await durableThumb(parsed.avatarUrl);
     }
 
     const profilePatch = {
@@ -971,6 +968,7 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
             ...spy.profiles,
             [profile.id]: {
               ...spy.profiles[profile.id],
+              name: parsed.name || spy.profiles[profile.id].name,
               lastMeasuredAt: now,
               hasAvatar: avatarThumb ? true : spy.profiles[profile.id].hasAvatar,
               userId: parsed.userId || spy.profiles[profile.id].userId,

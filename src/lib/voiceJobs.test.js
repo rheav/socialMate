@@ -22,7 +22,7 @@ describe('voice extraction jobs', () => {
     const { jobs, downloads, sent, deps } = setup();
     await jobs.start(input, 7);
     await jobs.complete({jobId:input.jobId, success:true, blobUrl:'blob:voice'});
-    expect(downloads).toEqual([{url:'blob:voice', filename:'social-mate/creator-ABC-voz.mp3'}]);
+    expect(downloads).toEqual([{url:'blob:voice', filename:'creator-ABC-voz.mp3'}]);
     expect(deps.trackDownload).toHaveBeenCalledWith(42, 'blob:voice');
     expect(sent.at(-1)).toMatchObject({tabId:7, success:true, phase:'done', pct:100});
     expect(jobs.status(7)).toBeNull();

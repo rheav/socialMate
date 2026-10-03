@@ -69,8 +69,8 @@ describe("filenameFor", () => {
   it("sanitizes the owner and includes the id", () => {
     // Reels Sort only downloads covers, so these always land in miniaturas.
     expect(filenameFor("Primordial Witch", "123")).toBe(
-      "social-mate/imagens/Primordial Witch-fb-123.jpg",
+      "imagens/Primordial Witch-fb-123.jpg",
     );
-    expect(filenameFor("bad/name:*", "1")).toBe("social-mate/imagens/bad_name-fb-1.jpg");
+    expect(filenameFor("bad/name:*", "1")).toBe("imagens/bad_name-fb-1.jpg");
   });
 });

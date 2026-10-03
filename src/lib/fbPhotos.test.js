@@ -488,26 +488,26 @@ describe("filename helpers (must behave exactly like igMedia/ttMedia)", () => {
     expect(baseNameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe("Astra-fb-9_2.jpg");
   });
 
-  it("files <owner>-fb-<fbid>.<ext> under social-mate/facebook/fotos", () => {
+  it("files <owner>-fb-<fbid>.<ext> under imagens/", () => {
     expect(filenameFor({ owner: "Astra Vale", fbid: "122111787357372141" }, "jpg")).toBe(
-      "social-mate/imagens/Astra Vale-fb-122111787357372141.jpg",
+      "imagens/Astra Vale-fb-122111787357372141.jpg",
     );
     expect(filenameFor({ owner: "a/b", fbid: "9" }, "png")).toBe(
-      "social-mate/imagens/a_b-fb-9.png",
+      "imagens/a_b-fb-9.png",
     );
     expect(filenameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe(
-      "social-mate/imagens/Astra-fb-9_2.jpg",
+      "imagens/Astra-fb-9_2.jpg",
     );
   });
 
   it("falls back to the profile key, then to 'perfil', rather than an empty segment", () => {
     expect(filenameFor({ ownerKey: "61591164255809", fbid: "9" }, "jpg")).toBe(
-      "social-mate/imagens/61591164255809-fb-9.jpg",
+      "imagens/61591164255809-fb-9.jpg",
     );
     expect(filenameFor({ owner: "///", fbid: "9" }, "jpg")).toBe(
-      "social-mate/imagens/perfil-fb-9.jpg",
+      "imagens/perfil-fb-9.jpg",
     );
-    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("social-mate/imagens/perfil-fb-9.jpg");
+    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("imagens/perfil-fb-9.jpg");
   });
 });
 
@@ -519,12 +519,12 @@ describe("stampFor / zipFilename", () => {
   // The archive is built through the "image" kind (it holds photos), but a ZIP is
   // data, not media — DATA_EXTS overrules the kind so it lands with the other
   // archives instead of burying the loose photos next to it.
-  it("files the archive under social-mate/dados, not with the photos", () => {
+  it("files the archive under dados, not with the photos", () => {
     expect(zipFilename("Astra Vale", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "social-mate/dados/Astra Vale-fb-2026-07-25_16-40-12.zip",
+      "dados/Astra Vale-fb-2026-07-25_16-40-12.zip",
     );
     expect(zipFilename("", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "social-mate/dados/perfil-fb-2026-07-25_16-40-12.zip",
+      "dados/perfil-fb-2026-07-25_16-40-12.zip",
     );
   });
 });
