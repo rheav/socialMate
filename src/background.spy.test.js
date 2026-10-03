@@ -368,6 +368,8 @@ describe("Instagram path B", () => {
       { tab: { id: 90 }, url: "https://www.instagram.com/nasa/#socialmate-spy", frameId: 0 });
     expect(result).toMatchObject({ ok: true });
     expect(data.fbw_spy_queue.snapshots["instagram:nasa|2026-10-03"].source).toBe("daily");
+    expect(Object.values(data.fbw_spy_queue.readings)).toEqual([expect.objectContaining({
+      profileId: "instagram:nasa", kind: "followers", source: "daily", ok: true, followers: 42 })]);
     expect(data.fbw_spy_state.igBatch).toBeNull();
     expect(data.fbw_spy_state.igDaily.count).toBe(1);
     expect(chrome.tabs.remove).toHaveBeenCalledWith(90);
@@ -661,5 +663,56 @@ describe("Spy collection and synchronization regressions", () => {
     const result = await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/abr[ai]/i);
+  });
+});
+
+describe("Facebook reels in the daily reading", () => {
+  const now = new Date(2026, 9, 3, 8).getTime();
+  const fb = { id: "facebook:61589642519378", platform: "facebook", key: "61589642519378", removedAt: null,
+    listUpdatedAt: 1, lastMeasuredAt: null, reels: { status: "done", count: 2, recent: ["2209826979599001"] } };
+  const reelNode = (id, created) => ({ profile_reel_node: { node: { __typename: "Story", creation_time: created, actors: [{ id: "6" }],
+    attachments: [{ media: { __typename: "Video", id, created_time: created, play_count_reduced: "1.2K" } }] } } });
+  const reelsHtml = (ids) => `"profile_social_context":{"text":"1.5M followers"}<script type="application/json" data-sjs>${JSON.stringify({
+    x: { aggregated_fb_shorts: { edges: ids.map((id, i) => reelNode(id, 1791000000 - i)), page_info: { end_cursor: "C", has_next_page: true } } },
+  })}</script>`;
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy = { fetchedAt: now, profiles: { [fb.id]: { ...fb } } };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {} };
+    data.fbw_spy_queue = undefined;
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("reads followers and the newest reels from the reels tab in one request", async () => {
+    const fetcher = vi.fn(async () => ({ status: 200, text: async () => reelsHtml(["2209826979599002", "2209826979599001"]) }));
+    expect((await measureFbProfile(fb, "daily", fetcher)).ok).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][0]).toBe("https://www.facebook.com/profile.php?id=61589642519378&sk=reels_tab");
+    const q = data.fbw_spy_queue;
+    expect(Object.keys(q.reels).sort()).toEqual([`${fb.id}|2209826979599001`, `${fb.id}|2209826979599002`]);
+    expect(Object.values(q.snapshots)[0]).toMatchObject({ followers: 1_500_000 });
+    const readings = Object.values(q.readings).map((r) => [r.kind, r.source, r.ok, r.followers ?? r.reelsAdded]);
+    expect(readings).toEqual(expect.arrayContaining([["followers", "daily", true, 1_500_000], ["reels", "daily", true, 1]]));
+  });
+
+  it("records a failed reading with its reason and origin", async () => {
+    await measureFbProfile(fb, "visit", async () => ({ status: 404, text: async () => "" }));
+    expect(Object.values(data.fbw_spy_queue.readings)).toEqual([
+      expect.objectContaining({ profileId: fb.id, kind: "followers", source: "visit", ok: false, error: "not_found" }),
+    ]);
+  });
+
+  it("sends reels, reading states and readings to the hub and clears them", async () => {
+    data.fbw_spy_queue = { ops: [], profiles: {}, snapshots: {}, errors: {},
+      reels: { [`${fb.id}|2209826979599002`]: { profileId: fb.id, id: "2209826979599002", createdAt: 1, duration: null, views: 5 } },
+      reelsStatus: { [fb.id]: { profileId: fb.id, status: "running", at: 1 } },
+      readings: { [`${fb.id}|1|reels`]: { profileId: fb.id, at: 1, kind: "reels", source: "initial", ok: true, reelsAdded: 1 } } };
+    const bodies = [];
+    vi.stubGlobal("fetch", vi.fn(async (_u, o) => { bodies.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true, profiles: [fb] }) }; }));
+    expect((await flushSpy()).ok).toBe(true);
+    expect(bodies[0]).toMatchObject({ reels: [expect.objectContaining({ id: "2209826979599002" })],
+      reelsStatus: [{ profileId: fb.id, status: "running", at: 1 }], readings: [expect.objectContaining({ kind: "reels" })] });
+    expect(data.fbw_spy_queue).toMatchObject({ reels: {}, reelsStatus: {}, readings: {} });
   });
 });

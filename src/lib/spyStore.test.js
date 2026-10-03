@@ -3,6 +3,9 @@ import {
   dayKey,
   dueProfiles,
   emptySpyQueue,
+  queueReels,
+  queueReelsStatus,
+  queueReading,
   emptySpyState,
   isBlocked,
   mergeList,
@@ -357,5 +360,26 @@ describe("authoritative Spy upload reconciliation", () => {
     // local list after an upload that only carried metadata and snapshots.
     const cache = { profiles: { kept: { id: "kept", listUpdatedAt: 100, removedAt: null } } };
     expect(mergeList(cache, [], [], { settled: new Set() }).profiles.kept).toBeDefined();
+  });
+});
+
+describe("reels, reading-state and readings queue", () => {
+  it("keeps each reel once per profile and the newest reading state", () => {
+    let q = emptySpyQueue();
+    q = queueReels(q, "facebook:1", [{ id: "100001", createdAt: 1, views: 5 }, { id: "100002", createdAt: 2 }]);
+    q = queueReels(q, "facebook:1", [{ id: "100001", createdAt: 1, views: 9 }]);
+    expect(Object.keys(q.reels)).toEqual(["facebook:1|100001", "facebook:1|100002"]);
+    expect(q.reels["facebook:1|100001"]).toEqual({ profileId: "facebook:1", id: "100001", createdAt: 1, duration: null, views: 9 });
+    q = queueReelsStatus(q, "facebook:1", "running", 10);
+    q = queueReelsStatus(q, "facebook:1", "done", 20);
+    expect(q.reelsStatus["facebook:1"]).toEqual({ profileId: "facebook:1", status: "done", at: 20 });
+  });
+
+  it("keeps the newest 400 readings", () => {
+    let q = emptySpyQueue();
+    for (let i = 0; i < 405; i++) q = queueReading(q, { profileId: "facebook:1", at: i, kind: "followers", source: "daily", ok: true });
+    const ats = Object.values(q.readings).map((r) => r.at);
+    expect(ats).toHaveLength(400);
+    expect(Math.min(...ats)).toBe(5);
   });
 });

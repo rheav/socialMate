@@ -29,6 +29,14 @@ export function spyId(platform, key) {
   return `${platform}:${String(key).toLowerCase()}`;
 }
 
+/** Facebook reels tab: the daily reading's single request (followers + newest reels). */
+export function reelsUrl(key) {
+  const k = String(key).toLowerCase();
+  return FB_NUMERIC_RE.test(k)
+    ? `https://www.facebook.com/profile.php?id=${k}&sk=reels_tab`
+    : `https://www.facebook.com/${k}/reels/`;
+}
+
 export function profileUrl(platform, key) {
   const k = String(key).toLowerCase();
   if (platform === "instagram") {

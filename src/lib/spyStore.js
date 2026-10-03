@@ -16,6 +16,9 @@ export function emptySpyQueue() {
     profiles: {},
     snapshots: {},
     errors: {},
+    reels: {},       // "<profileId>|<reelId>" -> Facebook reel
+    reelsStatus: {}, // profileId -> first full reading state
+    readings: {},    // "<profileId>|<at>|<kind>" -> collection attempt
   };
 }
 
@@ -46,6 +49,9 @@ function normalizeQueue(queue) {
     profiles: queue.profiles && typeof queue.profiles === "object" ? queue.profiles : {},
     snapshots: queue.snapshots && typeof queue.snapshots === "object" ? queue.snapshots : {},
     errors: queue.errors && typeof queue.errors === "object" ? queue.errors : {},
+    reels: queue.reels && typeof queue.reels === "object" ? queue.reels : {},
+    reelsStatus: queue.reelsStatus && typeof queue.reelsStatus === "object" ? queue.reelsStatus : {},
+    readings: queue.readings && typeof queue.readings === "object" ? queue.readings : {},
   };
 }
 
@@ -303,4 +309,41 @@ export function mergeList(cache, serverList, pendingOps = [], { settled = new Se
     profiles: merged,
     fetchedAt: Date.now(),
   };
+}
+
+const finite = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/** Facebook reels read for a profile; the hub stores each one once. */
+export function queueReels(queue, profileId, reels) {
+  const q = normalizeQueue(queue);
+  const next = { ...q.reels };
+  for (const r of reels || []) {
+    if (!profileId || !/^\d{6,}$/.test(r?.id || "")) continue;
+    next[`${profileId}|${r.id}`] = {
+      profileId, id: r.id, createdAt: finite(r.createdAt), duration: finite(r.duration), views: finite(r.views),
+    };
+  }
+  return { ...q, reels: next };
+}
+
+/** State of a profile's first full reels reading: pending -> running -> done. */
+export function queueReelsStatus(queue, profileId, status, at = Date.now()) {
+  const q = normalizeQueue(queue);
+  if (!profileId) return q;
+  return { ...q, reelsStatus: { ...q.reelsStatus, [profileId]: { profileId, status, at } } };
+}
+
+const READINGS_CAP = 400;
+
+/** One collection attempt for the hub's readings history; only the newest are kept. */
+export function queueReading(queue, reading) {
+  const q = normalizeQueue(queue);
+  if (!reading?.profileId || !Number.isFinite(reading.at)) return q;
+  const readings = { ...q.readings, [`${reading.profileId}|${reading.at}|${reading.kind}`]: reading };
+  const keys = Object.keys(readings);
+  if (keys.length > READINGS_CAP) {
+    keys.sort((a, b) => readings[a].at - readings[b].at);
+    for (const key of keys.slice(0, keys.length - READINGS_CAP)) delete readings[key];
+  }
+  return { ...q, readings };
 }

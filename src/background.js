@@ -48,8 +48,8 @@ import {
   syncSettings,
 } from "./lib/syncClient.js";
 
-import { parseProfileUrl, profileUrl, spyId } from "./lib/spyProfile.js";
-import { parseFbProfileHtml, parseIgProfile } from "./lib/spyParse.js";
+import { parseProfileUrl, profileUrl, reelsUrl, spyId } from "./lib/spyProfile.js";
+import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "./lib/spyParse.js";
 import {
   SPY_KEY,
   SPY_PREFS_KEY,
@@ -67,6 +67,9 @@ import {
   queueOp,
   queueProfile,
   queueSnapshot,
+  queueReading,
+  queueReels,
+  queueReelsStatus,
 } from "./lib/spyStore.js";
 
 import { createVoiceJobs } from "./lib/voiceJobs.js";
@@ -662,8 +665,8 @@ function mutateSpy(work) {
 }
 
 function spyQueuePending(queue) {
-  return !!(queue?.ops?.length || Object.keys(queue?.profiles || {}).length ||
-    Object.keys(queue?.snapshots || {}).length || Object.keys(queue?.errors || {}).length);
+  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings"]
+    .some((kind) => Object.keys(queue?.[kind] || {}).length));
 }
 
 async function recoverSpySync() {
@@ -758,12 +761,18 @@ async function flushSpy({ attempt = 0 } = {}) {
     const profilesToSend = Object.values(queue.profiles || {});
     const snapshotsToSend = Object.values(queue.snapshots || {});
     const errorsToSend = Object.values(queue.errors || {});
+    const reelsToSend = Object.values(queue.reels || {});
+    const reelsStatusToSend = Object.values(queue.reelsStatus || {});
+    const readingsToSend = Object.values(queue.readings || {});
 
     if (
       !opsToSend.length &&
       !profilesToSend.length &&
       !snapshotsToSend.length &&
-      !errorsToSend.length
+      !errorsToSend.length &&
+      !reelsToSend.length &&
+      !reelsStatusToSend.length &&
+      !readingsToSend.length
     ) {
       await chrome.alarms?.clear?.("fbw-spy-sync");
       return { ok: true, sent: 0 };
@@ -779,6 +788,9 @@ async function flushSpy({ attempt = 0 } = {}) {
       ...profilesToSend.map((r) => ["profiles", r]),
       ...snapshotsToSend.map((r) => ["snapshots", r]),
       ...errorsToSend.map((e) => ["errors", { ...e, profileId: e.profileId || e.id }]),
+      ...reelsToSend.map((r) => ["reels", r]),
+      ...reelsStatusToSend.map((r) => ["reelsStatus", r]),
+      ...readingsToSend.map((r) => ["readings", r]),
     ];
     let lastRes = null;
     for (const batch of batchRecords(records, { maxItems: 500 })) {
@@ -832,11 +844,23 @@ async function flushSpy({ attempt = 0 } = {}) {
         }
       }
 
+      // Keyed kinds: drop what was sent unless it changed during the upload.
+      const unsent = (kind) => {
+        const left = { ...(freshQueue[kind] || {}) };
+        for (const [key, value] of Object.entries(queue[kind] || {})) {
+          if (JSON.stringify(left[key]) === JSON.stringify(value)) delete left[key];
+        }
+        return left;
+      };
+
       const nextQueue = {
         ops: remainingOps,
         profiles: remainingProfiles,
         snapshots: remainingSnapshots,
         errors: remainingErrors,
+        reels: unsent("reels"),
+        reelsStatus: unsent("reelsStatus"),
+        readings: unsent("readings"),
       };
 
       let nextSpy = freshSpy;
@@ -865,7 +889,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     return {
       ok: !rejected.length,
       ...(rejected.length ? { error: rejectionError, rejected } : {}),
-      sent: opsToSend.length + profilesToSend.length + snapshotsToSend.length + errorsToSend.length,
+      sent: records.length,
     };
   } catch (err) {
     const status = err?.status || 0;
@@ -895,7 +919,9 @@ function recordAttempt(state, profileId, success, now = Date.now()) {
   };
 }
 
-async function blockPlatform(platform, errorCode, profileId) {
+// `reading` ({ kind, source }) also logs the failed attempt for the hub's
+// readings history.
+async function blockPlatform(platform, errorCode, profileId, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();
   const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY]);
@@ -913,6 +939,7 @@ async function blockPlatform(platform, errorCode, profileId) {
 
   if (profileId) {
     queue = queueError(queue, profileId, errorCode, now);
+    if (reading) queue = queueReading(queue, { profileId, at: now, ...reading, ok: false, error: errorCode });
   }
 
   await chrome.storage.local.set({
@@ -924,7 +951,7 @@ async function blockPlatform(platform, errorCode, profileId) {
   });
 }
 
-async function recordProfileError(profileId, errorCode) {
+async function recordProfileError(profileId, errorCode, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();
   const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_STATE_KEY]);
@@ -932,6 +959,7 @@ async function recordProfileError(profileId, errorCode) {
   let state = r[SPY_STATE_KEY] || emptySpyState(now);
 
   queue = queueError(queue, profileId, errorCode, now);
+  if (reading) queue = queueReading(queue, { profileId, at: now, ...reading, ok: false, error: errorCode });
   state = {
     ...state,
     lastError: errorCode,
@@ -955,7 +983,10 @@ function measureFbProfile(profile, source = "daily", fetchImpl = fetch, { force 
   return work;
 }
 async function collectFbProfile(profile, source, fetchImpl, force) {
-  const url = profileUrl("facebook", profile.key);
+  // The reels tab answers followers AND the newest reels in this one request.
+  const url = reelsUrl(profile.key);
+  const readingSource = force ? "manual" : source;
+  const followersReading = { kind: "followers", source: readingSource };
   const startAt = Date.now();
   const reserved = await mutateSpy(async () => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
@@ -983,24 +1014,25 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
 
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       const errCode = res.status === 429 ? "rate_limited" : "login_required";
-      await blockPlatform("facebook", errCode, profile.id);
+      await blockPlatform("facebook", errCode, profile.id, followersReading);
       return { ok: false, error: errCode };
     }
 
     if (res.status === 404) {
-      await recordProfileError(profile.id, "not_found");
+      await recordProfileError(profile.id, "not_found", followersReading);
       return { ok: false, error: "not_found" };
     }
 
     const finalUrl = res.url || url;
     const html = await res.text();
     const parsed = parseFbProfileHtml(html, finalUrl);
+    const reels = parsed.ok ? parseFbReelsHtml(html) : { reels: [], hasNext: null, cursor: null };
 
     if (!parsed.ok) {
       if (parsed.error === "login_required" || parsed.error === "rate_limited") {
-        await blockPlatform("facebook", parsed.error, profile.id);
+        await blockPlatform("facebook", parsed.error, profile.id, followersReading);
       } else {
-        await recordProfileError(profile.id, parsed.error || "parse_failed");
+        await recordProfileError(profile.id, parsed.error || "parse_failed", followersReading);
       }
       return parsed;
     }
@@ -1047,6 +1079,13 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef) {
         queue = queueProfile(queue, profilePatch);
       }
+      // Newest reels: the hub keeps each once and counts them as the posts.
+      const known = new Set(spy.profiles?.[profile.id]?.reels?.recent || profile.reels?.recent || []);
+      const added = reels.reels.filter((reel) => !known.has(reel.id)).length;
+      queue = queueReels(queue, profile.id, reels.reels);
+      queue = queueReading(queue, { profileId: profile.id, at: now, ...followersReading, ok: true, followers: parsed.followers });
+      queue = queueReading(queue, { profileId: profile.id, at: now, kind: "reels", source: readingSource, ok: true,
+        reelsAdded: added, pages: 1 });
 
       if (spy.profiles?.[profile.id]) {
         spy = {
@@ -1075,7 +1114,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
     scheduleFlushSpy();
     return { ok: true, snapshot };
   } catch (err) {
-    await recordProfileError(profile.id, "network");
+    await recordProfileError(profile.id, "network", followersReading);
     return { ok: false, error: "network" };
   } finally {
     await mutateSpy(async () => {
@@ -1103,6 +1142,7 @@ function serializeIg(work) {
   return next;
 }
 const IG_SPY_MARKER = "#socialmate-spy";
+const IG_DAILY_READING = { kind: "followers", source: "daily" };
 function igDailyCount(state, now = Date.now()) {
   return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
 }
@@ -1201,7 +1241,7 @@ async function advanceIgBatch() {
     if (!tab?.url?.endsWith(IG_SPY_MARKER)) { await closeIgBatch(); return; }
   } catch { await closeIgBatch(); return; }
   if (batch.current) {
-    await recordProfileError(spyId("instagram", batch.current), "parse_failed");
+    await recordProfileError(spyId("instagram", batch.current), "parse_failed", IG_DAILY_READING);
     batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null };
   }
   const navigate = await mutateSpy(async () => {
@@ -1229,7 +1269,7 @@ async function advanceIgBatch() {
   });
   if (!navigate) { await closeIgBatch(); return; }
   if (igStopReason) {
-    await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null);
+    await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
     await closeIgBatch();
     return;
   }
@@ -1237,7 +1277,7 @@ async function advanceIgBatch() {
     await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", batch.current) + IG_SPY_MARKER });
     armIgStep(batch.nextAt);
   } catch {
-    await recordProfileError(spyId("instagram", batch.current), "network");
+    await recordProfileError(spyId("instagram", batch.current), "network", IG_DAILY_READING);
     await closeIgBatch();
   }
 }
@@ -1280,6 +1320,8 @@ async function observeIgProfile(msg, sender) {
       externalUrl: parsed.externalUrl, verified: parsed.verified, private: parsed.private };
     if (avatar) patch.avatar = avatar;
     queue = queueProfile(queue, patch);
+    queue = queueReading(queue, { profileId: id, at: now, kind: "followers", source: daily ? "daily" : "visit",
+      ok: true, followers: parsed.followers });
     if (daily && state.igBatch?.tabId === sender.tab.id) {
       state = {
         ...state,
@@ -1315,7 +1357,7 @@ chrome.webRequest?.onCompleted?.addListener((details) => {
     const batch = r[SPY_STATE_KEY]?.igBatch;
     if (!batch?.own || batch.tabId !== details.tabId) return;
     await blockPlatform("instagram", details.statusCode === 429 ? "rate_limited" : "login_required",
-      batch.current ? spyId("instagram", batch.current) : null);
+      batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
     await closeIgBatch();
   }).catch(() => {});
 }, { urls: ["https://*.instagram.com/*"] });
@@ -1328,7 +1370,7 @@ chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
     if (!batch?.own || batch.tabId !== tabId) return;
     const url = change.url || tab?.url || "";
     if (/instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(url)) {
-      await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null);
+      await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
       await closeIgBatch();
     } else if (change.status === "complete" && batch.current) {
       try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [batch.current] }); } catch { /* alarm handles missing bridge */ }

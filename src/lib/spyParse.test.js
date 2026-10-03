@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseFbProfileHtml, parseIgProfile } from "./spyParse.js";
+import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "./spyParse.js";
 
 const fixturesDir = path.join(__dirname, "__fixtures__", "spy");
 const nasaFixture = fs.readFileSync(path.join(fixturesDir, "fb_nasa_without_story.json"), "utf8");
@@ -184,4 +184,31 @@ describe("spyParse", () => {
 it("parses the passive capture userid without treating highlights as active stories", () => {
   expect(parseIgProfile({ userid: "123", username: "nasa", follower_count: 42,
     has_highlight_reels: true })).toMatchObject({ userId: "123", followers: 42, hasStory: null });
+});
+
+describe("parseFbReelsHtml", () => {
+  // Shape measured on a live reels tab (2026-10-03): the first page ships in a
+  // <script type="application/json"> block as aggregated_fb_shorts.
+  const reelNode = (id, created, views) => ({ profile_reel_node: { node: {
+    __typename: "Story", creation_time: created, actors: [{ id: "615" }],
+    attachments: [{ media: { __typename: "Video", id, created_time: created, length_in_second: 62.3, play_count_reduced: views } }],
+  } } });
+  const page = (edges, hasNext) => JSON.stringify({ require: [[{ __bbox: { result: { data: { node: { all_collections: { nodes: [{ style_renderer: { collection: {
+    aggregated_fb_shorts: { edges, page_info: { end_cursor: "CUR", has_next_page: hasNext } },
+  } } }] } } } } } }]] });
+  const html = (json) => `<html><script type="application/json" data-sjs>{"other":1}</script><script type="application/json" data-content-len="9" data-sjs>${json}</script></html>`;
+
+  it("reads the newest reels and the paging state from the reels tab HTML", () => {
+    const res = parseFbReelsHtml(html(page([reelNode("2209826979599628", 1791000141, "9.1K"), reelNode("2209826979599629", 1790990000, "512")], true)));
+    expect(res.reels).toEqual([
+      expect.objectContaining({ id: "2209826979599628", createdAt: 1791000141, views: 9100 }),
+      expect.objectContaining({ id: "2209826979599629", createdAt: 1790990000, views: 512 }),
+    ]);
+    expect(res).toMatchObject({ hasNext: true, cursor: "CUR" });
+  });
+
+  it("answers an empty first page without failing", () => {
+    expect(parseFbReelsHtml(html(page([], false)))).toEqual({ reels: [], hasNext: false, cursor: "CUR" });
+    expect(parseFbReelsHtml("<html></html>")).toEqual({ reels: [], hasNext: null, cursor: null });
+  });
 });
