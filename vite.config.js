@@ -4,9 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import { crx } from "@crxjs/vite-plugin";
 import path from "path";
 import manifest from "./manifest.config.js";
+import { dropBundledOrtWasm } from "./src/build/dropBundledOrtWasm.js";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), crx({ manifest })],
+  plugins: [react(), tailwindcss(), crx({ manifest }), dropBundledOrtWasm()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
