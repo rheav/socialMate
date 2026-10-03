@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Trash2 } from "lucide-react";
+import { ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
 import { dayKey } from "@/lib/spyStore";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
@@ -33,8 +33,9 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, configured, ready, error: loadError, save, remove } = useSpy();
+  const { profiles, state, configured, ready, error: loadError, save, remove, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
+  const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -78,7 +79,23 @@ export default function SpyTool({ activeUrl = "" }) {
               <div className="min-w-0 basis-24 grow">
                 <p className="truncate text-sm font-medium" title={p.name || `@${p.key}`}>{p.name || `@${p.key}`}</p>
                 <p className="text-[11px] text-muted-foreground">{PLATFORMS[p.platform]?.name}</p>
-                <p className="text-[11px] text-muted-foreground">{p.lastMeasuredAt == null ? "aguardando medição" : `medido ${ago(p.lastMeasuredAt, now)}`}</p>
+                {state.measuring?.id === p.id ? (
+                  <p className="text-[11px] font-medium text-primary flex items-center gap-1">
+                    <Loader2 className="size-3 animate-spin shrink-0" />
+                    medindo agora…
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    {p.lastMeasuredAt == null ? (
+                      <>
+                        <span className="inline-block size-1.5 rounded-full bg-primary/70 animate-pulse" />
+                        aguardando medição
+                      </>
+                    ) : (
+                      `medido ${ago(p.lastMeasuredAt, now)}`
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass} aria-label={`Abrir perfil @${p.key}`}><ExternalLink className="size-3.5" /></a>
@@ -89,7 +106,38 @@ export default function SpyTool({ activeUrl = "" }) {
       </section>
       <footer className="space-y-2 text-[11px] leading-relaxed text-muted-foreground" aria-live="polite">
         {!configured ? <p>Configure o acervo em Opções para usar a área spy.</p> : <>
-          <p>{state.lastPassAt ? `Última passada ${ago(state.lastPassAt, now)}` : "Aguardando a primeira passada"} · {measured} de {profiles.length} medidos</p>
+          {state.measuring ? (
+            <p className="text-primary font-medium flex items-center gap-1.5 py-1">
+              <Loader2 className="size-3.5 animate-spin shrink-0" />
+              Medindo @{state.measuring.key} ({PLATFORMS[state.measuring.platform]?.name || state.measuring.platform})…
+            </p>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <p>
+                {state.lastPassAt ? `Última passada ${ago(state.lastPassAt, now)}` : "Aguardando primeira passada"} · {measured} de {profiles.length} medidos
+              </p>
+              {profiles.length > 0 && (
+                <button
+                  type="button"
+                  disabled={runningPass || busy != null || !!state.measuring}
+                  className={buttonClass}
+                  onClick={async () => {
+                    setRunningPass(true);
+                    try {
+                      await runPass();
+                    } catch {
+                      setError("Não consegui iniciar a medição.");
+                    } finally {
+                      setRunningPass(false);
+                    }
+                  }}
+                  title="Executar medição agora"
+                >
+                  {runningPass ? "iniciando…" : "Medir agora"}
+                </button>
+              )}
+            </div>
+          )}
           {["instagram", "facebook"].map((platform) => state.blocked?.[platform] > now &&
             <p key={platform} className="text-amber-600 dark:text-amber-400">{PLATFORMS[platform].name} em pausa até {new Date(state.blocked[platform]).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — {state.lastError === "login_required" ? "a extensão não está logada nessa rede." : "a rede limitou as consultas."}</p>)}
           {state.lastError === "hub_sem_spy" && <p>Atualize o acervo para usar a área spy.</p>}

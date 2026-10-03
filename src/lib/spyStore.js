@@ -29,6 +29,7 @@ export function emptySpyState(now = Date.now()) {
     attempts: {},
     blocked: {},
     igBatch: null,
+    measuring: null,
     lastPassAt: null,
     lastError: null,
   };

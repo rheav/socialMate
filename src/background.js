@@ -877,6 +877,17 @@ async function recordProfileError(profileId, errorCode) {
 
 async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
   const url = profileUrl("facebook", profile.key);
+  const startAt = Date.now();
+  await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = r[SPY_STATE_KEY] || emptySpyState(startAt);
+    await chrome.storage.local.set({
+      [SPY_STATE_KEY]: {
+        ...state,
+        measuring: { id: profile.id, platform: "facebook", key: profile.key, at: startAt },
+      },
+    });
+  });
   try {
     const res = await fetchImpl(url, {
       credentials: "include",
@@ -924,7 +935,7 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
 
     let avatarThumb = null;
     if (parsed.avatarUrl) {
-      const needsAvatar = !profile.hasAvatar;
+      const needsAvatar = !profile.hasAvatar || source === "visit";
       if (needsAvatar) {
         avatarThumb = await durableThumb(parsed.avatarUrl);
       }
@@ -991,6 +1002,16 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
 
     await recordProfileError(profile.id, "network");
     return { ok: false, error: "network" };
+  } finally {
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get(SPY_STATE_KEY);
+      const state = r[SPY_STATE_KEY] || emptySpyState();
+      if (state.measuring?.id === profile.id) {
+        await chrome.storage.local.set({
+          [SPY_STATE_KEY]: { ...state, measuring: null },
+        });
+      }
+    });
   }
 }
 
@@ -1035,7 +1056,8 @@ async function closeIgBatch({ abandoned = false } = {}) {
         if (key !== batch.current) state = recordAttempt(state, spyId("instagram", key), false);
       }
     }
-    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: null } });
+    const measuring = state.measuring?.platform === "instagram" ? null : state.measuring;
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: null, measuring } });
     return batch;
   });
   if (!batch) return;
@@ -1122,7 +1144,12 @@ async function advanceIgBatch() {
     const at = Date.now();
     batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
     state = recordAttempt(state, spyId("instagram", key), false, at);
-    state = { ...state, igBatch: batch, igDaily: { day: dayKey(at), count: igDailyCount(state, at) + 1 } };
+    state = {
+      ...state,
+      igBatch: batch,
+      igDaily: { day: dayKey(at), count: igDailyCount(state, at) + 1 },
+      measuring: { id: spyId("instagram", key), platform: "instagram", key, at },
+    };
     await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
     return true;
   });
@@ -1180,8 +1207,11 @@ async function observeIgProfile(msg, sender) {
     if (avatar) patch.avatar = avatar;
     queue = queueProfile(queue, patch);
     if (daily && state.igBatch?.tabId === sender.tab.id) {
-      state = { ...state, igBatch: { ...state.igBatch, current: null,
-        pending: state.igBatch.pending.filter((u) => u !== key) } };
+      state = {
+        ...state,
+        igBatch: { ...state.igBatch, current: null, pending: state.igBatch.pending.filter((u) => u !== key) },
+        measuring: state.measuring?.id === id ? null : state.measuring,
+      };
     }
     await chrome.storage.local.set({
       [SPY_QUEUE_KEY]: queue,

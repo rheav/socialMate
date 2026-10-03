@@ -88,6 +88,27 @@ describe("spyParse", () => {
       const emptyHtml = "<html><head></head><body><div>Random text without stats</div></body></html>";
       expect(parseFbProfileHtml(emptyHtml)).toEqual({ ok: false, error: "parse_failed" });
     });
+
+    it("ignores logged-in viewer top-bar avatar and picks profile avatar", () => {
+      const htmlWithViewer = `
+        <script>
+          // Top-nav viewer relay cache
+          "RelayPrefetchedStreamCache","next",[],["adp_useCometAppNavigationProfilePictureUrlQueryRelayPreloader",
+          {"viewer":{"actor":{"__typename":"User","profile_picture":{"uri":"https://scontent.fna.fbcdn.net/viewer_avatar_40px.jpg"}}}}]
+        </script>
+        <div id="content">
+          "header_top_row":{"__typename":"XFBProfileDirectoryHeaderTopRowRenderer",
+          "profile_user":{"name":"Target Page Name","profilePicLarge":{"uri":"https://scontent.fna.fbcdn.net/page_profile_pic_960px.jpg"}}}
+          "profile_social_context":{"content":[{"text":{"text":"1,5 mi seguidores"}}]}
+        </div>
+      `;
+      const res = parseFbProfileHtml(htmlWithViewer);
+      expect(res.ok).toBe(true);
+      expect(res.followers).toBe(1_500_000);
+      expect(res.name).toBe("Target Page Name");
+      expect(res.avatarUrl).toBe("https://scontent.fna.fbcdn.net/page_profile_pic_960px.jpg");
+      expect(res.avatarUrl).not.toContain("viewer_avatar");
+    });
   });
 
   describe("parseIgProfile", () => {

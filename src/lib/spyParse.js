@@ -86,20 +86,63 @@ export function parseFbProfileHtml(html, responseUrl = "") {
 
   // 6. Name
   let name = null;
-  const actorNameMatch = html.match(/"actors"\s*:\s*\[\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/);
-  if (actorNameMatch) {
+  let nameMatch = html.match(
+    /(?:"profile_user"|"header_top_row")\s*:\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/,
+  );
+  if (!nameMatch) {
+    nameMatch = html.match(
+      /"actors"\s*:\s*\[\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"/,
+    );
+  }
+  if (!nameMatch) {
+    const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1Match) {
+      const clean = h1Match[1].replace(/<[^>]+>/g, "").trim();
+      if (clean) nameMatch = [null, clean];
+    }
+  }
+  if (nameMatch) {
     try {
-      name = JSON.parse(`"${actorNameMatch[1]}"`);
+      name = JSON.parse(`"${nameMatch[1]}"`);
     } catch {
-      name = actorNameMatch[1];
+      name = nameMatch[1];
     }
   }
 
   // 7. Avatar URL
+  // Look for the profile's own picture, explicitly avoiding the visitor's top-nav avatar
   let avatarUrl = null;
-  const avatarMatch = html.match(
-    /(?:"profile_picture"|"profilePicLarge")\s*:\s*\{[\s\S]*?"uri"\s*:\s*"([^"]+)"/,
+  let avatarMatch = html.match(
+    /"profilePicLarge"\s*:\s*\{[\s\S]*?"uri"\s*:\s*"([^"]+)"/,
   );
+  if (!avatarMatch) {
+    avatarMatch = html.match(
+      /(?:"profile_user"|"header_top_row"|"actors")\s*:\s*(?:\[\s*)?\{[\s\S]*?"profile_picture"\s*:\s*\{[\s\S]*?"uri"\s*:\s*"([^"]+)"/,
+    );
+  }
+  if (!avatarMatch) {
+    avatarMatch = html.match(
+      /<image[^>]+(?:xlink:href|href)="([^"]+scontent[^"]+)"/,
+    );
+  }
+  if (!avatarMatch) {
+    const allMatches = [
+      ...html.matchAll(
+        /(?:"profile_picture"|"profilePicMedium"|"profilePicSmall")\s*:\s*\{[\s\S]*?"uri"\s*:\s*"([^"]+)"/g,
+      ),
+    ];
+    for (const m of allMatches) {
+      const idx = m.index ?? 0;
+      const prefix = html.slice(Math.max(0, idx - 250), idx);
+      if (
+        !prefix.includes('"viewer"') &&
+        !prefix.includes("useCometAppNavigationProfilePicture")
+      ) {
+        avatarMatch = m;
+        break;
+      }
+    }
+  }
   if (avatarMatch) {
     try {
       avatarUrl = JSON.parse(`"${avatarMatch[1]}"`);
