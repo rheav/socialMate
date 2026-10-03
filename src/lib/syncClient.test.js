@@ -120,3 +120,12 @@ describe("requests", () => {
     await expect(postSpy({ url: "https://h", token: "secret" }, {}, fetchImpl)).rejects.toMatchObject({ status: 503 });
   });
 });
+
+describe("request deadline", () => {
+  it("gives every hub request an abort signal so a hung connection cannot pin the queue", async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }));
+    await postSpy({ url: "https://hub", token: "t" }, { ops: [] }, fetchImpl);
+    await pingSync({ url: "https://hub", token: "t" }, fetchImpl);
+    for (const [, init] of fetchImpl.mock.calls) expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+});

@@ -769,24 +769,20 @@ async function flushSpy({ attempt = 0 } = {}) {
 
     // Keep recovery armed before the first HTTP await, including manual saves.
     chrome.alarms?.create?.("fbw-spy-sync", { when: Date.now() + 60000 });
-    const profileBatches = profilesToSend.length ? batchRecords(profilesToSend) : [[]];
+    // Size every kind of record, not only profile metadata: a long offline
+    // period piles up snapshots. Order is kept, so ops land before the
+    // metadata/snapshots that depend on them and errors after the snapshots.
+    const records = [
+      ...opsToSend.map((r) => ["ops", r]),
+      ...profilesToSend.map((r) => ["profiles", r]),
+      ...snapshotsToSend.map((r) => ["snapshots", r]),
+      ...errorsToSend.map((e) => ["errors", { ...e, profileId: e.profileId || e.id }]),
+    ];
     let lastRes = null;
-
-    for (let i = 0; i < profileBatches.length; i++) {
-      const batchProfiles = profileBatches[i];
+    for (const batch of batchRecords(records, { maxItems: 500 })) {
       const body = {};
-      if (i === 0) {
-        if (opsToSend.length) body.ops = opsToSend;
-        if (snapshotsToSend.length) body.snapshots = snapshotsToSend;
-        if (errorsToSend.length) body.errors = errorsToSend.map((e) => ({ ...e, profileId: e.profileId || e.id }));
-      }
-      if (batchProfiles.length) {
-        body.profiles = batchProfiles;
-      }
-
-      if (Object.keys(body).length > 0) {
-        lastRes = await postSpy(settings, body);
-      }
+      for (const [kind, rec] of batch) (body[kind] ||= []).push(rec);
+      lastRes = await postSpy(settings, body);
     }
 
     const rejected = [];
@@ -948,14 +944,14 @@ async function recordProfileError(profileId, errorCode) {
 }
 
 const fbMeasurements = new Map();
-function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
+function measureFbProfile(profile, source = "daily", fetchImpl = fetch, { force = false } = {}) {
   // Every entry point shares the same request, including manual/visit/daily.
   if (fbMeasurements.has(profile.id)) return fbMeasurements.get(profile.id);
-  const work = collectFbProfile(profile, source, fetchImpl).finally(() => fbMeasurements.delete(profile.id));
+  const work = collectFbProfile(profile, source, fetchImpl, force).finally(() => fbMeasurements.delete(profile.id));
   fbMeasurements.set(profile.id, work);
   return work;
 }
-async function collectFbProfile(profile, source, fetchImpl) {
+async function collectFbProfile(profile, source, fetchImpl, force) {
   const url = profileUrl("facebook", profile.key);
   const startAt = Date.now();
   const reserved = await mutateSpy(async () => {
@@ -964,7 +960,8 @@ async function collectFbProfile(profile, source, fetchImpl) {
     if (isBlocked(state, "facebook", startAt)) return false;
     const attempt = state.day === dayKey(startAt) ? state.attempts?.[profile.id] : null;
     const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
-    if (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < 6 * 3600000)) return false;
+    // An explicit user request skips the automatic retry budget; blocks still apply.
+    if (!force && (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < 6 * 3600000))) return false;
     await chrome.storage.local.set({
       [SPY_STATE_KEY]: {
         ...recordAttempt(state, profile.id, false, startAt),
@@ -978,6 +975,7 @@ async function collectFbProfile(profile, source, fetchImpl) {
     const res = await fetchImpl(url, {
       credentials: "include",
       headers: { Accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(30000),
     });
 
     if (res.status === 401 || res.status === 403 || res.status === 429) {
@@ -1401,7 +1399,7 @@ async function spyTick({ manual = false } = {}) {
         fbDues = Object.values(spy.profiles || {}).filter((p) => p && p.platform === "facebook" && p.removedAt == null);
       }
       if (fbDues.length > 0) {
-        await measureFbProfile(fbDues[0], manual ? "visit" : "daily");
+        await measureFbProfile(fbDues[0], manual ? "visit" : "daily", fetch, { force: manual });
       }
     }
 
@@ -2731,7 +2729,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
 
           if (profile.platform === "facebook") {
-            const res = await measureFbProfile(profile, "visit");
+            const res = await measureFbProfile(profile, "visit", fetch, { force: true });
             sendResponse(res);
           } else {
             sendResponse({ ok: false, code: "passive_only", error: "No Instagram, abra o perfil para medir pela captura passiva." });

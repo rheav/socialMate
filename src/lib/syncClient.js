@@ -90,9 +90,14 @@ export function isRetryable(status) {
   return status === 408 || status === 429 || status >= 500;
 }
 
+// A deadline long enough for a 4MB batch on a slow uplink. Without one, a hung
+// connection keeps the "busy" flag set and the queue never drains.
+const REQUEST_TIMEOUT_MS = 120_000;
+
 async function send(url, token, path, init, fetchImpl) {
   const r = await fetchImpl(`${url}${path}`, {
     ...init,
+    signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: { ...(init.headers || {}), [SYNC_HEADER]: token },
   });
   if (!r.ok) {

@@ -554,6 +554,17 @@ describe("Spy collection and synchronization regressions", () => {
     expect(data.fbw_spy_state.attempts[fb.id].n).toBe(1);
   });
 
+  it("lets an explicit measure-one bypass the daily cooldown but not a platform block", async () => {
+    data.fbw_spy_state.attempts = { [fb.id]: { n: 2, at: now - 60000 } };
+    const fetcher = vi.fn(async () => ({ status: 200, text: async () => html }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: fb.id })).toMatchObject({ ok: true });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    data.fbw_spy_state.blocked = { facebook: now + 3600000 };
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: fb.id })).toMatchObject({ ok: false, code: "cooldown" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores loading and title updates and collects once on completion", async () => {
     const fetcher = vi.fn(async () => ({ status: 200, text: async () => html }));
     vi.stubGlobal("fetch", fetcher);
@@ -606,6 +617,25 @@ describe("Spy collection and synchronization regressions", () => {
     expect(bodies[1].ops[0]).toMatchObject({ op: "remove", id: fb.id });
     expect(data.fbw_spy_queue.ops).toEqual([]);
     expect(alarms["fbw-spy-sync"]).toBeUndefined();
+  });
+
+  it("splits a large offline backlog of snapshots into bounded requests", async () => {
+    const pad = "x".repeat(1_500_000);
+    data.fbw_spy_queue = { ...emptyQueue(), ops: [{ op: "save", ...fb, at: 1 }], snapshots: Object.fromEntries(
+      [1, 2, 3, 4].map((d) => [`${fb.id}|2026-09-0${d}`, { profileId: fb.id, day: `2026-09-0${d}`, measuredAt: d, followers: d, note: pad }]),
+    ) };
+    const sizes = [];
+    const bodies = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      sizes.push(options.body.length); bodies.push(JSON.parse(options.body));
+      return { ok: true, json: async () => ({ ok: true, profiles: [fb] }) };
+    }));
+    expect((await flushSpy()).ok).toBe(true);
+    expect(bodies.length).toBeGreaterThan(1);
+    expect(Math.max(...sizes)).toBeLessThan(4_100_000);
+    expect(bodies[0].ops).toHaveLength(1);
+    expect(bodies.flatMap((b) => b.snapshots || [])).toHaveLength(4);
+    expect(data.fbw_spy_queue.snapshots).toEqual({});
   });
 
   it("rolls back an unaccepted save and reports rejection instead of a phantom profile", async () => {
