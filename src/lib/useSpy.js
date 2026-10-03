@@ -37,6 +37,7 @@ export function useSpy() {
     ready, error,
     save: (platform, key) => requireOk({ type: "FBW_SPY_SAVE", platform, key }),
     remove: (id) => requireOk({ type: "FBW_SPY_REMOVE", id }),
+    measureProfile: (id) => requireOk({ type: "FBW_SPY_MEASURE_ONE", id }),
     runPass: () => requireOk({ type: "FBW_SPY_RUN" }),
   };
 }

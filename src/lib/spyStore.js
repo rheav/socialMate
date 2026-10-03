@@ -246,7 +246,16 @@ export function mergeList(cache, serverList, pendingOps = []) {
       // Local is newer
       if (pendingOp) {
         if (pendingOp.op === "save") {
-          merged[id] = { ...sProfile, ...local, removedAt: null, listUpdatedAt: localUpdatedAt };
+          merged[id] = {
+            ...sProfile,
+            ...local,
+            removedAt: null,
+            listUpdatedAt: localUpdatedAt,
+            lastMeasuredAt: local?.lastMeasuredAt ?? null,
+            hasAvatar: local?.hasAvatar ?? false,
+          };
+        } else if (pendingOp.op === "remove") {
+          delete merged[id];
         }
       } else if (local && local.removedAt == null) {
         merged[id] = { ...sProfile, ...local };

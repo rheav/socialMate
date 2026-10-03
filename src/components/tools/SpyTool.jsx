@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
 import { dayKey } from "@/lib/spyStore";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
@@ -33,7 +33,7 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, configured, ready, error: loadError, save, remove, runPass } = useSpy();
+  const { profiles, state, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
@@ -53,6 +53,7 @@ export default function SpyTool({ activeUrl = "" }) {
     } finally { setBusy(null); }
   };
   const removeProfile = (id) => run(id, () => remove(id));
+  const measureOne = (id) => run(id, () => measureProfile(id));
   const measured = profiles.filter((p) => p.lastMeasuredAt != null && dayKey(p.lastMeasuredAt) === dayKey(now)).length;
 
   return (
@@ -108,6 +109,16 @@ export default function SpyTool({ activeUrl = "" }) {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={busy != null || !!state.measuring}
+                      className={buttonClass}
+                      onClick={() => measureOne(p.id)}
+                      title="Medir este perfil agora"
+                      aria-label={p.name ? `Medir ${p.name}` : `Medir perfil @${p.key}`}
+                    >
+                      <RotateCw className={`size-3.5 ${busy === p.id || state.measuring?.id === p.id ? "animate-spin" : ""}`} />
+                    </button>
                     <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass} aria-label={p.name ? `Abrir ${p.name}` : `Abrir perfil @${p.key}`}><ExternalLink className="size-3.5" /></a>
                     <RemoveButton id={p.id} remove={removeProfile} disabled={busy != null} />
                   </div>

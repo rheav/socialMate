@@ -1320,9 +1320,12 @@ async function spyTick({ manual = false } = {}) {
 
     // 2. Facebook measurement: measure ONE due profile per tick
     if (!isBlocked(state, "facebook", now)) {
-      const fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
+      let fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
+      if (fbDues.length === 0 && manual) {
+        fbDues = Object.values(spy.profiles || {}).filter((p) => p && p.platform === "facebook" && p.removedAt == null);
+      }
       if (fbDues.length > 0) {
-        await measureFbProfile(fbDues[0], "daily");
+        await measureFbProfile(fbDues[0], manual ? "visit" : "daily");
       }
     }
 
@@ -2508,37 +2511,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const now = Date.now();
 
           await mutateSpy(async () => {
-            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
             const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
             const spy = r[SPY_KEY] || { profiles: {} };
+            const state = r[SPY_STATE_KEY] || emptySpyState(now);
 
             const nextQueue = queueOp(queue, "save", { platform, key, id }, now);
 
+            // Re-added or newly added: MUST start from 0 with no cached measurements!
             const prev = spy.profiles?.[id] || {};
             const nextSpy = {
               ...spy,
               profiles: {
                 ...(spy.profiles || {}),
                 [id]: {
-                  ...prev,
                   id,
                   platform,
                   key: String(key).toLowerCase(),
-                  savedAt: prev.savedAt || now,
+                  name: prev.name || null,
+                  userId: prev.userId || null,
+                  savedAt: now,
                   listUpdatedAt: now,
                   removedAt: null,
+                  lastMeasuredAt: null,
+                  hasAvatar: false,
                 },
               },
+            };
+
+            const nextAttempts = { ...(state.attempts || {}) };
+            delete nextAttempts[id];
+            const nextState = {
+              ...state,
+              attempts: nextAttempts,
             };
 
             await chrome.storage.local.set({
               [SPY_QUEUE_KEY]: nextQueue,
               [SPY_KEY]: nextSpy,
+              [SPY_STATE_KEY]: nextState,
             });
 
           });
 
-          flushSpy().catch(() => {});
+          await flushSpy().catch(() => {});
           scheduleSpy().catch(() => {});
 
           sendResponse({ ok: true, id });
@@ -2559,14 +2575,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const now = Date.now();
           await mutateSpy(async () => {
-            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+            const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
             const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
             const spy = r[SPY_KEY] || { profiles: {} };
+            const state = r[SPY_STATE_KEY] || emptySpyState(now);
 
             const split = id.indexOf(":");
             const platform = id.slice(0, split);
             const key = id.slice(split + 1);
-            const nextQueue = queueOp(queue, "remove", { id, platform, key }, now);
+            let nextQueue = queueOp(queue, "remove", { id, platform, key }, now);
+
+            // Clean pending snapshots, errors and profile patches for this id
+            if (nextQueue.snapshots) {
+              const cleanedSnaps = { ...nextQueue.snapshots };
+              for (const k of Object.keys(cleanedSnaps)) {
+                if (k.startsWith(`${id}|`)) delete cleanedSnaps[k];
+              }
+              nextQueue = { ...nextQueue, snapshots: cleanedSnaps };
+            }
+            if (nextQueue.errors?.[id]) {
+              const cleanedErrors = { ...nextQueue.errors };
+              delete cleanedErrors[id];
+              nextQueue = { ...nextQueue, errors: cleanedErrors };
+            }
+            if (nextQueue.profiles?.[id]) {
+              const cleanedProfiles = { ...nextQueue.profiles };
+              delete cleanedProfiles[id];
+              nextQueue = { ...nextQueue, profiles: cleanedProfiles };
+            }
 
             const nextProfiles = { ...(spy.profiles || {}) };
             delete nextProfiles[id];
@@ -2575,17 +2611,54 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               profiles: nextProfiles,
             };
 
+            const nextAttempts = { ...(state.attempts || {}) };
+            delete nextAttempts[id];
+            const nextState = {
+              ...state,
+              attempts: nextAttempts,
+              measuring: state.measuring?.id === id ? null : state.measuring,
+            };
+
             await chrome.storage.local.set({
               [SPY_QUEUE_KEY]: nextQueue,
               [SPY_KEY]: nextSpy,
+              [SPY_STATE_KEY]: nextState,
             });
 
           });
 
-          flushSpy().catch(() => {});
+          await flushSpy().catch(() => {});
           scheduleSpy().catch(() => {});
 
           sendResponse({ ok: true });
+        } catch (err) {
+          sendResponse({ ok: false, error: String(err?.message || err) });
+        }
+      })();
+      return true;
+    }
+    case "FBW_SPY_MEASURE_ONE": {
+      (async () => {
+        try {
+          const id = msg.id;
+          if (!id) {
+            sendResponse({ ok: false, error: "missing_id" });
+            return;
+          }
+          const r = await chrome.storage.local.get(SPY_KEY);
+          const spy = r[SPY_KEY] || { profiles: {} };
+          const profile = spy.profiles?.[id];
+          if (!profile || profile.removedAt != null) {
+            sendResponse({ ok: false, error: "not_found" });
+            return;
+          }
+
+          if (profile.platform === "facebook") {
+            const res = await measureFbProfile(profile, "visit");
+            sendResponse(res);
+          } else {
+            sendResponse({ ok: true });
+          }
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }

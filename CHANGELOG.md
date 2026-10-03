@@ -16,6 +16,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.5.1] — 2026-10-02
+
+### Adicionado
+- **Medição sob demanda por perfil:** botão com ícone de recarga em cada card de perfil na aba Spy para disparar a medição imediata individual.
+
+### Corrigido
+- **Expurgo de cache ao remover ou readicionar perfil:** quando um perfil é removido e salvo novamente, medições antigas, snapshots, tentativas e avatares são zerados no Hub e na extensão, tratando o perfil do zero e permitindo nova leitura imediata.
+
+---
+
 ## [1.5.0] — 2026-10-02
 
 ### Adicionado
