@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.5.4] — 2026-10-03
+
+### Alterado
+- **Publicação:** build da revisão do Spy (1.5.2–1.5.3) integrada à `main`. Sem mudança funcional em relação à 1.5.3.
+
+---
+
 ## [1.5.3] — 2026-10-03
 
 ### Adicionado
