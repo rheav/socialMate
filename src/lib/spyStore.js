@@ -206,7 +206,7 @@ export function dueProfiles(list, state, now = Date.now()) {
   });
 }
 
-export function mergeList(cache, serverList, pendingOps = []) {
+export function mergeList(cache, serverList, pendingOps = [], { authoritative = false } = {}) {
   const rawCacheProfiles = cache?.profiles || cache || {};
   const sList = Array.isArray(serverList) ? serverList : (serverList?.profiles || []);
 
@@ -242,7 +242,7 @@ export function mergeList(cache, serverList, pendingOps = []) {
     const localUpdatedAt = Math.max(local?.listUpdatedAt || 0, pendingOp?.at || 0);
     const serverUpdatedAt = sProfile.listUpdatedAt || 0;
 
-    if (localUpdatedAt > serverUpdatedAt) {
+    if (localUpdatedAt > serverUpdatedAt && (!authoritative || pendingOp)) {
       // Local is newer
       if (pendingOp) {
         if (pendingOp.op === "save") {
@@ -284,7 +284,7 @@ export function mergeList(cache, serverList, pendingOps = []) {
           listUpdatedAt: Math.max(local?.listUpdatedAt || 0, pendingOp.at || 0),
         };
       }
-    } else if (local && local.removedAt == null) {
+    } else if (!authoritative && local && local.removedAt == null) {
       if ((local.listUpdatedAt || 0) > maxServerAt || sList.length === 0) {
         merged[id] = local;
       }

@@ -109,7 +109,7 @@ export default function SpyTool({ activeUrl = "" }) {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <button
+                    {p.platform === "facebook" && <button
                       type="button"
                       disabled={busy != null || !!state.measuring}
                       className={buttonClass}
@@ -118,8 +118,10 @@ export default function SpyTool({ activeUrl = "" }) {
                       aria-label={p.name ? `Medir ${p.name}` : `Medir perfil @${p.key}`}
                     >
                       <RotateCw className={`size-3.5 ${busy === p.id || state.measuring?.id === p.id ? "animate-spin" : ""}`} />
-                    </button>
-                    <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass} aria-label={p.name ? `Abrir ${p.name}` : `Abrir perfil @${p.key}`}><ExternalLink className="size-3.5" /></a>
+                    </button>}
+                    <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass}
+                      title={p.platform === "instagram" ? "Abrir perfil para medir pela captura passiva" : "Abrir perfil"}
+                      aria-label={`Abrir ${p.name || `perfil @${p.key}`}${p.platform === "instagram" ? " para medir" : ""}`}><ExternalLink className="size-3.5" /></a>
                     <RemoveButton id={p.id} remove={removeProfile} disabled={busy != null} />
                   </div>
                 </li>

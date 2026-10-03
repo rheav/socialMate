@@ -149,6 +149,8 @@ function syncBadge() {
 chrome.alarms?.onAlarm?.addListener((alarm) => {
   if (alarm.name === "fbw-spy-tick") {
     spyTick().catch(() => {});
+  } else if (alarm.name === "fbw-spy-sync") {
+    flushSpy().catch(() => {});
   }
 });
 
@@ -159,6 +161,7 @@ chrome.runtime.onInstalled.addListener(() => {
   syncBadge();
   reinjectContentScripts();
   scheduleSpy().catch(() => {});
+  recoverSpySync().catch(() => {});
   // Per-run event telemetry (and the JSON it used to download after every run)
   // was removed; drop the buffer key left behind by pre-0.68 versions so it
   // doesn't sit in storage forever holding a few thousand stale events.
@@ -282,6 +285,7 @@ chrome.runtime.onStartup?.addListener(() => {
     .catch(() => {});
   syncBadge();
   scheduleSpy().catch(() => {});
+  recoverSpySync().catch(() => {});
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -291,6 +295,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes[SPY_PREFS_KEY] || changes[SYNC_KEY] || changes[SPY_KEY]) {
     scheduleSpy().catch(() => {});
   }
+  if (changes[SPY_QUEUE_KEY] || changes[SYNC_KEY]) recoverSpySync().catch(() => {});
 });
 
 // `fbw_saved` is the shared Library. It used to be written from TEN places (six
@@ -654,7 +659,27 @@ function mutateSpy(work) {
   return next;
 }
 
+function spyQueuePending(queue) {
+  return !!(queue?.ops?.length || Object.keys(queue?.profiles || {}).length ||
+    Object.keys(queue?.snapshots || {}).length || Object.keys(queue?.errors || {}).length);
+}
+
+async function recoverSpySync() {
+  // One independent, persisted wakeup survives MV3 suspension and browser
+  // startup. Daily collection preferences never disable pending user changes.
+  const settings = await readSyncSettings();
+  const r = await chrome.storage.local.get(SPY_QUEUE_KEY);
+  if (isSyncConfigured(settings) && spyQueuePending(r[SPY_QUEUE_KEY])) {
+    scheduleFlushSpy();
+  } else {
+    if (spyFlushTimer) clearTimeout(spyFlushTimer);
+    spyFlushTimer = null;
+    await chrome.alarms?.clear?.("fbw-spy-sync");
+  }
+}
+
 function scheduleFlushSpy(delay = SPY_DEBOUNCE_MS, attempt = 0) {
+  chrome.alarms?.create?.("fbw-spy-sync", { when: Date.now() + Math.max(60000, delay) });
   if (spyFlushTimer) clearTimeout(spyFlushTimer);
   spyFlushTimer = setTimeout(() => {
     spyFlushTimer = null;
@@ -690,7 +715,19 @@ async function scheduleSpy() {
       const now = new Date();
       const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
       const randomDelayMs = (10 + Math.floor(Math.random() * 80)) * 60 * 1000;
-      const when = nextDay.getTime() + randomDelayMs;
+      let when = nextDay.getTime() + randomDelayMs;
+      // A temporarily ineligible profile can become due before midnight. Do
+      // not postpone its second attempt or a platform unblock until tomorrow.
+      const at = now.getTime();
+      for (const p of Object.values(spy.profiles || {})) {
+        if (!p || p.removedAt != null || (p.lastMeasuredAt && dayKey(p.lastMeasuredAt) === dayKey(at))) continue;
+        if (p.platform === "instagram" && igDailyCount(state, at) >= IG_SPY_LIMIT) continue;
+        const attempt = state.day === dayKey(at) ? state.attempts?.[p.id] : null;
+        const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
+        if (count >= 2) continue;
+        const retryAt = count > 0 && attempt?.at ? attempt.at + 6 * 3600000 : at;
+        when = Math.min(when, Math.max(at + 60000, retryAt, state.blocked?.[p.platform] || 0));
+      }
       chrome.alarms.create("fbw-spy-tick", { when });
     }
   } catch {
@@ -699,11 +736,17 @@ async function scheduleSpy() {
 }
 
 async function flushSpy({ attempt = 0 } = {}) {
-  if (spyFlushing) return { ok: true, skipped: "busy" };
+  if (spyFlushing) {
+    scheduleFlushSpy();
+    return { ok: true, skipped: "busy" };
+  }
   spyFlushing = true;
   try {
     const settings = await readSyncSettings();
-    if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+    if (!isSyncConfigured(settings)) {
+      await chrome.alarms?.clear?.("fbw-spy-sync");
+      return { ok: false, error: "acervo não configurado" };
+    }
 
     const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
     const queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
@@ -720,9 +763,12 @@ async function flushSpy({ attempt = 0 } = {}) {
       !snapshotsToSend.length &&
       !errorsToSend.length
     ) {
+      await chrome.alarms?.clear?.("fbw-spy-sync");
       return { ok: true, sent: 0 };
     }
 
+    // Keep recovery armed before the first HTTP await, including manual saves.
+    chrome.alarms?.create?.("fbw-spy-sync", { when: Date.now() + 60000 });
     const profileBatches = profilesToSend.length ? batchRecords(profilesToSend) : [[]];
     let lastRes = null;
 
@@ -742,6 +788,20 @@ async function flushSpy({ attempt = 0 } = {}) {
         lastRes = await postSpy(settings, body);
       }
     }
+
+    const rejected = [];
+    if (Array.isArray(lastRes?.profiles)) {
+      const server = new Map(lastRes.profiles.map((p) => [p.id, p]));
+      const latestOps = new Map();
+      for (const op of opsToSend) latestOps.set(op.id || spyId(op.platform, op.key), op);
+      for (const [id, op] of latestOps) {
+        const active = server.has(id) && server.get(id).removedAt == null;
+        if ((op.op === "save") !== active) rejected.push(id);
+      }
+    }
+    const rejectionError = rejected.length && lastRes?.results?.ops?.invalid > 0
+      && lastRes.profiles.filter((p) => p.removedAt == null).length >= (lastRes.max || 100)
+      ? "limit_reached" : "O hub não aceitou a alteração. Atualize a lista e tente novamente.";
 
     await mutateSpy(async () => {
       const freshR = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
@@ -783,25 +843,37 @@ async function flushSpy({ attempt = 0 } = {}) {
 
       let nextSpy = freshSpy;
       if (lastRes?.profiles) {
-        nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps);
+        nextSpy = mergeList(freshSpy, lastRes.profiles, remainingOps, { authoritative: true });
       }
 
       await chrome.storage.local.set({
         [SPY_QUEUE_KEY]: nextQueue,
         [SPY_KEY]: nextSpy,
       });
-
+      if (spyQueuePending(nextQueue)) scheduleFlushSpy();
+      else {
+        if (spyFlushTimer) clearTimeout(spyFlushTimer);
+        spyFlushTimer = null;
+        await chrome.alarms?.clear?.("fbw-spy-sync");
+      }
+      if (rejected.length) {
+        const stateR = await chrome.storage.local.get(SPY_STATE_KEY);
+        await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...(stateR[SPY_STATE_KEY] || emptySpyState()), lastError: rejectionError } });
+      }
     });
 
     scheduleSpy().catch(() => {});
     return {
-      ok: true,
+      ok: !rejected.length,
+      ...(rejected.length ? { error: rejectionError, rejected } : {}),
       sent: opsToSend.length + profilesToSend.length + snapshotsToSend.length + errorsToSend.length,
     };
   } catch (err) {
     const status = err?.status || 0;
     if (isRetryable(status) && attempt < 4) {
       scheduleFlushSpy(backoffDelay(attempt), attempt + 1);
+    } else if (!isRetryable(status)) {
+      await chrome.alarms?.clear?.("fbw-spy-sync");
     }
     return { ok: false, error: String(err?.message || err), status };
   } finally {
@@ -811,7 +883,7 @@ async function flushSpy({ attempt = 0 } = {}) {
 
 function recordAttempt(state, profileId, success, now = Date.now()) {
   const today = dayKey(now);
-  const attempts = { ...(state.attempts || {}) };
+  const attempts = state.day === today ? { ...(state.attempts || {}) } : {};
   const prev = attempts[profileId] || { n: 0, at: 0 };
   attempts[profileId] = {
     n: prev.n + 1,
@@ -875,19 +947,33 @@ async function recordProfileError(profileId, errorCode) {
   });
 }
 
-async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
+const fbMeasurements = new Map();
+function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
+  // Every entry point shares the same request, including manual/visit/daily.
+  if (fbMeasurements.has(profile.id)) return fbMeasurements.get(profile.id);
+  const work = collectFbProfile(profile, source, fetchImpl).finally(() => fbMeasurements.delete(profile.id));
+  fbMeasurements.set(profile.id, work);
+  return work;
+}
+async function collectFbProfile(profile, source, fetchImpl) {
   const url = profileUrl("facebook", profile.key);
   const startAt = Date.now();
-  await mutateSpy(async () => {
+  const reserved = await mutateSpy(async () => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
     const state = r[SPY_STATE_KEY] || emptySpyState(startAt);
+    if (isBlocked(state, "facebook", startAt)) return false;
+    const attempt = state.day === dayKey(startAt) ? state.attempts?.[profile.id] : null;
+    const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
+    if (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < 6 * 3600000)) return false;
     await chrome.storage.local.set({
       [SPY_STATE_KEY]: {
-        ...state,
+        ...recordAttempt(state, profile.id, false, startAt),
         measuring: { id: profile.id, platform: "facebook", key: profile.key, at: startAt },
       },
     });
+    return true;
   });
+  if (!reserved) return { ok: false, error: "Aguarde o intervalo de coleta ou o fim da pausa do Facebook.", code: "cooldown" };
   try {
     const res = await fetchImpl(url, {
       credentials: "include",
@@ -977,8 +1063,6 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
         };
       }
 
-      state = recordAttempt(state, profile.id, true, now);
-
       await chrome.storage.local.set({
         [SPY_QUEUE_KEY]: queue,
         [SPY_KEY]: spy,
@@ -990,14 +1074,6 @@ async function measureFbProfile(profile, source = "daily", fetchImpl = fetch) {
     scheduleFlushSpy();
     return { ok: true, snapshot };
   } catch (err) {
-    const now = Date.now();
-    await mutateSpy(async () => {
-      const r = await chrome.storage.local.get(SPY_STATE_KEY);
-      let state = r[SPY_STATE_KEY] || emptySpyState(now);
-      state = recordAttempt(state, profile.id, false, now);
-      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
-    });
-
     await recordProfileError(profile.id, "network");
     return { ok: false, error: "network" };
   } finally {
@@ -1351,6 +1427,7 @@ async function spyTick({ manual = false } = {}) {
 
 // On-visit Facebook measurement trigger
 chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  if (!changeInfo?.url && changeInfo?.status !== "complete") return;
   const url = changeInfo?.url || tab?.url;
   if (!url || typeof url !== "string") return;
 
@@ -2554,10 +2631,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           });
 
-          await flushSpy().catch(() => {});
+          const upload = await flushSpy();
           scheduleSpy().catch(() => {});
 
-          sendResponse({ ok: true, id });
+          sendResponse(upload.rejected?.includes(id) ? { ok: false, error: upload.error } : { ok: true, id });
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }
@@ -2627,10 +2704,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           });
 
-          await flushSpy().catch(() => {});
+          const upload = await flushSpy();
           scheduleSpy().catch(() => {});
 
-          sendResponse({ ok: true });
+          sendResponse(upload.rejected?.includes(id) ? { ok: false, error: upload.error } : { ok: true });
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }
@@ -2657,7 +2734,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const res = await measureFbProfile(profile, "visit");
             sendResponse(res);
           } else {
-            sendResponse({ ok: true });
+            sendResponse({ ok: false, code: "passive_only", error: "No Instagram, abra o perfil para medir pela captura passiva." });
           }
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });

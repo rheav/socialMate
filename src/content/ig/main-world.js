@@ -1209,7 +1209,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // capturing. It asks us to replay everything we've buffered (media + reels).
   window.addEventListener("message", (e) => {
     if (e.source === window && e.data && e.data.__fbwIgReq)
-      send([...new Set(all.values()), ...reelAll.values(), ...allIgCom.values()]);
+      send([...new Set(all.values()), ...reelAll.values(), ...allIgCom.values(),
+        ...Array.from(users.values(), (user) => ({ __kind: "user", ...user }))]);
   });
 
 })();

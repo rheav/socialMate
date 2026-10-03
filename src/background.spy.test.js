@@ -509,3 +509,120 @@ describe("spy queue acknowledgement", () => {
     expect(data.fbw_spy_queue.snapshots["instagram:nasa|2026-10-03"].measuredAt).toBe(2);
   });
 });
+
+// Regression coverage for the 2026-10-03 Spy review. Chrome and HTTP are the
+// external boundaries; the worker, persistent queue and scheduling run for real.
+describe("Spy collection and synchronization regressions", () => {
+  const now = new Date(2026, 9, 3, 8).getTime();
+  const fb = { id: "facebook:nasa", platform: "facebook", key: "nasa", removedAt: null,
+    listUpdatedAt: 1, lastMeasuredAt: null };
+  const emptyQueue = () => ({ ops: [], profiles: {}, snapshots: {}, errors: {} });
+  const html = '"profile_social_context":{"text":"42 followers"}';
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy = { fetchedAt: now, profiles: { [fb.id]: { ...fb } } };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {} };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) })));
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it.each([
+    [404, "", "not_found"], [200, "<html>no stats</html>", "parse_failed"],
+    [429, "", "rate_limited"],
+  ])("counts HTTP %s failures once before allowing another attempt", async (status, body, error) => {
+    const fetcher = vi.fn(async () => ({ status, text: async () => body }));
+    expect(await measureFbProfile(fb, "daily", fetcher)).toMatchObject({ ok: false, error });
+    expect(data.fbw_spy_state.attempts[fb.id]).toEqual({ n: 1, at: now });
+    expect((await measureFbProfile(fb, "daily", fetcher)).ok).toBe(false);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces simultaneous manual and daily Facebook measurements", async () => {
+    let release;
+    const started = new Promise((resolve) => { release = resolve; });
+    let requested;
+    const request = new Promise((resolve) => { requested = resolve; });
+    const fetcher = vi.fn(async () => { requested(); await started; return { status: 200, text: async () => html }; });
+    const first = measureFbProfile(fb, "daily", fetcher);
+    await request;
+    const second = measureFbProfile(fb, "visit", fetcher);
+    release();
+    expect((await first).ok).toBe(true);
+    expect((await second).ok).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(data.fbw_spy_state.attempts[fb.id].n).toBe(1);
+  });
+
+  it("ignores loading and title updates and collects once on completion", async () => {
+    const fetcher = vi.fn(async () => ({ status: 200, text: async () => html }));
+    vi.stubGlobal("fetch", fetcher);
+    const tab = { id: 4, url: "https://www.facebook.com/nasa" };
+    tabsUpdatedListener(4, { status: "loading" }, tab);
+    tabsUpdatedListener(4, { title: "NASA" }, tab);
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    expect(fetcher).not.toHaveBeenCalled();
+    tabsUpdatedListener(4, { status: "complete" }, tab);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets yesterday's attempts even when a visit precedes the daily tick", async () => {
+    data.fbw_spy_state = { day: "2026-10-02", attempts: {
+      "facebook:other": { n: 2, at: now - 86400000 },
+    }, blocked: {} };
+    await measureFbProfile(fb, "visit", async () => ({ status: 200, text: async () => html }));
+    expect(data.fbw_spy_state.day).toBe("2026-10-03");
+    expect(data.fbw_spy_state.attempts).toEqual({ [fb.id]: { n: 1, at: now } });
+  });
+
+  it.each([
+    [{ attempts: { [fb.id]: { n: 1, at: now } } }, now + 6 * 3600000],
+    [{ blocked: { facebook: now + 12 * 3600000 } }, now + 12 * 3600000],
+  ])("schedules the earliest retry or unblock within today", async (state, expected) => {
+    Object.assign(data.fbw_spy_state, state);
+    await scheduleSpy();
+    expect(alarms["fbw-spy-tick"]).toEqual({ when: expected });
+  });
+
+  it("keeps a sync wakeup when a removal arrives during upload with daily disabled", async () => {
+    data.fbw_spy_prefs = { daily: false };
+    data.fbw_spy_queue = { ...emptyQueue(), ops: [{ op: "save", ...fb, at: 1 }] };
+    let respond, requested;
+    const request = new Promise((resolve) => { requested = resolve; });
+    const bodies = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+      bodies.push(JSON.parse(options.body));
+      if (bodies.length === 1) { requested(); return new Promise((resolve) => { respond = resolve; }); }
+      return { ok: true, json: async () => ({ ok: true, profiles: [{ ...fb, removedAt: now, listUpdatedAt: now }] }) };
+    }));
+    const first = flushSpy(); await request;
+    expect(await sendMessage({ type: "FBW_SPY_REMOVE", id: fb.id })).toEqual({ ok: true });
+    respond({ ok: true, json: async () => ({ ok: true, profiles: [fb] }) });
+    await first;
+    expect(alarms["fbw-spy-sync"]).toBeDefined();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].ops[0]).toMatchObject({ op: "remove", id: fb.id });
+    expect(data.fbw_spy_queue.ops).toEqual([]);
+    expect(alarms["fbw-spy-sync"]).toBeUndefined();
+  });
+
+  it("rolls back an unaccepted save and reports rejection instead of a phantom profile", async () => {
+    const existing = { id: "instagram:existing", platform: "instagram", key: "existing", listUpdatedAt: 1, removedAt: null };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ ok: true,
+      results: { ops: { applied: 0, skipped: 0, invalid: 1 } }, max: 1, profiles: [existing] }) })));
+    const result = await sendMessage({ type: "FBW_SPY_SAVE", platform: "instagram", key: "overflow" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(data.fbw_spy.profiles["instagram:overflow"]).toBeUndefined();
+    expect(data.fbw_spy_queue.ops).toEqual([]);
+  });
+
+  it("returns an actionable error for individual Instagram measurement", async () => {
+    data.fbw_spy.profiles["instagram:nasa"] = { id: "instagram:nasa", platform: "instagram", key: "nasa" };
+    const result = await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/abr[ai]/i);
+  });
+});

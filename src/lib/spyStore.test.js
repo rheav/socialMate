@@ -335,3 +335,20 @@ describe("spyStore", () => {
     });
   });
 });
+
+describe("authoritative Spy upload reconciliation", () => {
+  it("drops rejected optimistic saves while keeping later pending saves", () => {
+    const cache = { profiles: {
+      rejected: { id: "rejected", listUpdatedAt: 100, removedAt: null },
+      pending: { id: "pending", listUpdatedAt: 101, removedAt: null },
+    } };
+    const result = mergeList(cache, [], [{ id: "pending", op: "save", at: 101 }], { authoritative: true });
+    expect(result.profiles.rejected).toBeUndefined();
+    expect(result.profiles.pending).toBeDefined();
+  });
+
+  it("accepts a server tombstone after a save was rejected despite a newer local timestamp", () => {
+    const cache = { profiles: { p: { id: "p", listUpdatedAt: 200, removedAt: null } } };
+    expect(mergeList(cache, [{ id: "p", listUpdatedAt: 100, removedAt: 100 }], [], { authoritative: true }).profiles).toEqual({});
+  });
+});
