@@ -59,6 +59,8 @@ import {
   dueProfiles,
   emptySpyQueue,
   emptySpyState,
+  IG_SPY_LIMIT,
+  SPY_RETRY_MS,
   isBlocked,
   mergeList,
   queueError,
@@ -725,7 +727,7 @@ async function scheduleSpy() {
         const attempt = state.day === dayKey(at) ? state.attempts?.[p.id] : null;
         const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
         if (count >= 2) continue;
-        const retryAt = count > 0 && attempt?.at ? attempt.at + 6 * 3600000 : at;
+        const retryAt = count > 0 && attempt?.at ? attempt.at + SPY_RETRY_MS : at;
         when = Math.min(when, Math.max(at + 60000, retryAt, state.blocked?.[p.platform] || 0));
       }
       chrome.alarms.create("fbw-spy-tick", { when });
@@ -962,7 +964,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
     const attempt = state.day === dayKey(startAt) ? state.attempts?.[profile.id] : null;
     const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
     // An explicit user request skips the automatic retry budget; blocks still apply.
-    if (!force && (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < 6 * 3600000))) return false;
+    if (!force && (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < SPY_RETRY_MS))) return false;
     await chrome.storage.local.set({
       [SPY_STATE_KEY]: {
         ...recordAttempt(state, profile.id, false, startAt),
@@ -1101,7 +1103,6 @@ function serializeIg(work) {
   return next;
 }
 const IG_SPY_MARKER = "#socialmate-spy";
-const IG_SPY_LIMIT = 20;
 function igDailyCount(state, now = Date.now()) {
   return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
 }

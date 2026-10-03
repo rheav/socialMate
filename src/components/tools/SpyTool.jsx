@@ -2,17 +2,11 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
 import { dayKey } from "@/lib/spyStore";
+import { ago, profileStatus, syncStatus } from "@/lib/spyStatus";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
 import { PLATFORMS } from "@/lib/platforms";
 
 const buttonClass = "sw-hoverable rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50";
-function ago(at, now) {
-  const minutes = Math.max(0, Math.floor((now - at) / 60000));
-  if (minutes < 1) return "agora";
-  if (minutes < 60) return `há ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `há ${hours} h` : `há ${Math.floor(hours / 24)} d`;
-}
 function RemoveButton({ id, remove, disabled = false }) {
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
@@ -33,7 +27,7 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
+  const { profiles, state, queue, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
@@ -90,23 +84,19 @@ export default function SpyTool({ activeUrl = "" }) {
                   <div className="min-w-0 basis-24 grow">
                     <p className="truncate text-sm font-medium" title={displayName}>{displayName}</p>
                     <p className="text-[11px] text-muted-foreground">{subtitle}</p>
-                    {state.measuring?.id === p.id ? (
-                      <p className="text-[11px] font-medium text-primary flex items-center gap-1">
-                        <Loader2 className="size-3 animate-spin shrink-0" />
-                        medindo agora…
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        {p.lastMeasuredAt == null ? (
-                          <>
-                            <span className="inline-block size-1.5 rounded-full bg-primary/70 animate-pulse" />
-                            aguardando medição
-                          </>
-                        ) : (
-                          `medido ${ago(p.lastMeasuredAt, now)}`
-                        )}
-                      </p>
-                    )}
+                    {(() => {
+                      const status = profileStatus(p, { state, queue, now });
+                      const tone = status.kind === "measuring" ? "font-medium text-primary"
+                        : status.kind === "failed" || status.kind === "paused" ? "text-amber-600 dark:text-amber-400"
+                        : "text-muted-foreground";
+                      return (
+                        <p className={`text-[11px] flex items-center gap-1 ${tone}`}>
+                          {status.kind === "measuring" && <Loader2 className="size-3 animate-spin shrink-0" />}
+                          {status.kind === "pending" && <span className="inline-block size-1.5 rounded-full bg-primary/70 animate-pulse" />}
+                          {status.text}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {p.platform === "facebook" && <button
@@ -142,9 +132,15 @@ export default function SpyTool({ activeUrl = "" }) {
             </p>
           ) : (
             <div className="flex items-center justify-between gap-2">
-              <p>
-                {state.lastPassAt ? `Última passada ${ago(state.lastPassAt, now)}` : "Aguardando primeira passada"} · {measured} de {profiles.length} medidos
-              </p>
+              <div>
+                <p>
+                  {state.lastPassAt ? `Última passada ${ago(state.lastPassAt, now)}` : "Aguardando primeira passada"} · {measured} de {profiles.length} medidos
+                </p>
+                {(() => {
+                  const sync = syncStatus(queue, state);
+                  return <p className={state.lastError === "limit_reached" ? "text-amber-600 dark:text-amber-400" : undefined}>{sync.text}</p>;
+                })()}
+              </div>
               {profiles.length > 0 && (
                 <button
                   type="button"

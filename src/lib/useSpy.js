@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { requireOk } from "./bg.js";
-import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY } from "./spyStore.js";
+import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY } from "./spyStore.js";
 import { SYNC_KEY, isSyncConfigured, syncSettings } from "./syncClient.js";
 
 export function useSpy() {
@@ -11,7 +11,7 @@ export function useSpy() {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     let dead = false;
     let ticket = 0;
-    const keys = [SPY_KEY, SPY_STATE_KEY, SYNC_KEY];
+    const keys = [SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY, SYNC_KEY];
     const load = async () => {
       const mine = ++ticket;
       try {
@@ -33,6 +33,7 @@ export function useSpy() {
     profiles: Object.values(stored[SPY_KEY]?.profiles || {}).filter((p) => p.removedAt == null)
       .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)),
     state: stored[SPY_STATE_KEY] || {},
+    queue: stored[SPY_QUEUE_KEY] || {},
     configured: isSyncConfigured(syncSettings(stored[SYNC_KEY])),
     ready, error,
     save: (platform, key) => requireOk({ type: "FBW_SPY_SAVE", platform, key }),

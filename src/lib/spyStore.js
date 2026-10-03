@@ -5,6 +5,10 @@ export const SPY_KEY = "fbw_spy";
 export const SPY_QUEUE_KEY = "fbw_spy_queue";
 export const SPY_STATE_KEY = "fbw_spy_state";
 export const SPY_PREFS_KEY = "fbw_spy_prefs";
+// Automatic collection: a failed profile is retried after this long, at most
+// twice a day. Instagram profile visits are capped per day.
+export const SPY_RETRY_MS = 6 * 3600 * 1000;
+export const IG_SPY_LIMIT = 20;
 
 export function emptySpyQueue() {
   return {
@@ -197,7 +201,7 @@ export function dueProfiles(list, state, now = Date.now()) {
     const attemptAt = typeof attempt === "object" ? (attempt?.at || 0) : 0;
     if (count > 0 && attemptAt > 0) {
       const elapsed = now - attemptAt;
-      if (elapsed < 6 * 3600 * 1000) {
+      if (elapsed < SPY_RETRY_MS) {
         return false;
       }
     }
