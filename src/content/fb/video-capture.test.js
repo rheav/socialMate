@@ -53,4 +53,26 @@ describe("Facebook SPA video capture", () => {
     expect(messages.at(-1).route).toBe(location.href);
     expect(messages.at(-1).rows[0].id).toBe("823150870841024");
   });
+  it("answers the Spy worker's first reels page from the page's own data, only in its tab", async () => {
+    const script = document.createElement("script"); script.type = "application/json";
+    script.textContent = JSON.stringify({ x: { id: "COLL", aggregated_fb_shorts: { page_info: { end_cursor: "C1", has_next_page: true }, edges: [
+      { profile_reel_node: { node: { __typename: "Story", creation_time: 1791000000, actors: [{ id: "6" }],
+        attachments: [{ media: { __typename: "Video", id: "2209826979599628", created_time: 1791000000, play_count_reduced: "9.1K" } }] } } },
+    ] } } });
+    document.body.appendChild(script);
+    const run = async (hash) => {
+      const messages = [], listeners = {};
+      const browser = { postMessage: (m) => messages.push(m), addEventListener: (k, fn) => { listeners[k] = fn; } };
+      const location = { href: "https://www.facebook.com/profile.php?id=6&sk=reels_tab" + hash, pathname: "/profile.php", hash, origin: "https://www.facebook.com" };
+      class XHR extends EventTarget { open() {} send() {} }
+      new Function("window", "document", "location", "XMLHttpRequest", "DOMParser", source)(browser, document, location, XHR, DOMParser);
+      listeners.message({ source: browser, data: { type: "__fbwSpyReelsPage", reqId: "r1", cursor: null } });
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      return messages.filter((m) => m.type === "__fbwSpyReelsPageResult");
+    };
+    expect(await run("#socialmate-reels")).toEqual([expect.objectContaining({ reqId: "r1", ok: true, collectionId: "COLL", cursor: "C1", hasNext: true,
+      rows: [{ id: "2209826979599628", createdAt: 1791000000, duration: null, views: 9100 }] })]);
+    expect(await run("")).toEqual([]);
+    script.remove();
+  });
 });

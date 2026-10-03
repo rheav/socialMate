@@ -713,8 +713,9 @@ async function scheduleSpy() {
     const dues = dueProfiles(spy.profiles, state, Date.now())
       .filter((p) => p.platform !== "instagram" || igDailyCount(state) < IG_SPY_LIMIT);
     const hasIgBatch = !!state.igBatch;
+    const reelsPending = !!state.reelsJob || !!pickReelsWork(spy.profiles, state, Date.now());
 
-    if (dues.length > 0 || hasIgBatch) {
+    if (dues.length > 0 || hasIgBatch || reelsPending) {
       chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
     } else {
       const now = new Date();
@@ -1086,6 +1087,12 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       queue = queueReading(queue, { profileId: profile.id, at: now, ...followersReading, ok: true, followers: parsed.followers });
       queue = queueReading(queue, { profileId: profile.id, at: now, kind: "reels", source: readingSource, ok: true,
         reelsAdded: added, pages: 1 });
+      // More than a page of new reels since the last reading: page on until the
+      // first known one (the reels job picks this up).
+      const status = spy.profiles?.[profile.id]?.reels?.status ?? profile.reels?.status;
+      if (status === "done" && known.size > 0 && reels.reels.length > 0 && added === reels.reels.length && reels.hasNext) {
+        state = { ...state, reelsCatchup: { ...(state.reelsCatchup || {}), [profile.id]: true } };
+      }
 
       if (spy.profiles?.[profile.id]) {
         spy = {
@@ -1347,6 +1354,198 @@ async function observeIgProfile(msg, sender) {
   scheduleFlushSpy();
   return { ok: true };
 }
+// ---- Facebook reels: first full reading and catch-up ----
+// Facebook exposes no reel total, so each profile is read in full once, slowly,
+// in a background tab the worker owns; afterwards the daily reading only adds
+// the newest reels. One page (10 reels) every 20–40 s, at most 30 pages per
+// profile and 60 in all per day. The cursor persists, so a long profile simply
+// continues the next day. A catch-up (a day with more than 10 new reels) pages
+// until the first reel the hub already has.
+const REELS_MARKER = "#socialmate-reels";
+const REELS_PAGES_PER_PROFILE = 30;
+const REELS_PAGES_PER_DAY = 60;
+const REELS_JOB_MAX_MS = 40 * 60000;
+let reelsStepTimer = null;
+let reelsWork = Promise.resolve();
+function serializeReels(work) {
+  const next = reelsWork.then(work, work);
+  reelsWork = next.catch(() => {});
+  return next;
+}
+function armReelsStep(at) {
+  clearTimeout(reelsStepTimer);
+  reelsStepTimer = setTimeout(() => {
+    reelsStepTimer = null;
+    advanceReelsJob().catch(() => {});
+  }, Math.max(0, at - Date.now()));
+}
+function reelsDaily(state, now = Date.now()) {
+  return state.reelsDaily?.day === dayKey(now) ? state.reelsDaily : { day: dayKey(now), total: 0, byProfile: {} };
+}
+/** Next profile whose reels need reading: catch-ups first, then first readings. */
+function pickReelsWork(profiles, state, now = Date.now()) {
+  if (isBlocked(state, "facebook", now)) return null;
+  const daily = reelsDaily(state, now);
+  if (daily.total >= REELS_PAGES_PER_DAY) return null;
+  const eligible = Object.values(profiles || {}).filter((p) => p && p.platform === "facebook" && p.removedAt == null &&
+    p.reels && (daily.byProfile[p.id] || 0) < REELS_PAGES_PER_PROFILE && !((state.reelsRetryAt?.[p.id] || 0) > now));
+  const catchup = eligible.find((p) => state.reelsCatchup?.[p.id] && p.reels.status === "done");
+  if (catchup) return { profile: catchup, mode: "catchup" };
+  const initial = eligible.find((p) => p.reels.status !== "done");
+  return initial ? { profile: initial, mode: "initial" } : null;
+}
+async function startReelsJob() {
+  const settings = await readSyncSettings();
+  const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
+  if (!isSyncConfigured(settings) || r[SPY_PREFS_KEY]?.daily === false) return null;
+  const now = Date.now();
+  const state = r[SPY_STATE_KEY] || emptySpyState(now);
+  const work = pickReelsWork(r[SPY_KEY]?.profiles, state, now);
+  if (!work) return null;
+  const { profile, mode } = work;
+  const tab = await chrome.tabs.create({ url: reelsUrl(profile.key) + REELS_MARKER, active: false });
+  const progress = mode === "initial" ? state.reelsProgress?.[profile.id] : null;
+  const job = { profileId: profile.id, key: profile.key, mode, tabId: tab.id, startedAt: now, nextAt: now + 8000,
+    cursor: progress?.cursor || null, collectionId: progress?.collectionId || null,
+    known: profile.reels.recent || [], seen: [], pages: 0, added: 0, waits: 0 };
+  await mutateSpy(async () => {
+    const latest = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY, SPY_KEY]);
+    let queue = latest[SPY_QUEUE_KEY] || emptySpyQueue();
+    const writes = { [SPY_STATE_KEY]: { ...(latest[SPY_STATE_KEY] || state), reelsJob: job } };
+    if (mode === "initial" && profile.reels.status === "pending") {
+      queue = queueReelsStatus(queue, profile.id, "running", now);
+      writes[SPY_KEY] = withReelsStatus(latest[SPY_KEY], profile.id, "running");
+    }
+    await chrome.storage.local.set({ ...writes, [SPY_QUEUE_KEY]: queue });
+  });
+  armReelsStep(job.nextAt);
+  return job;
+}
+/** Ends the session: logs one reading, keeps or clears progress, closes the tab. */
+async function finishReelsJob(job, { error = null, done = false, logged = false } = {}) {
+  clearTimeout(reelsStepTimer);
+  reelsStepTimer = null;
+  const now = Date.now();
+  await mutateSpy(async () => {
+    const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY, SPY_KEY]);
+    let state = r[SPY_STATE_KEY] || emptySpyState(now);
+    let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
+    const active = r[SPY_KEY]?.profiles?.[job.profileId];
+    if (active && active.removedAt == null) {
+      if (!logged) {
+        queue = queueReading(queue, { profileId: job.profileId, at: now, kind: "reels", source: job.mode,
+          ok: !error, ...(error ? { error } : {}), reelsAdded: job.added, pages: job.pages });
+      }
+      if (done && job.mode === "initial") queue = queueReelsStatus(queue, job.profileId, "done", now);
+    }
+    // Until the hub's list comes back, the local copy must already say "done",
+    // or the next tick would start the same first reading again.
+    const spyNext = done && job.mode === "initial" ? withReelsStatus(r[SPY_KEY], job.profileId, "done") : null;
+    const reelsProgress = { ...(state.reelsProgress || {}) };
+    const reelsCatchup = { ...(state.reelsCatchup || {}) };
+    const reelsRetryAt = { ...(state.reelsRetryAt || {}) };
+    if (done) {
+      delete reelsProgress[job.profileId];
+      delete reelsCatchup[job.profileId];
+    }
+    if (error) reelsRetryAt[job.profileId] = now + SPY_RETRY_MS;
+    state = { ...state, reelsJob: null, reelsProgress, reelsCatchup, reelsRetryAt };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state, [SPY_QUEUE_KEY]: queue, ...(spyNext ? { [SPY_KEY]: spyNext } : {}) });
+  });
+  try {
+    const tab = await chrome.tabs.get(job.tabId);
+    if (tab?.url?.includes(REELS_MARKER)) await chrome.tabs.remove(job.tabId);
+  } catch { /* already closed */ }
+  scheduleFlushSpy();
+  scheduleSpy().catch(() => {});
+}
+async function stepReelsJob(job) {
+  const now = Date.now();
+  const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
+  const state = r[SPY_STATE_KEY] || emptySpyState(now);
+  const profile = r[SPY_KEY]?.profiles?.[job.profileId];
+  if (!profile || profile.removedAt != null || r[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "facebook", now)) {
+    return finishReelsJob(job, { logged: !profile || profile.removedAt != null });
+  }
+  if (now - job.startedAt > REELS_JOB_MAX_MS) return finishReelsJob(job);
+  if (job.nextAt > now) { armReelsStep(job.nextAt); return; }
+  try {
+    const tab = await chrome.tabs.get(job.tabId);
+    if (!tab?.url?.includes(REELS_MARKER)) return finishReelsJob(job, { error: "tab_closed" });
+  } catch { return finishReelsJob(job, { error: "tab_closed" }); }
+
+  let page;
+  try {
+    page = await chrome.tabs.sendMessage(job.tabId, { type: "FBW_SPY_REELS_PAGE", cursor: job.cursor, collectionId: job.collectionId }, { frameId: 0 });
+  } catch {
+    page = null; // content script not ready yet
+  }
+  if (!page) {
+    if (job.waits >= 20) return finishReelsJob(job, { error: "no_bridge" });
+    const next = { ...job, waits: job.waits + 1, nextAt: now + 3000 };
+    await saveReelsJob(next);
+    armReelsStep(next.nextAt);
+    return;
+  }
+  if (!page.ok) {
+    if (page.error === "login_required" || page.error === "rate_limited") {
+      await blockPlatform("facebook", page.error, job.profileId, { kind: "reels", source: job.mode });
+      return finishReelsJob(job, { error: page.error, logged: true });
+    }
+    return finishReelsJob(job, { error: page.error || "failed" });
+  }
+
+  const known = new Set(job.known);
+  const seen = new Set(job.seen);
+  const fresh = (page.rows || []).filter((row) => !known.has(row.id) && !seen.has(row.id));
+  const reachedKnown = (page.rows || []).some((row) => known.has(row.id));
+  const next = { ...job, waits: 0, pages: job.pages + 1, added: job.added + fresh.length,
+    seen: [...seen, ...fresh.map((row) => row.id)].slice(-400),
+    cursor: page.cursor || null, collectionId: page.collectionId || job.collectionId,
+    nextAt: now + 20000 + Math.floor(Math.random() * 20001) };
+  let capped = false;
+  await mutateSpy(async () => {
+    const latest = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY]);
+    const st = latest[SPY_STATE_KEY] || state;
+    const daily = reelsDaily(st, now);
+    const byProfile = { ...daily.byProfile, [job.profileId]: (daily.byProfile[job.profileId] || 0) + 1 };
+    const reelsDailyNext = { day: daily.day, total: daily.total + 1, byProfile };
+    capped = byProfile[job.profileId] >= REELS_PAGES_PER_PROFILE || reelsDailyNext.total >= REELS_PAGES_PER_DAY;
+    const reelsProgress = { ...(st.reelsProgress || {}) };
+    if (job.mode === "initial" && page.hasNext && next.cursor) {
+      reelsProgress[job.profileId] = { cursor: next.cursor, collectionId: next.collectionId };
+    }
+    await chrome.storage.local.set({
+      [SPY_QUEUE_KEY]: queueReels(latest[SPY_QUEUE_KEY] || emptySpyQueue(), job.profileId, page.rows || []),
+      [SPY_STATE_KEY]: { ...st, reelsJob: next, reelsDaily: reelsDailyNext, reelsProgress },
+    });
+  });
+  scheduleFlushSpy();
+  if (!page.hasNext || (job.mode === "catchup" && reachedKnown)) return finishReelsJob(next, { done: true });
+  if (capped) return finishReelsJob(next);
+  armReelsStep(next.nextAt);
+}
+function withReelsStatus(spy, profileId, status) {
+  const p = spy?.profiles?.[profileId];
+  if (!p) return spy;
+  return { ...spy, profiles: { ...spy.profiles, [profileId]: { ...p, reels: { ...(p.reels || {}), status } } } };
+}
+async function saveReelsJob(job) {
+  await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...(r[SPY_STATE_KEY] || emptySpyState()), reelsJob: job } });
+  });
+}
+/** One step of the reels work: start the next profile or read its next page. */
+function advanceReelsJob() {
+  return serializeReels(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const job = r[SPY_STATE_KEY]?.reelsJob;
+    if (job) await stepReelsJob(job);
+    else await startReelsJob();
+  });
+}
+
 // Inspect only traffic belonging to the tab this batch opened. A rate-limit or
 // login response stops this network; no request is made by this observer.
 chrome.webRequest?.onCompleted?.addListener((details) => {
@@ -1450,6 +1649,9 @@ async function spyTick({ manual = false } = {}) {
     // 3. Instagram path B (resumes the persisted batch after a worker wake).
     await serializeIg(advanceIgBatch);
 
+    // 3b. Facebook reels: first full reading / catch-up, one page per step.
+    await advanceReelsJob();
+
     // 4. Flush spy queue
     await flushSpy();
 
@@ -1475,6 +1677,8 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
 
   // Early exit before reading storage if host is not facebook.com
   if (!url.includes("facebook.com")) return;
+  // The worker's own reels tab is not a visit.
+  if (url.includes(REELS_MARKER)) return;
 
   const parsed = parseProfileUrl(url);
   if (!parsed || parsed.platform !== "facebook") return;
@@ -2923,5 +3127,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-export { scheduleSpy, flushSpy, spyTick, measureFbProfile }; // test seam
+export { scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob }; // test seam
 

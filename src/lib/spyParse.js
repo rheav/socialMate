@@ -1,6 +1,6 @@
 // Pure HTML and JSON parser for profile measurement in the spy area.
 import { parseCount } from "./shared/counts.js";
-import { parseFbReels } from "./shared/fbReelsData.js";
+import { reelsStart } from "./shared/fbReelsPaging.js";
 
 const FB_FOLLOWERS_RE =
   /([\d.,]+\s?\p{L}{0,5})\s+(?:followers|seguidores|seguidoras|abonnés|follower|seguaci)/iu;
@@ -244,34 +244,14 @@ const JSON_SCRIPT_RE = /<script type="application\/json"[^>]*>([\s\S]*?)<\/scrip
  * Returns the reels plus the paging state for a later continuation.
  */
 export function parseFbReelsHtml(html) {
-  const out = { reels: [], hasNext: null, cursor: null };
-  if (typeof html !== "string") return out;
-  const seen = new Map();
+  if (typeof html !== "string") return { reels: [], hasNext: null, cursor: null };
+  const blocks = [];
   for (const m of html.matchAll(JSON_SCRIPT_RE)) {
-    const text = m[1];
-    if (!text.includes("aggregated_fb_shorts")) continue;
-    let data;
-    try { data = JSON.parse(text); } catch { continue; }
-    const pageInfo = findShortsPageInfo(data);
-    if (pageInfo && out.hasNext === null) {
-      out.hasNext = !!pageInfo.has_next_page;
-      out.cursor = pageInfo.end_cursor || null;
-    }
-    for (const r of parseFbReels(data)) {
-      seen.set(r.id, { id: r.id, createdAt: r.taken_at ?? r.created_at ?? null, duration: r.duration ?? null, views: r.views ?? null });
-    }
+    if (!m[1].includes("aggregated_fb_shorts")) continue;
+    try { blocks.push(JSON.parse(m[1])); } catch { /* not this block */ }
   }
-  out.reels = [...seen.values()];
-  return out;
-}
-
-function findShortsPageInfo(root) {
-  const stack = [[root, 0]];
-  while (stack.length) {
-    const [o, depth] = stack.pop();
-    if (!o || typeof o !== "object" || depth > 60) continue;
-    if (o.aggregated_fb_shorts?.page_info) return o.aggregated_fb_shorts.page_info;
-    for (const v of Object.values(o)) if (v && typeof v === "object") stack.push([v, depth + 1]);
-  }
-  return null;
+  const start = reelsStart(blocks);
+  return start.collectionId
+    ? { reels: start.rows, hasNext: start.hasNext, cursor: start.cursor }
+    : { reels: start.rows, hasNext: null, cursor: null };
 }

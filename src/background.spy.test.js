@@ -59,11 +59,11 @@ function chromeStub() {
   return stub;
 }
 
-let scheduleSpy, flushSpy, spyTick, measureFbProfile;
+let scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile } = await import("./background.js"));
+  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob } = await import("./background.js"));
 });
 
 beforeEach(() => {
@@ -714,5 +714,120 @@ describe("Facebook reels in the daily reading", () => {
     expect(bodies[0]).toMatchObject({ reels: [expect.objectContaining({ id: "2209826979599002" })],
       reelsStatus: [{ profileId: fb.id, status: "running", at: 1 }], readings: [expect.objectContaining({ kind: "reels" })] });
     expect(data.fbw_spy_queue).toMatchObject({ reels: {}, reelsStatus: {}, readings: {} });
+  });
+});
+
+describe("Facebook first full reels reading", () => {
+  const now = new Date(2026, 9, 3, 8).getTime();
+  const pid = "facebook:61589642519378";
+  const fb = (reels) => ({ id: pid, platform: "facebook", key: "61589642519378", removedAt: null, listUpdatedAt: 1,
+    lastMeasuredAt: now, reels });
+  const rows = (from, n) => Array.from({ length: n }, (_, i) => ({ id: String(2209826979590000 + from + i), createdAt: 1, duration: null, views: 1 }));
+  let pages;
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {} };
+    data.fbw_spy_queue = undefined;
+    pages = [];
+    chrome.tabs.create = vi.fn(async (opts) => ({ id: 77, ...opts }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id, url: "https://www.facebook.com/profile.php?id=61589642519378&sk=reels_tab#socialmate-reels" }));
+    chrome.tabs.remove = vi.fn(async () => {});
+    chrome.tabs.sendMessage = vi.fn(async (_tab, msg) => { pages.push(msg); return pages.length <= script.length ? script[pages.length - 1] : { ok: false, error: "x" }; });
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+  let script = [];
+  const run = async (steps) => { for (let i = 0; i < steps; i++) { await advanceReelsJob(); vi.setSystemTime(Date.now() + 41_000); } };
+
+  it("pages through every reel in its own tab, slowly, and marks the reading done", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "pending", count: 0, recent: [] }) } };
+    script = [
+      { ok: true, rows: rows(0, 10), hasNext: true, cursor: "C1", collectionId: "COLL" },
+      { ok: true, rows: rows(10, 10), hasNext: true, cursor: "C2", collectionId: "COLL" },
+      { ok: true, rows: rows(20, 3), hasNext: false, cursor: null, collectionId: "COLL" },
+    ];
+    await run(5);
+    expect(chrome.tabs.create).toHaveBeenCalledWith(expect.objectContaining({ active: false,
+      url: "https://www.facebook.com/profile.php?id=61589642519378&sk=reels_tab#socialmate-reels" }));
+    expect(pages.map((m) => [m.type, m.cursor ?? null, m.collectionId ?? null])).toEqual([
+      ["FBW_SPY_REELS_PAGE", null, null], ["FBW_SPY_REELS_PAGE", "C1", "COLL"], ["FBW_SPY_REELS_PAGE", "C2", "COLL"],
+    ]);
+    const q = data.fbw_spy_queue;
+    expect(Object.keys(q.reels)).toHaveLength(23);
+    expect(q.reelsStatus[pid]).toMatchObject({ status: "done" });
+    expect(Object.values(q.readings)).toEqual([expect.objectContaining({ kind: "reels", source: "initial", ok: true, reelsAdded: 23, pages: 3 })]);
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(77);
+    expect(data.fbw_spy_state.reelsJob).toBeNull();
+  });
+
+  it("waits at least twenty seconds between pages", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "pending", count: 0, recent: [] }) } };
+    script = [{ ok: true, rows: rows(0, 10), hasNext: true, cursor: "C1", collectionId: "COLL" }, { ok: true, rows: rows(10, 1), hasNext: false }];
+    await advanceReelsJob();
+    await advanceReelsJob();
+    vi.setSystemTime(now + 19_000);
+    await advanceReelsJob();
+    expect(pages).toHaveLength(1);
+  });
+
+  it("stops for the day after thirty pages and resumes from the saved cursor", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "pending", count: 0, recent: [] }) } };
+    script = Array.from({ length: 40 }, (_, i) => ({ ok: true, rows: rows(i * 10, 10), hasNext: true, cursor: `C${i + 1}`, collectionId: "COLL" }));
+    await run(40);
+    expect(pages).toHaveLength(30);
+    expect(data.fbw_spy_state.reelsJob).toBeNull();
+    expect(data.fbw_spy_state.reelsProgress[pid]).toEqual({ cursor: "C30", collectionId: "COLL" });
+    expect(Object.values(data.fbw_spy_queue.readings)[0]).toMatchObject({ ok: true, pages: 30, reelsAdded: 300 });
+    vi.setSystemTime(new Date(2026, 9, 4, 8).getTime());
+    pages = []; script = [{ ok: true, rows: rows(900, 2), hasNext: false }];
+    await run(3);
+    expect(pages[0]).toMatchObject({ cursor: "C30", collectionId: "COLL" });
+  });
+
+  it("catches up after a busy day and stops at the first reel it already had", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "done", count: 50, recent: [String(2209826979590015)] }) } };
+    data.fbw_spy_state.reelsCatchup = { [pid]: true };
+    script = [
+      { ok: true, rows: rows(0, 10), hasNext: true, cursor: "C1", collectionId: "COLL" },
+      { ok: true, rows: rows(10, 10), hasNext: true, cursor: "C2", collectionId: "COLL" },
+    ];
+    await run(5);
+    expect(pages).toHaveLength(2);
+    expect(Object.values(data.fbw_spy_queue.readings)[0]).toMatchObject({ kind: "reels", source: "catchup", ok: true, reelsAdded: 19 });
+    expect(data.fbw_spy_state.reelsCatchup[pid]).toBeUndefined();
+  });
+
+  it("pauses Facebook and logs the failure when the session is gone", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "pending", count: 0, recent: [] }) } };
+    script = [{ ok: false, error: "login_required" }];
+    await run(3);
+    expect(data.fbw_spy_state.blocked.facebook).toBeGreaterThan(now);
+    expect(Object.values(data.fbw_spy_queue.readings)).toEqual([expect.objectContaining({ kind: "reels", ok: false, error: "login_required" })]);
+    expect(chrome.tabs.remove).toHaveBeenCalledWith(77);
+  });
+
+  it("keeps the worker waking every minute while reels are still to be read", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "pending", count: 0, recent: [] }) } };
+    await scheduleSpy();
+    expect(alarms["fbw-spy-tick"]).toEqual({ delayInMinutes: 1 });
+  });
+
+  it("does not measure followers again when the reels tab it opened loads", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: { ...fb({ status: "running", count: 0, recent: [] }), lastMeasuredAt: null } } };
+    const fetcher = vi.fn(async () => ({ status: 200, text: async () => "" }));
+    vi.stubGlobal("fetch", fetcher);
+    tabsUpdatedListener(77, { status: "complete" }, { id: 77, url: "https://www.facebook.com/profile.php?id=61589642519378&sk=reels_tab#socialmate-reels" });
+    for (let i = 0; i < 40; i++) await Promise.resolve();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("asks for a catch-up when every reel of the daily page is new", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fb({ status: "done", count: 9, recent: ["2209826979500000"] }) } };
+    const node = (id) => ({ profile_reel_node: { node: { __typename: "Story", creation_time: 1, actors: [{ id: "6" }],
+      attachments: [{ media: { __typename: "Video", id, created_time: 1 } }] } } });
+    const html = `"profile_social_context":{"text":"10 followers"}<script type="application/json">${JSON.stringify({ x: { id: "COLL",
+      aggregated_fb_shorts: { edges: rows(0, 10).map((r) => node(r.id)), page_info: { end_cursor: "C", has_next_page: true } } } })}</script>`;
+    await measureFbProfile({ ...fb(), lastMeasuredAt: null, reels: data.fbw_spy.profiles[pid].reels }, "daily", async () => ({ status: 200, text: async () => html }));
+    expect(data.fbw_spy_state.reelsCatchup).toEqual({ [pid]: true });
   });
 });

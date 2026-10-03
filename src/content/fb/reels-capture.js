@@ -1652,8 +1652,31 @@ function fbPlayerMatches(record, video, routeId) {
     }
   }
 
+  // Spy reel count: the worker asks for one page at a time; the MAIN-world
+  // capture does the request with the page's own modules and tokens.
+  function spyReelsPage(cursor, collectionId) {
+    return new Promise((resolve) => {
+      const reqId = Date.now() + ":" + Math.random();
+      const timer = setTimeout(() => { window.removeEventListener("message", onResult); resolve({ ok: false, error: "timeout" }); }, 60000);
+      function onResult(e) {
+        if (e.source !== window || e.data?.type !== "__fbwSpyReelsPageResult" || e.data.reqId !== reqId) return;
+        clearTimeout(timer);
+        window.removeEventListener("message", onResult);
+        const { type, reqId: _id, ...result } = e.data;
+        resolve(result);
+      }
+      window.addEventListener("message", onResult);
+      window.postMessage({ type: "__fbwSpyReelsPage", reqId, cursor, collectionId }, location.origin);
+    });
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (disabled) return;
+    if (msg?.type === "FBW_SPY_REELS_PAGE") {
+      if (!location.hash.includes("socialmate-reels")) { sendResponse({ ok: false, error: "not_spy_tab" }); return; }
+      spyReelsPage(msg.cursor || null, msg.collectionId || null).then(sendResponse);
+      return true;
+    }
     if (msg?.type === 'FBW_FB_REEL_ACTION') {
       performReelAction(String(msg.id), msg.action, msg.language).then(sendResponse, e => sendResponse({ok:false,error:e.message}));
       return true;

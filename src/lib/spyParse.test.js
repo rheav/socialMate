@@ -194,7 +194,7 @@ describe("parseFbReelsHtml", () => {
     attachments: [{ media: { __typename: "Video", id, created_time: created, length_in_second: 62.3, play_count_reduced: views } }],
   } } });
   const page = (edges, hasNext) => JSON.stringify({ require: [[{ __bbox: { result: { data: { node: { all_collections: { nodes: [{ style_renderer: { collection: {
-    aggregated_fb_shorts: { edges, page_info: { end_cursor: "CUR", has_next_page: hasNext } },
+    id: "COLLECTION", aggregated_fb_shorts: { edges, page_info: { end_cursor: "CUR", has_next_page: hasNext } },
   } } }] } } } } } }]] });
   const html = (json) => `<html><script type="application/json" data-sjs>{"other":1}</script><script type="application/json" data-content-len="9" data-sjs>${json}</script></html>`;
 
