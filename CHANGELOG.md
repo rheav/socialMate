@@ -16,6 +16,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.8.0] — 2026-10-05
+
+### Adicionado
+- **Opções → "Leituras do Instagram por dia":** o limite diário de leituras do Instagram (antes fixo em 20) agora é configurável, de 1 a 60, padrão 20. Vale para a passada diária e para o "Medir agora"; mudar o valor afeta o lote em andamento. O painel mostra "N de X leituras do dia" com o valor escolhido, e o histórico aponta para Opções quando o limite é atingido.
+
+### Corrigido
+- Salvar a opção diária não apaga mais as outras preferências da área Spy.
+
+---
+
 ## [1.7.1] — 2026-10-05
 
 ### Alterado
