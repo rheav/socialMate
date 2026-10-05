@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.7.0] — 2026-10-05
+
+### Adicionado
+- **Área Spy — cartão "Medição":** mostra o que está rodando agora. Lote do Instagram (manual ou diário, quantos perfis já foram e quantos falharam, o perfil sendo lido ou o próximo com contagem regressiva, a fila depois dele), a fila do "Medir agora" no Facebook, a leitura de reels, pausas da plataforma com o motivo e a hora da próxima passada automática. O botão "Medir agora" fica travado em "medindo…" enquanto a passada roda.
+- **Área Spy — "Histórico":** cada passo com hora e motivo (pedido recebido, lote aberto, perfil lido com seguidores, falha com a causa, por que o lote parou, leitura de reels, falha e retomada do envio ao hub). Guarda os últimos 40.
+- **Hub:** a linha de envio conta também leituras e reels na fila e diz quando o último envio falhou e por quê (hub fora do ar, token recusado, hub sem área spy).
+
+---
+
 ## [1.6.1] — 2026-10-05
 
 ### Corrigido
