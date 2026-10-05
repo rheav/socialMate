@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
-import { IG_SPY_LIMIT, dayKey } from "@/lib/spyStore";
+import { dayKey } from "@/lib/spyStore";
 import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
 import { clockText } from "@/lib/spyActivity";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
@@ -41,7 +41,7 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, queue, activity, hub, nextTickAt, dailyOff, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
+  const { profiles, state, queue, activity, hub, nextTickAt, dailyOff, igLimit, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
@@ -121,7 +121,7 @@ export default function SpyTool({ activeUrl = "" }) {
           ))}
         </ul>
         <div className="space-y-0.5 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
-          <p>Hoje: {measured} de {profiles.length} medidos · Instagram: {igReads} de {IG_SPY_LIMIT} leituras do dia</p>
+          <p>Hoje: {measured} de {profiles.length} medidos · Instagram: {igReads} de {igLimit} leituras do dia</p>
           <p className={TONE[sync.tone]}>Hub: {sync.text}</p>
           {state.lastError === "hub_sem_spy" && <p className={TONE.warn}>Atualize o acervo para usar a área spy.</p>}
         </div>
@@ -143,7 +143,7 @@ export default function SpyTool({ activeUrl = "" }) {
                     <p className="truncate text-sm font-medium" title={displayName}>{displayName}</p>
                     <p className="text-[11px] text-muted-foreground">{subtitle}</p>
                     {(() => {
-                      const status = profileStatus(p, { state, queue, now });
+                      const status = profileStatus(p, { state, queue, now, igLimit });
                       const tone = status.kind === "measuring" ? "font-medium text-primary"
                         : status.kind === "failed" || status.kind === "paused" ? "text-amber-600 dark:text-amber-400"
                         : "text-muted-foreground";

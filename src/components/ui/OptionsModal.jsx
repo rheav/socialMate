@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import useStoredFlag from "@/lib/useStoredFlag";
 import { useSpyPrefs } from "@/lib/useSpy";
+import { IG_SPY_LIMIT, IG_SPY_LIMIT_MAX } from "@/lib/spyStore";
 import { useSyncSettings } from "@/lib/useSyncSettings";
 import {
   TRANSCRIPT_CAP_KEY,
@@ -185,6 +186,39 @@ function Row({ id, label, hint, checked, onChange }) {
   );
 }
 
+// A whole number typed and saved on blur/Enter; the owner's value is clamped by
+// `save`'s caller and shown back as stored.
+function NumberRow({ id, label, hint, value, min, max, onSave }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    if (!Number.isFinite(n) || n < min) { setDraft(String(value)); return; }
+    if (Math.min(n, max) !== value) onSave(Math.min(n, max));
+    else setDraft(String(value));
+  };
+  return (
+    <div className="py-0.5">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={id} className="min-w-0 text-sm text-foreground">{label}</Label>
+        <input
+          id={id}
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+          className="w-16 shrink-0 rounded-lg border border-border bg-background px-2 py-1 text-right text-sm tabular-nums text-foreground outline-none focus:border-primary"
+        />
+      </div>
+      {hint && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
 // Small segmented picker for the settings that are a choice, not a switch.
 function Choice({ value, onChange, options }) {
   return (
@@ -280,7 +314,7 @@ function TxPenaltySetting() {
 // exactly like everything working.
 function HubSection() {
   const { settings, state, ready, save, ensureHost, ping, syncAll } = useSyncSettings();
-  const [spyDaily, saveSpyDaily] = useSpyPrefs();
+  const [spyDaily, saveSpyDaily, spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -374,6 +408,16 @@ function HubSection() {
         hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão, e manda só os números para o acervo. Desligada, o “Medir agora” da área Spy continua funcionando."
         checked={spyDaily}
         onChange={(v) => saveSpyDaily(v).catch(() => setResult({ ok: false, error: "Não consegui salvar essa opção." }))}
+      />
+
+      <NumberRow
+        id="opt-spy-ig-limit"
+        label="Leituras do Instagram por dia"
+        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária e o “Medir agora”. O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
+        value={spyIgLimit}
+        min={1}
+        max={IG_SPY_LIMIT_MAX}
+        onSave={(v) => saveSpyIgLimit(v).catch(() => setResult({ ok: false, error: "Não consegui salvar essa opção." }))}
       />
 
       {result && (

@@ -15,7 +15,7 @@ export function ago(at, now) {
 const clock = (ms) => new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
 /** kind: measuring | local | paused | waiting | failed | measured | pending */
-export function profileStatus(profile, { state = {}, queue = {}, now = Date.now() } = {}) {
+export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(), igLimit = IG_SPY_LIMIT } = {}) {
   if (state.measuring?.id === profile.id) return { kind: "measuring", text: "medindo agora…" };
   const savePending = (queue.ops || []).some((op) => op.op === "save" && (op.id || `${op.platform}:${op.key}`) === profile.id);
   if (savePending) return { kind: "local", text: "salvo localmente · aguardando envio ao hub" };
@@ -31,7 +31,7 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   const attempt = state.day === today ? state.attempts?.[profile.id] : null;
   const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
   if (count >= 2) return { kind: "failed", text: "falhou hoje · tenta amanhã" };
-  if (profile.platform === "instagram" && state.igDaily?.day === today && (state.igDaily.count || 0) >= IG_SPY_LIMIT) {
+  if (profile.platform === "instagram" && state.igDaily?.day === today && (state.igDaily.count || 0) >= igLimit) {
     return { kind: "waiting", text: "limite diário do Instagram · amanhã" };
   }
   if (count === 1 && attempt?.at && attempt.at + SPY_RETRY_MS > now) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  igLimit,
   dayKey,
   dueProfiles,
   emptySpyQueue,
@@ -381,5 +382,17 @@ describe("reels, reading-state and readings queue", () => {
     const ats = Object.values(q.readings).map((r) => r.at);
     expect(ats).toHaveLength(400);
     expect(Math.min(...ats)).toBe(5);
+  });
+});
+
+describe("igLimit", () => {
+  it("reads the daily Instagram reading cap from the prefs, 20 by default, between 1 and 60", () => {
+    expect(igLimit(undefined)).toBe(20);
+    expect(igLimit({ daily: true })).toBe(20);
+    expect(igLimit({ igLimit: 35 })).toBe(35);
+    expect(igLimit({ igLimit: "40" })).toBe(40);
+    expect(igLimit({ igLimit: 500 })).toBe(60);
+    expect(igLimit({ igLimit: 0 })).toBe(20);
+    expect(igLimit({ igLimit: "abc" })).toBe(20);
   });
 });

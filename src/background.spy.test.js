@@ -953,11 +953,25 @@ describe("Medir agora measures every profile on demand", () => {
     expect(log().at(-1)).toBe("instagram|warn|Lote concluído · 2 de 2 perfis (1 lido, 1 com falha) · aba fechada");
   });
 
+  it("uses the daily Instagram cap set in Options", async () => {
+    data.fbw_spy_prefs = { daily: true, igLimit: 1 };
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000),
+      "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    await spyTick({ manual: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo"]);
+    expect(log()).toContain("instagram|info|Lote manual com 1 perfil (1 fica para amanhã: limite de 1 por dia, ajustável em Opções) · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s");
+    await observe("natgeo");
+    data.fbw_spy_prefs = { daily: true, igLimit: 3 };
+    vi.setSystemTime(now + 60000);
+    await spyTick({ manual: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa", "natgeo"]);
+  });
+
   it("explains why a click did not open Instagram", async () => {
     data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000) } };
     data.fbw_spy_state.igDaily = { day: "2026-10-03", count: 20 };
     await spyTick({ manual: true });
-    expect(log()).toContain("instagram|warn|Limite de 20 leituras do Instagram hoje já atingido · Medir agora volta amanhã");
+    expect(log()).toContain("instagram|warn|Limite de 20 leituras do Instagram hoje já atingido · Medir agora volta amanhã (o limite se ajusta em Opções)");
     data.fbw_spy_state.blocked = { instagram: now + 3600000 };
     data.fbw_spy_state.blockedReason = { instagram: "login_required" };
     await spyTick({ manual: true });

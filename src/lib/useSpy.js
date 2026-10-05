@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { requireOk } from "./bg.js";
-import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY } from "./spyStore.js";
+import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, igLimit } from "./spyStore.js";
 import { SPY_ACTIVITY_KEY, SPY_HUB_KEY } from "./spyActivity.js";
 import { SYNC_KEY, isSyncConfigured, syncSettings } from "./syncClient.js";
 
@@ -50,6 +50,7 @@ export function useSpy() {
     hub: stored[SPY_HUB_KEY] || null,
     nextTickAt,
     dailyOff: stored[SPY_PREFS_KEY]?.daily === false,
+    igLimit: igLimit(stored[SPY_PREFS_KEY]),
     configured: isSyncConfigured(syncSettings(stored[SYNC_KEY])),
     ready, error,
     save: (platform, key) => requireOk({ type: "FBW_SPY_SAVE", platform, key }),
@@ -59,8 +60,9 @@ export function useSpy() {
   };
 }
 
+/** [daily, saveDaily, igLimit, saveIgLimit]: the Spy prefs, each save merged into the stored object. */
 export function useSpyPrefs() {
-  const [daily, setDaily] = useState(true);
+  const [prefs, setPrefs] = useState({});
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     let dead = false;
@@ -68,19 +70,24 @@ export function useSpyPrefs() {
     const changed = (changes, area) => {
       if (area === "local" && changes[SPY_PREFS_KEY]) {
         changedSinceRead = true;
-        setDaily(changes[SPY_PREFS_KEY].newValue?.daily !== false);
+        setPrefs(changes[SPY_PREFS_KEY].newValue || {});
       }
     };
     chrome.storage.onChanged.addListener(changed);
     chrome.storage.local.get(SPY_PREFS_KEY).then((r) => {
-      if (!dead && !changedSinceRead) setDaily(r[SPY_PREFS_KEY]?.daily !== false);
+      if (!dead && !changedSinceRead) setPrefs(r[SPY_PREFS_KEY] || {});
     }).catch(() => {});
     return () => { dead = true; chrome.storage.onChanged.removeListener(changed); };
   }, []);
-  const save = useCallback(async (value) => {
-    // The background follows this key and schedules/cancels the daily alarm.
-    await chrome.storage.local.set({ [SPY_PREFS_KEY]: { daily: !!value } });
-    setDaily(!!value);
+  // The background follows this key: it schedules/cancels the daily alarm and
+  // reads the Instagram cap at every step.
+  const merge = useCallback(async (patch) => {
+    const r = await chrome.storage.local.get(SPY_PREFS_KEY);
+    const next = { daily: true, ...(r[SPY_PREFS_KEY] || {}), ...patch };
+    await chrome.storage.local.set({ [SPY_PREFS_KEY]: next });
+    setPrefs(next);
   }, []);
-  return [daily, save];
+  const saveDaily = useCallback((value) => merge({ daily: !!value }), [merge]);
+  const saveIgLimit = useCallback((value) => merge({ igLimit: igLimit({ igLimit: value }) }), [merge]);
+  return [prefs.daily !== false, saveDaily, igLimit(prefs), saveIgLimit];
 }

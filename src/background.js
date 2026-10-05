@@ -59,7 +59,7 @@ import {
   dueProfiles,
   emptySpyQueue,
   emptySpyState,
-  IG_SPY_LIMIT,
+  igLimit,
   SPY_RETRY_MS,
   isBlocked,
   mergeList,
@@ -754,7 +754,7 @@ async function scheduleSpy() {
     if (!dailyOn) { await armSpyTickSoon(); return; }
 
     const dues = dueProfiles(spy.profiles, state, Date.now())
-      .filter((p) => p.platform !== "instagram" || igDailyCount(state) < IG_SPY_LIMIT);
+      .filter((p) => p.platform !== "instagram" || igDailyCount(state) < igLimit(prefs));
     const hasIgBatch = !!state.igBatch;
     const reelsPending = !!state.reelsJob || !!pickReelsWork(spy.profiles, state, Date.now());
 
@@ -770,7 +770,7 @@ async function scheduleSpy() {
       const at = now.getTime();
       for (const p of Object.values(spy.profiles || {})) {
         if (!p || p.removedAt != null || (p.lastMeasuredAt && dayKey(p.lastMeasuredAt) === dayKey(at))) continue;
-        if (p.platform === "instagram" && igDailyCount(state, at) >= IG_SPY_LIMIT) continue;
+        if (p.platform === "instagram" && igDailyCount(state, at) >= igLimit(prefs)) continue;
         const attempt = state.day === dayKey(at) ? state.attempts?.[p.id] : null;
         const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
         if (count >= 2) continue;
@@ -1298,7 +1298,8 @@ async function advanceIgBatch({ manual = false } = {}) {
     });
   }
   if (!batch) {
-    const remaining = IG_SPY_LIMIT - igDailyCount(state, now);
+    const limit = igLimit(r[SPY_PREFS_KEY]);
+    const remaining = limit - igDailyCount(state, now);
     // "Medir agora" reads every Instagram profile; the daily pass only the due ones.
     const candidates = manual
       ? Object.values(profiles).filter((p) => p && p.removedAt == null)
@@ -1309,13 +1310,13 @@ async function advanceIgBatch({ manual = false } = {}) {
       .slice(0, Math.max(0, remaining)).map((p) => p.key);
     if (!pending.length) {
       if (manual && remaining <= 0) {
-        await logSpy("instagram", "warn", `Limite de ${IG_SPY_LIMIT} leituras do Instagram hoje já atingido · Medir agora volta amanhã`);
+        await logSpy("instagram", "warn", `Limite de ${limit} leituras do Instagram hoje já atingido · Medir agora volta amanhã (o limite se ajusta em Opções)`);
       }
       return;
     }
     const cut = candidates.filter((p) => p.platform === "instagram").length - pending.length;
     await logSpy("instagram", "info", `Lote ${manual ? "manual" : "diário"} com ${pending.length} ${pending.length === 1 ? "perfil" : "perfis"}`
-      + `${manual && cut > 0 ? ` (${cut} ficam para amanhã: limite de ${IG_SPY_LIMIT} por dia)` : ""} · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s`);
+      + `${manual && cut > 0 ? ` (${cut} ${cut === 1 ? "fica" : "ficam"} para amanhã: limite de ${limit} por dia, ajustável em Opções)` : ""} · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s`);
     const tab = await chrome.tabs.create({ url: "https://www.instagram.com/" + IG_SPY_MARKER, active: false });
     igOwnedTab = tab.id;
     igStopReason = null;
@@ -1365,7 +1366,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     const stop = currentR[SPY_PREFS_KEY]?.daily === false && !batch.manualAt ? "medição desligada em Opções"
       : isBlocked(state, "instagram") ? "Instagram em pausa"
       : !batch.pending.length ? "nada mais a ler"
-      : igDailyCount(state) >= IG_SPY_LIMIT ? `limite de ${IG_SPY_LIMIT} leituras por dia atingido` : null;
+      : igDailyCount(state) >= igLimit(currentR[SPY_PREFS_KEY]) ? `limite de ${igLimit(currentR[SPY_PREFS_KEY])} leituras por dia atingido` : null;
     if (stop) {
       // closeIgBatch reads the batch back: keep the progress made in this step.
       await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: batch } });

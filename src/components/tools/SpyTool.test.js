@@ -10,7 +10,7 @@ const base = () => ({
   profiles: [
     { id: "instagram:nasa", platform: "instagram", key: "nasa" },
     { id: "facebook:nasa", platform: "facebook", key: "nasa" },
-  ], state: {}, queue: {}, activity: [], hub: null, nextTickAt: null, configured: true, ready: true,
+  ], state: {}, queue: {}, activity: [], hub: null, nextTickAt: null, igLimit: 20, configured: true, ready: true,
 });
 // The test configuration uses classic JSX; production's React plugin uses the
 // automatic runtime. Both render the actual component with the same React API.
