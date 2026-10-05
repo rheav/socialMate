@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.7.1] — 2026-10-05
+
+### Alterado
+- **"Medir agora" com a medição diária desligada:** a opção "Atualizar perfis salvos uma vez por dia" desligada agora para só a passada automática. O "Medir agora" mede todas as contas (Instagram e Facebook) mesmo assim, e a fila que ele cria vai até o fim. O painel e a dica em Opções dizem isso.
+
+---
+
 ## [1.7.0] — 2026-10-05
 
 ### Adicionado
