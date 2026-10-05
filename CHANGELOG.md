@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.9.0] — 2026-10-05
+
+### Adicionado
+- **Área Spy — posts por dia (Instagram):** ao ler um perfil salvo (passada diária, "Medir agora" ou visita), a extensão envia ao hub os posts do grid com a data de publicação e se estão fixados. Um post em parceria conta para cada autor. Nenhuma requisição nova ao Instagram: a página do perfil já carrega os posts mais recentes (cerca de 24). O hub mostra "posts ontem/hoje" e os últimos 14 dias (hub 0.9.0). No Facebook a contagem por dia vem dos reels que já são lidos.
+
+---
+
 ## [1.8.0] — 2026-10-05
 
 ### Adicionado

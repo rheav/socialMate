@@ -6,9 +6,9 @@ export default defineManifest({
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "1.8.0",
+  version: "1.9.0",
   version_name:
-    "1.8.0 — Área Spy: limite de leituras do Instagram em Opções",
+    "1.9.0 — Área Spy: posts por dia do Instagram",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
