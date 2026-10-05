@@ -117,6 +117,19 @@ describe("background spy area (phase E2/E3)", () => {
       expect(alarms["fbw-spy-tick"]).toEqual({ delayInMinutes: 1 });
     });
 
+    it("does not postpone a tick already due within the minute", async () => {
+      // Each capture rewrites the list and re-enters scheduleSpy every 20–40 s.
+      data.fbw_sync = { enabled: true, url: "https://hub", token: "secret" };
+      data.fbw_spy = { profiles: { "instagram:nasa": { id: "instagram:nasa", platform: "instagram", key: "nasa",
+        removedAt: null, lastMeasuredAt: null } } };
+      const get = chrome.alarms.get;
+      chrome.alarms.get = async () => ({ name: "fbw-spy-tick", scheduledTime: Date.now() + 30000 });
+      try {
+        await scheduleSpy();
+        expect(alarms["fbw-spy-tick"]).toBeUndefined();
+      } finally { chrome.alarms.get = get; }
+    });
+
     it("schedules next day random delay when no profiles are due", async () => {
       data.fbw_sync = { enabled: true, url: "https://hub", token: "secret" };
       data.fbw_spy_prefs = { daily: true };
@@ -829,5 +842,96 @@ describe("Facebook first full reels reading", () => {
       aggregated_fb_shorts: { edges: rows(0, 10).map((r) => node(r.id)), page_info: { end_cursor: "C", has_next_page: true } } } })}</script>`;
     await measureFbProfile({ ...fb(), lastMeasuredAt: null, reels: data.fbw_spy.profiles[pid].reels }, "daily", async () => ({ status: 200, text: async () => html }));
     expect(data.fbw_spy_state.reelsCatchup).toEqual({ [pid]: true });
+  });
+});
+
+describe("Medir agora measures every profile on demand", () => {
+  const now = new Date(2026, 9, 3, 15).getTime();
+  const ig = (key, lastMeasuredAt) => ({ id: `instagram:${key}`, platform: "instagram", key, lastMeasuredAt,
+    hasAvatar: true, removedAt: null });
+  const fb = (key, lastMeasuredAt) => ({ id: `facebook:${key}`, platform: "facebook", key, lastMeasuredAt,
+    removedAt: null, reels: { status: "done", count: 0, recent: [] } });
+  const observe = (key) => sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key,
+    data: { username: key, follower_count: 42 } },
+    { tab: { id: 90 }, url: `https://www.instagram.com/${key}/#socialmate-spy`, frameId: 0 });
+  let fbRequests;
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {}, igBatch: null };
+    chrome.tabs.create = vi.fn(async (opts) => ({ id: 90, ...opts }));
+    chrome.tabs.update = vi.fn(async (id, opts) => ({ id, ...opts }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id, url: "https://www.instagram.com/#socialmate-spy" }));
+    chrome.tabs.remove = vi.fn(async () => {});
+    chrome.tabs.sendMessage = vi.fn(async () => ({ ok: true, spy: true }));
+    fbRequests = [];
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).includes("facebook.com")) {
+        fbRequests.push(String(url));
+        return { status: 200, url, text: async () => '"profile_social_context":{"text":"42 followers"}' };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }));
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("re-reads Instagram profiles already measured today or waiting for a retry", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {
+      "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    data.fbw_spy_state.attempts = { "instagram:nasa": { n: 2, at: now - 60000 } };
+    await spyTick({ manual: true });
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo", "nasa"]);
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/natgeo/#socialmate-spy" });
+  });
+
+  it("keeps going through the batch and records the reading as manual", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {
+      "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    await spyTick({ manual: true });
+    expect(await observe("natgeo")).toMatchObject({ ok: true });
+    expect(Object.values(data.fbw_spy_queue.readings)).toEqual([expect.objectContaining({
+      profileId: "instagram:natgeo", source: "manual", ok: true })]);
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
+    expect(await observe("nasa")).toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igBatch).toBeNull();
+  });
+
+  it("widens a running daily batch instead of ignoring the click", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {
+      "instagram:nasa": ig("nasa", null), "instagram:natgeo": ig("natgeo", now - 3600000) } };
+    await spyTick();
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa"]);
+    await spyTick({ manual: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa", "natgeo"]);
+    expect(await observe("nasa")).toMatchObject({ ok: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/natgeo/#socialmate-spy" });
+  });
+
+  it("still respects an Instagram pause and the daily navigation cap", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000) } };
+    data.fbw_spy_state.blocked = { instagram: now + 3600000 };
+    await spyTick({ manual: true });
+    data.fbw_spy_state.blocked = {};
+    data.fbw_spy_state.igDaily = { day: "2026-10-03", count: 20 };
+    await spyTick({ manual: true });
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("measures every Facebook profile, one per tick, even when all were measured today", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "facebook:a": fb("a", now - 3600000), "facebook:b": fb("b", now - 3600000) } };
+    await spyTick({ manual: true });
+    expect(fbRequests).toHaveLength(1);
+    expect(alarms["fbw-spy-tick"]).toEqual({ delayInMinutes: 1 });
+    await spyTick();
+    expect(fbRequests).toHaveLength(2);
+    expect(fbRequests.map((u) => u.match(/facebook\.com\/(\w+)/)[1]).sort()).toEqual(["a", "b"]);
+    await spyTick();
+    expect(fbRequests).toHaveLength(2);
+    expect(data.fbw_spy_state.fbManual ?? null).toBeNull();
   });
 });

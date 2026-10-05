@@ -715,8 +715,11 @@ async function scheduleSpy() {
     const hasIgBatch = !!state.igBatch;
     const reelsPending = !!state.reelsJob || !!pickReelsWork(spy.profiles, state, Date.now());
 
-    if (dues.length > 0 || hasIgBatch || reelsPending) {
-      chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
+    if (dues.length > 0 || hasIgBatch || reelsPending || state.fbManual?.length) {
+      // Every capture rewrites the list and lands here again (every 20–40 s in an
+      // Instagram batch); recreating the alarm each time would postpone it forever.
+      const pending = await chrome.alarms.get?.("fbw-spy-tick");
+      if (!pending || pending.scheduledTime > Date.now() + 60000) chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
     } else {
       const now = new Date();
       const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
@@ -1144,12 +1147,20 @@ let igOwnedTab = null;
 let igStopReason = null;
 let igWork = Promise.resolve();
 function serializeIg(work) {
-  const next = igWork.then(work, work);
+  const next = igWork.then(() => work(), () => work());
   igWork = next.catch(() => {});
   return next;
 }
 const IG_SPY_MARKER = "#socialmate-spy";
 const IG_DAILY_READING = { kind: "followers", source: "daily" };
+// A batch started or widened by "Medir agora" carries manualAt: it re-reads
+// profiles measured earlier today and logs its readings as manual.
+const igReading = (batch) => (batch?.manualAt ? { kind: "followers", source: "manual" } : IG_DAILY_READING);
+function igStillPending(profile, batch) {
+  if (!profile || profile.removedAt != null) return false;
+  if (!profile.lastMeasuredAt) return true;
+  return batch.manualAt ? profile.lastMeasuredAt < batch.manualAt : dayKey(profile.lastMeasuredAt) !== dayKey();
+}
 function igDailyCount(state, now = Date.now()) {
   return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
 }
@@ -1192,7 +1203,7 @@ async function closeIgBatch({ abandoned = false } = {}) {
     } catch { /* tab already closed */ }
   }
 }
-async function advanceIgBatch() {
+async function advanceIgBatch({ manual = false } = {}) {
   const settings = await readSyncSettings();
   const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
   const now = Date.now();
@@ -1207,9 +1218,26 @@ async function advanceIgBatch() {
     await closeIgBatch({ abandoned: true });
     return;
   }
+  if (batch && manual) {
+    // A click during a running batch widens it: every profile it has not read yet.
+    const widened = { ...batch, manualAt: batch.manualAt || batch.startedAt };
+    const extra = Object.values(profiles)
+      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened))
+      .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0)).map((p) => p.key);
+    batch = { ...widened, pending: [...batch.pending, ...extra] };
+    await mutateSpy(async () => {
+      const latest = await chrome.storage.local.get(SPY_STATE_KEY);
+      state = { ...(latest[SPY_STATE_KEY] || state), igBatch: batch };
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    });
+  }
   if (!batch) {
     const remaining = IG_SPY_LIMIT - igDailyCount(state, now);
-    const pending = dueProfiles(profiles, state, now)
+    // "Medir agora" reads every Instagram profile; the daily pass only the due ones.
+    const candidates = manual
+      ? Object.values(profiles).filter((p) => p && p.removedAt == null)
+      : dueProfiles(profiles, state, now);
+    const pending = candidates
       .filter((p) => p.platform === "instagram")
       .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0))
       .slice(0, Math.max(0, remaining)).map((p) => p.key);
@@ -1217,7 +1245,8 @@ async function advanceIgBatch() {
     const tab = await chrome.tabs.create({ url: "https://www.instagram.com/" + IG_SPY_MARKER, active: false });
     igOwnedTab = tab.id;
     igStopReason = null;
-    batch = { tabId: tab.id, own: true, startedAt: now, pending, current: null, nextAt: now };
+    batch = { tabId: tab.id, own: true, startedAt: now, pending, current: null, nextAt: now,
+      ...(manual ? { manualAt: now } : {}) };
     await mutateSpy(async () => {
       const latest = await chrome.storage.local.get(SPY_STATE_KEY);
       state = { ...(latest[SPY_STATE_KEY] || state), igBatch: batch };
@@ -1248,7 +1277,7 @@ async function advanceIgBatch() {
     if (!tab?.url?.endsWith(IG_SPY_MARKER)) { await closeIgBatch(); return; }
   } catch { await closeIgBatch(); return; }
   if (batch.current) {
-    await recordProfileError(spyId("instagram", batch.current), "parse_failed", IG_DAILY_READING);
+    await recordProfileError(spyId("instagram", batch.current), "parse_failed", igReading(batch));
     batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null };
   }
   const navigate = await mutateSpy(async () => {
@@ -1256,10 +1285,7 @@ async function advanceIgBatch() {
     state = currentR[SPY_STATE_KEY] || state;
     if (currentR[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram")) return false;
     const live = currentR[SPY_KEY]?.profiles || {};
-    batch.pending = batch.pending.filter((key) => {
-      const p = live[spyId("instagram", key)];
-      return p && p.removedAt == null && (!p.lastMeasuredAt || dayKey(p.lastMeasuredAt) !== dayKey());
-    });
+    batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch));
     if (!batch.pending.length || igDailyCount(state) >= IG_SPY_LIMIT) return false;
     const key = batch.pending[0];
     const at = Date.now();
@@ -1276,7 +1302,7 @@ async function advanceIgBatch() {
   });
   if (!navigate) { await closeIgBatch(); return; }
   if (igStopReason) {
-    await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
+    await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
     await closeIgBatch();
     return;
   }
@@ -1284,7 +1310,7 @@ async function advanceIgBatch() {
     await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", batch.current) + IG_SPY_MARKER });
     armIgStep(batch.nextAt);
   } catch {
-    await recordProfileError(spyId("instagram", batch.current), "network", IG_DAILY_READING);
+    await recordProfileError(spyId("instagram", batch.current), "network", igReading(batch));
     await closeIgBatch();
   }
 }
@@ -1327,7 +1353,7 @@ async function observeIgProfile(msg, sender) {
       externalUrl: parsed.externalUrl, verified: parsed.verified, private: parsed.private };
     if (avatar) patch.avatar = avatar;
     queue = queueProfile(queue, patch);
-    queue = queueReading(queue, { profileId: id, at: now, kind: "followers", source: daily ? "daily" : "visit",
+    queue = queueReading(queue, { profileId: id, at: now, kind: "followers", source: daily ? igReading(batch).source : "visit",
       ok: true, followers: parsed.followers });
     if (daily && state.igBatch?.tabId === sender.tab.id) {
       state = {
@@ -1556,7 +1582,7 @@ chrome.webRequest?.onCompleted?.addListener((details) => {
     const batch = r[SPY_STATE_KEY]?.igBatch;
     if (!batch?.own || batch.tabId !== details.tabId) return;
     await blockPlatform("instagram", details.statusCode === 429 ? "rate_limited" : "login_required",
-      batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
+      batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
     await closeIgBatch();
   }).catch(() => {});
 }, { urls: ["https://*.instagram.com/*"] });
@@ -1569,13 +1595,22 @@ chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
     if (!batch?.own || batch.tabId !== tabId) return;
     const url = change.url || tab?.url || "";
     if (/instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(url)) {
-      await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, IG_DAILY_READING);
+      await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
       await closeIgBatch();
     } else if (change.status === "complete" && batch.current) {
       try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [batch.current] }); } catch { /* alarm handles missing bridge */ }
     }
   }).catch(() => {});
 });
+
+async function setFbManual(ids) {
+  return mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = { ...(r[SPY_STATE_KEY] || emptySpyState()), fbManual: ids.length ? ids : null };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    return state;
+  });
+}
 
 async function spyTick({ manual = false } = {}) {
   if (spyTicking) return { ok: false, error: "busy" };
@@ -1635,19 +1670,28 @@ async function spyTick({ manual = false } = {}) {
       }
     }
 
-    // 2. Facebook measurement: measure ONE due profile per tick
-    if (!isBlocked(state, "facebook", now)) {
-      let fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
-      if (fbDues.length === 0 && manual) {
-        fbDues = Object.values(spy.profiles || {}).filter((p) => p && p.platform === "facebook" && p.removedAt == null);
-      }
-      if (fbDues.length > 0) {
-        await measureFbProfile(fbDues[0], manual ? "visit" : "daily", fetch, { force: manual });
+    // 2. Facebook measurement: ONE profile per tick. "Medir agora" queues every
+    // Facebook profile (fbManual) and the following one-minute ticks work through it.
+    const fbBlocked = isBlocked(state, "facebook", now);
+    if (manual || (fbBlocked && state.fbManual)) {
+      const ids = manual && !fbBlocked ? Object.values(spy.profiles || {})
+        .filter((p) => p && p.platform === "facebook" && p.removedAt == null).map((p) => p.id) : [];
+      state = await setFbManual(ids);
+    }
+    if (!fbBlocked) {
+      const manualId = state.fbManual?.[0];
+      if (manualId) {
+        state = await setFbManual(state.fbManual.slice(1));
+        const profile = spy.profiles?.[manualId];
+        if (profile && profile.removedAt == null) await measureFbProfile(profile, "visit", fetch, { force: true });
+      } else {
+        const fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
+        if (fbDues.length > 0) await measureFbProfile(fbDues[0], "daily");
       }
     }
 
     // 3. Instagram path B (resumes the persisted batch after a worker wake).
-    await serializeIg(advanceIgBatch);
+    await serializeIg(() => advanceIgBatch({ manual }));
 
     // 3b. Facebook reels: first full reading / catch-up, one page per step.
     await advanceReelsJob();
