@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   igLimit,
+  queuePosts,
   dayKey,
   dueProfiles,
   emptySpyQueue,
@@ -394,5 +395,21 @@ describe("igLimit", () => {
     expect(igLimit({ igLimit: 500 })).toBe(60);
     expect(igLimit({ igLimit: 0 })).toBe(20);
     expect(igLimit({ igLimit: "abc" })).toBe(20);
+  });
+});
+
+describe("queuePosts", () => {
+  it("keeps each Instagram post once per profile with its publication time and drops malformed rows", () => {
+    let q = queuePosts(undefined, "instagram:nasa", [
+      { id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false },
+      { id: "3002", createdAt: 1791000100, mediaType: "video", pinned: true },
+      { id: "x", createdAt: 1791000000 }, { id: "3003", createdAt: "ontem" }, null,
+    ]);
+    q = queuePosts(q, "instagram:nasa", [{ id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false }]);
+    expect(Object.values(q.posts)).toEqual([
+      { profileId: "instagram:nasa", id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false },
+      { profileId: "instagram:nasa", id: "3002", createdAt: 1791000100, mediaType: "video", pinned: true },
+    ]);
+    expect(Object.keys(q.posts)).toEqual(["instagram:nasa|3001", "instagram:nasa|3002"]);
   });
 });

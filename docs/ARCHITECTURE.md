@@ -93,6 +93,11 @@ visits to ten minutes per profile across tabs, and stores `source: "daily"` only
 for the current profile in its own batch tab. `FBW_SPY_IG_BATCH` (background →
 bridge, `{ usernames }`) asks for passive cache replay after navigation. Path B
 does not use the API-based `FBW_SPY_IG_RESULT` / `FBW_SPY_IG_DONE` loop.
+`FBW_SPY_POSTS` (`{ platform, key, posts: [{ id, createdAt, mediaType, pinned }] }`,
+IG bridge → background) carries the posts of a saved profile's grid (surface
+`profile:<key>`, so a collab counts for each co-author) with their publication
+time, once per document; the background queues them in `fbw_spy_queue.posts` for
+the hub's posts per day.
 
 Instagram path B persists `igBatch` with `current` and `nextAt` alongside the
 pending usernames, tab ownership and start time. It navigates an inactive owned
@@ -159,7 +164,7 @@ still handled in `content.js` despite being listed as removed.)
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |
 | `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
 | `fbw_spy` | background | `{ profiles: { [id]: profile }, fetchedAt }` — hub profile-list cache; local `name`, `lastObservedAt`, `avatarUpdatedAt` support display and throttling |
-| `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {} }` — persistent hub upload queue |
+| `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {}, reels: {}, reelsStatus: {}, readings: {}, posts: {} }` — persistent hub upload queue |
 | `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, blockedReason: {}, igDaily: { day, count }, igBatch, fbManual, reelsJob, lastPassAt, lastError }` — persisted daily budget, navigation and pauses. `igBatch.manualAt` marks a batch started or widened by "Medir agora" (re-reads profiles already measured today); `fbManual` is the Facebook profiles that click queued, one per tick |
 | `fbw_spy_activity` | background | `[{ at, platform, tone, text }]`, newest last, capped at 40 — the Spy panel's history: every step of a pass and why it stopped (`lib/spyActivity.js`) |
 | `fbw_spy_hub` | background | `{ ok, at, sent?, status?, error? }` — result of the last upload to the hub, shown in the Spy panel |

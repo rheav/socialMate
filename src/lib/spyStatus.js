@@ -41,7 +41,7 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   return { kind: "pending", text: "aguardando medição" };
 }
 
-const QUEUE_KINDS = ["profiles", "snapshots", "errors", "readings", "reels", "reelsStatus"];
+const QUEUE_KINDS = ["profiles", "snapshots", "errors", "readings", "reels", "reelsStatus", "posts"];
 export function hubErrorText(hub) {
   if (hub.status === 401 || hub.status === 403) return "token recusado — confira o token em Opções";
   if (hub.status === 404) return "o hub não tem a área spy — atualize o hub";

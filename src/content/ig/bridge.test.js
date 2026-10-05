@@ -54,3 +54,29 @@ describe("Instagram grid routes", () => {
     expect(routeOk(path)).toBe(false);
   });
 });
+
+const gridSource = bridge.match(/^function spyGridPosts\([^)]*\) \{[\s\S]*?\n\}/m)[0];
+const spyGridPosts = new Function(`${gridSource}; return spyGridPosts;`)();
+
+describe("posts per day from a saved profile's grid", () => {
+  const rec = (pk, extra = {}) => ({ pk, code: `c${pk}`, taken_at: 1791000000 + Number(pk), media_type: "photo",
+    surface: "profile:nasa", pinned_by: [], ...extra });
+
+  it("takes the grid's posts with a time, once, and a collab by whoever owns it", () => {
+    const sent = new Set(["3009"]);
+    const records = [rec("3001"), rec("3002", { username: "partner" }), rec("3009"),
+      rec("3003", { surface: "profile:other" }), rec("3004", { surface: "related:profile:nasa" }),
+      rec("3005", { taken_at: null }), rec("abc")];
+    expect(spyGridPosts(records, "nasa", "123", sent)).toEqual([
+      { id: "3001", createdAt: 1791003001, mediaType: "photo", pinned: false },
+      { id: "3002", createdAt: 1791003002, mediaType: "photo", pinned: false },
+    ]);
+  });
+
+  it("marks a post pinned only when this profile pinned it", () => {
+    const records = [rec("3001", { pinned_by: ["123"] }), rec("3002", { pinned_by: ["999"] })];
+    expect(spyGridPosts(records, "nasa", "123", new Set()).map((p) => p.pinned)).toEqual([true, false]);
+    // Owner id not known yet: any pin counts.
+    expect(spyGridPosts(records, "NASA", null, new Set()).map((p) => p.pinned)).toEqual([true, true]);
+  });
+});

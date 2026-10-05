@@ -79,6 +79,9 @@
       image: bestImage(m),
       carousel: carouselOf(m),
       taken_at: m.taken_at != null ? m.taken_at : (m.taken_at_timestamp != null ? m.taken_at_timestamp : null),
+      // Who pinned it to the top of their grid: pinned posts carry old dates and
+      // say nothing about the days in between (Spy posts per day).
+      pinned_by: Array.isArray(m.timeline_pinned_user_ids) ? m.timeline_pinned_user_ids.map(String) : null,
       repost: m.media_repost_count != null ? m.media_repost_count : null,
       // Who posted it, so the creator stats collected below can be joined on.
       userid: u.pk != null ? String(u.pk) : (u.id != null ? String(u.id) : null),

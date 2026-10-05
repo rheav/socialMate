@@ -69,6 +69,7 @@ import {
   queueSnapshot,
   queueReading,
   queueReels,
+  queuePosts,
   queueReelsStatus,
 } from "./lib/spyStore.js";
 import { SPY_ACTIVITY_KEY, SPY_HUB_KEY, appendActivity, clockText, countText, errorText, profileName } from "./lib/spyActivity.js";
@@ -695,7 +696,7 @@ async function recordHubResult(result) {
 }
 
 function spyQueuePending(queue) {
-  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings"]
+  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings", "posts"]
     .some((kind) => Object.keys(queue?.[kind] || {}).length));
 }
 
@@ -808,6 +809,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     const reelsToSend = Object.values(queue.reels || {});
     const reelsStatusToSend = Object.values(queue.reelsStatus || {});
     const readingsToSend = Object.values(queue.readings || {});
+    const postsToSend = Object.values(queue.posts || {});
 
     if (
       !opsToSend.length &&
@@ -816,7 +818,8 @@ async function flushSpy({ attempt = 0 } = {}) {
       !errorsToSend.length &&
       !reelsToSend.length &&
       !reelsStatusToSend.length &&
-      !readingsToSend.length
+      !readingsToSend.length &&
+      !postsToSend.length
     ) {
       await chrome.alarms?.clear?.("fbw-spy-sync");
       return { ok: true, sent: 0 };
@@ -835,6 +838,7 @@ async function flushSpy({ attempt = 0 } = {}) {
       ...reelsToSend.map((r) => ["reels", r]),
       ...reelsStatusToSend.map((r) => ["reelsStatus", r]),
       ...readingsToSend.map((r) => ["readings", r]),
+      ...postsToSend.map((r) => ["posts", r]),
     ];
     let lastRes = null;
     for (const batch of batchRecords(records, { maxItems: 500 })) {
@@ -905,6 +909,7 @@ async function flushSpy({ attempt = 0 } = {}) {
         reels: unsent("reels"),
         reelsStatus: unsent("reelsStatus"),
         readings: unsent("readings"),
+        posts: unsent("posts"),
       };
 
       let nextSpy = freshSpy;
@@ -1400,6 +1405,33 @@ async function advanceIgBatch({ manual = false } = {}) {
     await recordProfileError(spyId("instagram", batch.current), "network", igReading(batch));
     await closeIgBatch();
   }
+}
+// Posts in a saved profile's grid, with their publication time, for posts per
+// day. The bridge sends each one once per document; the hub keeps each once.
+async function receiveIgPosts(msg, sender) {
+  if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
+  let origin;
+  try { origin = new URL(sender.url || sender.tab?.url).hostname; } catch { return { ok: false }; }
+  if (!sender.tab || !(origin === "instagram.com" || origin.endsWith(".instagram.com"))) return { ok: false };
+  const key = String(msg.key || "").toLowerCase();
+  const id = spyId("instagram", key);
+  const posts = (Array.isArray(msg.posts) ? msg.posts : []).slice(0, 60);
+  const queued = await mutateSpy(async () => {
+    const r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
+    const profile = r[SPY_KEY]?.profiles?.[id];
+    if (msg.platform !== "instagram" || !profile || profile.removedAt != null) return null;
+    const before = Object.keys(r[SPY_QUEUE_KEY]?.posts || {}).length;
+    const queue = queuePosts(r[SPY_QUEUE_KEY], id, posts);
+    const added = Object.keys(queue.posts).length - before;
+    if (added) await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queue });
+    return added;
+  });
+  if (queued == null) return { ok: false, error: "unknown" };
+  if (queued) {
+    await logSpy("instagram", "info", `@${key}: ${queued} ${queued === 1 ? "post" : "posts"} com data lidos do grid`);
+    scheduleFlushSpy();
+  }
+  return { ok: true, queued };
 }
 async function observeIgProfile(msg, sender) {
   if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
@@ -2961,6 +2993,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case "FBW_SPY_OBSERVE": {
       serializeIg(() => observeIgProfile(msg, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "network" }));
+      return true;
+    }
+    case "FBW_SPY_POSTS": {
+      receiveIgPosts(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     // panel → bg: Spy area operations

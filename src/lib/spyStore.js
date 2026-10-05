@@ -27,6 +27,7 @@ export function emptySpyQueue() {
     reels: {},       // "<profileId>|<reelId>" -> Facebook reel
     reelsStatus: {}, // profileId -> first full reading state
     readings: {},    // "<profileId>|<at>|<kind>" -> collection attempt
+    posts: {},       // "<profileId>|<postId>" -> Instagram post seen in the profile's grid
   };
 }
 
@@ -60,6 +61,7 @@ function normalizeQueue(queue) {
     reels: queue.reels && typeof queue.reels === "object" ? queue.reels : {},
     reelsStatus: queue.reelsStatus && typeof queue.reelsStatus === "object" ? queue.reelsStatus : {},
     readings: queue.readings && typeof queue.readings === "object" ? queue.readings : {},
+    posts: queue.posts && typeof queue.posts === "object" ? queue.posts : {},
   };
 }
 
@@ -332,6 +334,21 @@ export function queueReels(queue, profileId, reels) {
     };
   }
   return { ...q, reels: next };
+}
+
+/** Instagram posts from a saved profile's grid, with their publication time (s),
+ *  for posts per day. A collab sits in each co-author's grid and counts for each. */
+export function queuePosts(queue, profileId, posts) {
+  const q = normalizeQueue(queue);
+  const next = { ...q.posts };
+  for (const p of posts || []) {
+    if (!profileId || !/^\d{3,30}$/.test(p?.id || "") || !Number.isInteger(p.createdAt)) continue;
+    next[`${profileId}|${p.id}`] = {
+      profileId, id: p.id, createdAt: p.createdAt,
+      mediaType: typeof p.mediaType === "string" ? p.mediaType : null, pinned: p.pinned === true,
+    };
+  }
+  return { ...q, posts: next };
 }
 
 /** State of a profile's first full reels reading: pending -> running -> done. */

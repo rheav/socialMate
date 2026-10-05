@@ -493,6 +493,41 @@ describe("Instagram path B", () => {
 });
 
 
+describe("Instagram posts per day", () => {
+  const now = new Date(2026, 9, 3, 12).getTime();
+  const sender = { tab: { id: 7 }, url: "https://www.instagram.com/nasa/", frameId: 0 };
+  const posts = [{ id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false },
+    { id: "3002", createdAt: 1791000100, mediaType: "video", pinned: true }];
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": { id: "instagram:nasa", platform: "instagram",
+      key: "nasa", removedAt: null } } };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {} };
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("queues the grid's posts of a saved profile and sends them to the hub", async () => {
+    expect(await sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key: "nasa", posts }, sender))
+      .toEqual({ ok: true, queued: 2 });
+    expect(Object.keys(data.fbw_spy_queue.posts)).toEqual(["instagram:nasa|3001", "instagram:nasa|3002"]);
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await flushSpy();
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body.posts).toEqual(posts.map((p) => ({ profileId: "instagram:nasa", ...p })));
+    expect(data.fbw_spy_queue.posts).toEqual({});
+  });
+
+  it("refuses posts from another site, a subframe or for a profile that is not saved", async () => {
+    const msg = { type: "FBW_SPY_POSTS", platform: "instagram", key: "nasa", posts };
+    expect(await sendMessage(msg, { ...sender, url: "https://example.com/" })).toMatchObject({ ok: false });
+    expect(await sendMessage(msg, { ...sender, frameId: 3 })).toMatchObject({ ok: false });
+    expect(await sendMessage({ ...msg, key: "other" }, sender)).toMatchObject({ ok: false });
+    expect(data.fbw_spy_queue).toBeUndefined();
+  });
+});
+
 describe("spy queue acknowledgement", () => {
   it("has one upload owner even when two callers enter before storage resolves", async () => {
     data.fbw_sync = { url: "https://hub", token: "secret" };
