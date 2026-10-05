@@ -987,6 +987,29 @@ describe("Medir agora measures every profile on demand", () => {
     expect(log().at(-1)).toBe("hub|ok|Envio ao hub voltou a funcionar · 1 registro enviado");
   });
 
+  it("runs every account even with the daily pass switched off, and only what the click queued", async () => {
+    data.fbw_spy_prefs = { daily: false };
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000),
+      "instagram:natgeo": ig("natgeo", now - 7200000), "facebook:a": fb("a", now - 3600000), "facebook:b": fb("b", now - 3600000) } };
+    await spyTick({ manual: true });
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+    expect(fbRequests).toHaveLength(1);
+    await scheduleSpy();
+    expect(alarms["fbw-spy-tick"]).toEqual({ delayInMinutes: 1 });
+    expect(log()).toContain("null|info|Medição diária desligada em Opções · o Medir agora roda mesmo assim");
+    expect(await observe("natgeo")).toMatchObject({ ok: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(fbRequests).toHaveLength(2);
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
+    expect(await observe("nasa")).toMatchObject({ ok: true });
+    await spyTick();
+    expect(fbRequests).toHaveLength(2);
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+    await scheduleSpy();
+    expect(alarms["fbw-spy-tick"]).toBeUndefined();
+  });
+
   it("measures every Facebook profile, one per tick, even when all were measured today", async () => {
     data.fbw_spy = { fetchedAt: now, profiles: { "facebook:a": fb("a", now - 3600000), "facebook:b": fb("b", now - 3600000) } };
     await spyTick({ manual: true });

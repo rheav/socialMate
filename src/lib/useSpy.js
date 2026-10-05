@@ -13,7 +13,7 @@ export function useSpy() {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     let dead = false;
     let ticket = 0;
-    const keys = [SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY, SYNC_KEY, SPY_ACTIVITY_KEY, SPY_HUB_KEY];
+    const keys = [SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY, SYNC_KEY, SPY_ACTIVITY_KEY, SPY_HUB_KEY, SPY_PREFS_KEY];
     // The automatic tick lives in chrome.alarms, not storage: read it with the
     // rest and every 15 s, so the panel can say when the next pass runs.
     const readAlarm = async () => {
@@ -49,6 +49,7 @@ export function useSpy() {
     activity: stored[SPY_ACTIVITY_KEY] || [],
     hub: stored[SPY_HUB_KEY] || null,
     nextTickAt,
+    dailyOff: stored[SPY_PREFS_KEY]?.daily === false,
     configured: isSyncConfigured(syncSettings(stored[SYNC_KEY])),
     ready, error,
     save: (platform, key) => requireOk({ type: "FBW_SPY_SAVE", platform, key }),

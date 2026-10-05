@@ -41,12 +41,12 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, queue, activity, hub, nextTickAt, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
+  const { profiles, state, queue, activity, hub, nextTickAt, dailyOff, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(Date.now);
-  const live = activityNow(state, profiles, { now, nextTickAt });
+  const live = activityNow(state, profiles, { now, nextTickAt, dailyOff });
   // Countdowns tick every second while something runs.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), live.busy ? 1000 : 30000);

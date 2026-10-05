@@ -371,7 +371,7 @@ function HubSection() {
       <Row
         id="opt-spy-daily"
         label="Atualizar perfis salvos uma vez por dia"
-        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão, e manda só os números para o acervo."
+        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão, e manda só os números para o acervo. Desligada, o “Medir agora” da área Spy continua funcionando."
         checked={spyDaily}
         onChange={(v) => saveSpyDaily(v).catch(() => setResult({ ok: false, error: "Não consegui salvar essa opção." }))}
       />

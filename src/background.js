@@ -722,6 +722,17 @@ function scheduleFlushSpy(delay = SPY_DEBOUNCE_MS, attempt = 0) {
   }, delay);
 }
 
+// Work queued by "Medir agora" that still has to run.
+function manualPending(state) {
+  return !!(state?.fbManual?.length || state?.igBatch?.manualAt);
+}
+async function armSpyTickSoon() {
+  // Every capture rewrites the list and lands in scheduleSpy again (every 20–40 s
+  // in an Instagram batch); recreating the alarm each time would postpone it forever.
+  const pending = await chrome.alarms.get?.("fbw-spy-tick");
+  if (!pending || pending.scheduledTime > Date.now() + 60000) chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
+}
+
 async function scheduleSpy() {
   if (!chrome.alarms?.create) return;
   try {
@@ -734,11 +745,13 @@ async function scheduleSpy() {
     const isConfigured = isSyncConfigured(settings);
     const dailyOn = prefs.daily !== false;
 
-    if (!isConfigured || !dailyOn) {
+    if (!isConfigured || (!dailyOn && !manualPending(state))) {
       await chrome.alarms.clear("fbw-spy-tick");
       serializeIg(() => closeIgBatch({ why: !isConfigured ? "acervo não configurado" : "medição desligada em Opções" })).catch(() => {});
       return;
     }
+    // Daily pass off: only what "Medir agora" queued keeps the worker ticking.
+    if (!dailyOn) { await armSpyTickSoon(); return; }
 
     const dues = dueProfiles(spy.profiles, state, Date.now())
       .filter((p) => p.platform !== "instagram" || igDailyCount(state) < IG_SPY_LIMIT);
@@ -746,10 +759,7 @@ async function scheduleSpy() {
     const reelsPending = !!state.reelsJob || !!pickReelsWork(spy.profiles, state, Date.now());
 
     if (dues.length > 0 || hasIgBatch || reelsPending || state.fbManual?.length) {
-      // Every capture rewrites the list and lands here again (every 20–40 s in an
-      // Instagram batch); recreating the alarm each time would postpone it forever.
-      const pending = await chrome.alarms.get?.("fbw-spy-tick");
-      if (!pending || pending.scheduledTime > Date.now() + 60000) chrome.alarms.create("fbw-spy-tick", { delayInMinutes: 1 });
+      await armSpyTickSoon();
     } else {
       const now = new Date();
       const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
@@ -1256,7 +1266,9 @@ async function advanceIgBatch({ manual = false } = {}) {
   let state = r[SPY_STATE_KEY] || emptySpyState(now);
   const profiles = r[SPY_KEY]?.profiles || {};
   let batch = state.igBatch;
-  if (!isSyncConfigured(settings) || r[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram", now)) {
+  // The daily switch stops the automatic batch only; a manual one runs regardless.
+  const dailyOff = r[SPY_PREFS_KEY]?.daily === false && !manual && !batch?.manualAt;
+  if (!isSyncConfigured(settings) || dailyOff || isBlocked(state, "instagram", now)) {
     if (manual && isBlocked(state, "instagram", now)) {
       await logSpy("instagram", "warn", `Medir agora não abriu o Instagram: em pausa até ${clockText(state.blocked.instagram)} (${errorText(state.blockedReason?.instagram || "rate_limited")})`);
     }
@@ -1350,7 +1362,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     state = currentR[SPY_STATE_KEY] || state;
     const live = currentR[SPY_KEY]?.profiles || {};
     batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch));
-    const stop = currentR[SPY_PREFS_KEY]?.daily === false ? "medição desligada em Opções"
+    const stop = currentR[SPY_PREFS_KEY]?.daily === false && !batch.manualAt ? "medição desligada em Opções"
       : isBlocked(state, "instagram") ? "Instagram em pausa"
       : !batch.pending.length ? "nada mais a ler"
       : igDailyCount(state) >= IG_SPY_LIMIT ? `limite de ${IG_SPY_LIMIT} leituras por dia atingido` : null;
@@ -1726,11 +1738,14 @@ async function spyTick({ manual = false } = {}) {
     }
 
     const prefs = await chrome.storage.local.get(SPY_PREFS_KEY);
-    if (prefs[SPY_PREFS_KEY]?.daily === false) {
-      if (manual) await logSpy(null, "warn", "Medição desligada em Opções · ligue \"Atualizar perfis salvos uma vez por dia\" para medir");
+    // The daily switch stops only the automatic pass: "Medir agora" and the work
+    // it queued run regardless.
+    const dailyOn = prefs[SPY_PREFS_KEY]?.daily !== false;
+    if (!dailyOn && !manual && !manualPending(state)) {
       await serializeIg(() => closeIgBatch({ why: "medição desligada em Opções" }));
       return { ok: true, skipped: "disabled" };
     }
+    if (!dailyOn && manual) await logSpy(null, "info", "Medição diária desligada em Opções · o Medir agora roda mesmo assim");
 
     // 1. Refresh profile list if older than 10 minutes or manual
     const tenMinAgo = now - 10 * 60 * 1000;
@@ -1777,7 +1792,7 @@ async function spyTick({ manual = false } = {}) {
         state = await setFbManual(state.fbManual.slice(1));
         const profile = spy.profiles?.[manualId];
         if (profile && profile.removedAt == null) await measureFbProfile(profile, "visit", fetch, { force: true });
-      } else {
+      } else if (dailyOn) {
         const fbDues = dueProfiles(spy.profiles, state, now).filter((p) => p.platform === "facebook");
         if (fbDues.length > 0) await measureFbProfile(fbDues[0], "daily");
       }

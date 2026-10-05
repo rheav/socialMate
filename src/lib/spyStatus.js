@@ -75,7 +75,7 @@ function wait(ms) {
  * derived from the stored state; nextTickAt is the scheduled automatic tick.
  * line: { platform, text, detail?, spinning, tone }
  */
-export function activityNow(state = {}, profiles = [], { now = Date.now(), nextTickAt = null } = {}) {
+export function activityNow(state = {}, profiles = [], { now = Date.now(), nextTickAt = null, dailyOff = false } = {}) {
   const byId = new Map(profiles.map((p) => [p.id, p]));
   const name = (id) => profileName(byId.get(id) || { key: String(id || "").split(":")[1] });
   const lines = [];
@@ -116,7 +116,10 @@ export function activityNow(state = {}, profiles = [], { now = Date.now(), nextT
       text: `Reels de ${name(job.profileId)} (${job.mode === "catchup" ? "continuação" : "leitura inicial"}) · ${pages} · próxima página em ${wait((job.nextAt || now) - now)}` });
   }
   const busy = !!(batch || fbQueue.length || state.measuring || job);
-  if (!busy) {
+  if (!busy && dailyOff) {
+    lines.push({ platform: null, tone: "info", spinning: false,
+      text: "Nada em andamento · medição diária desligada em Opções; o Medir agora continua funcionando" });
+  } else if (!busy) {
     lines.push({ platform: null, tone: "info", spinning: false,
       text: `Nada em andamento${nextTickAt ? ` · próxima passada automática ${nextTickAt - now < 3600000 ? `em ${wait(nextTickAt - now)}` : `às ${clockText(nextTickAt)}`}` : ""}` });
   }
