@@ -2,6 +2,7 @@
 // everything comes from the stored list, state and queue, so the panel reads the
 // same thing the background acts on.
 import { IG_SPY_LIMIT, SPY_RETRY_MS, dayKey } from "./spyStore.js";
+import { clockText, errorText, profileName } from "./spyActivity.js";
 
 export function ago(at, now) {
   const minutes = Math.max(0, Math.floor((now - at) / 60000));
@@ -40,12 +41,86 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   return { kind: "pending", text: "aguardando medição" };
 }
 
-export function syncStatus(queue = {}, state = {}) {
-  if (state.lastError === "limit_reached") return { pending: 0, text: "o hub recusou: limite de 100 perfis" };
-  const pending = (queue.ops?.length || 0) + Object.keys(queue.profiles || {}).length
-    + Object.keys(queue.snapshots || {}).length + Object.keys(queue.errors || {}).length;
-  if (!pending) return { pending, text: "sincronizado com o hub" };
-  return { pending, text: `${pending} ${pending === 1 ? "alteração" : "alterações"} aguardando envio ao hub` };
+const QUEUE_KINDS = ["profiles", "snapshots", "errors", "readings", "reels", "reelsStatus"];
+export function hubErrorText(hub) {
+  if (hub.status === 401 || hub.status === 403) return "token recusado — confira o token em Opções";
+  if (hub.status === 404) return "o hub não tem a área spy — atualize o hub";
+  if (hub.status >= 500) return `o hub respondeu erro ${hub.status}`;
+  if (hub.status) return `o hub respondeu ${hub.status}`;
+  return "hub fora do ar ou sem rede";
+}
+
+/** The upload queue and the last upload. tone: ok | info | warn. */
+export function syncStatus(queue = {}, state = {}, hub = null, now = Date.now()) {
+  const pending = (queue.ops?.length || 0)
+    + QUEUE_KINDS.reduce((n, kind) => n + Object.keys(queue[kind] || {}).length, 0);
+  if (state.lastError === "limit_reached") return { pending: 0, tone: "warn", text: "o hub recusou: limite de 100 perfis" };
+  const records = `${pending} ${pending === 1 ? "registro" : "registros"}`;
+  if (hub && hub.ok === false) {
+    return { pending, tone: "warn",
+      text: `${pending ? `${records} aguardando envio · ` : ""}último envio falhou ${ago(hub.at, now)} (${hubErrorText(hub)}) · tenta de novo sozinho` };
+  }
+  if (!pending) return { pending, tone: "ok", text: `sincronizado com o hub${hub?.at ? ` · último envio ${ago(hub.at, now)}` : ""}` };
+  return { pending, tone: "info", text: `${records} aguardando envio ao hub` };
+}
+
+function wait(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  if (s === 0) return "instantes";
+  return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
+}
+
+/**
+ * What the background is doing right now, line by line, for the panel. Pure:
+ * derived from the stored state; nextTickAt is the scheduled automatic tick.
+ * line: { platform, text, detail?, spinning, tone }
+ */
+export function activityNow(state = {}, profiles = [], { now = Date.now(), nextTickAt = null } = {}) {
+  const byId = new Map(profiles.map((p) => [p.id, p]));
+  const name = (id) => profileName(byId.get(id) || { key: String(id || "").split(":")[1] });
+  const lines = [];
+  for (const platform of ["instagram", "facebook"]) {
+    const until = state.blocked?.[platform] || 0;
+    if (until > now) {
+      lines.push({ platform, tone: "warn", spinning: false,
+        text: `Em pausa até ${clockText(until)} — ${errorText(state.blockedReason?.[platform] || "rate_limited")}` });
+    }
+  }
+  const batch = state.igBatch;
+  if (batch) {
+    const pending = batch.pending || [];
+    const total = Math.max(batch.total || 0, pending.length);
+    const head = `Lote ${batch.manualAt ? "manual" : "diário"} · ${total - pending.length} de ${total} perfis`
+      + (batch.failed ? ` (${batch.failed} com falha)` : "");
+    const reading = state.measuring?.platform === "instagram" ? state.measuring.key : null;
+    let text;
+    let rest = pending;
+    if (reading) { text = `${head} · lendo @${reading}…`; rest = pending.filter((k) => k !== reading); }
+    else if (pending.length) { text = `${head} · próximo @${pending[0]} em ${wait((batch.nextAt || now) - now)}`; rest = pending.slice(1); }
+    else text = `${head} · encerrando…`;
+    lines.push({ platform: "instagram", tone: "info", spinning: !!reading, text,
+      ...(rest.length ? { detail: `na fila depois: ${rest.map((k) => `@${k}`).join(", ")}` } : {}) });
+  }
+  if (state.measuring?.platform === "facebook") {
+    lines.push({ platform: "facebook", tone: "info", spinning: true, text: `Lendo ${name(state.measuring.id)}…` });
+  }
+  const fbQueue = state.fbManual || [];
+  if (fbQueue.length) {
+    lines.push({ platform: "facebook", tone: "info", spinning: false,
+      text: `${fbQueue.length} na fila do Medir agora · próximo ${name(fbQueue[0])} ${nextTickAt ? `em ${wait(nextTickAt - now)}` : "em instantes"}` });
+  }
+  const job = state.reelsJob;
+  if (job) {
+    const pages = `${job.pages || 0} ${job.pages === 1 ? "página" : "páginas"}, ${job.added || 0} reels`;
+    lines.push({ platform: "facebook", tone: "info", spinning: false,
+      text: `Reels de ${name(job.profileId)} (${job.mode === "catchup" ? "continuação" : "leitura inicial"}) · ${pages} · próxima página em ${wait((job.nextAt || now) - now)}` });
+  }
+  const busy = !!(batch || fbQueue.length || state.measuring || job);
+  if (!busy) {
+    lines.push({ platform: null, tone: "info", spinning: false,
+      text: `Nada em andamento${nextTickAt ? ` · próxima passada automática ${nextTickAt - now < 3600000 ? `em ${wait(nextTickAt - now)}` : `às ${clockText(nextTickAt)}`}` : ""}` });
+  }
+  return { busy, lines };
 }
 
 /** Facebook only: where the reel count stands (first full reading, catch-up). */

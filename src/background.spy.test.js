@@ -922,6 +922,71 @@ describe("Medir agora measures every profile on demand", () => {
     expect(chrome.tabs.create).not.toHaveBeenCalled();
   });
 
+  const log = () => (data.fbw_spy_activity || []).map((e) => `${e.platform}|${e.tone}|${e.text}`);
+
+  it("tells the panel each step of a manual pass, with counts and outcomes", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000),
+      "facebook:a": { ...fb("a", now - 3600000), name: "Página A" } } };
+    await spyTick({ manual: true });
+    await observe("nasa");
+    vi.clearAllTimers();
+    expect(log()).toEqual([
+      "null|info|Medir agora: pedido recebido",
+      "facebook|info|1 perfil na fila · 1 por minuto",
+      "facebook|ok|Página A: 42 seguidores · Medir agora",
+      "instagram|info|Lote manual com 1 perfil · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s",
+      "instagram|info|Abrindo @nasa (1 de 1)",
+      "instagram|ok|@nasa: 42 seguidores · Medir agora",
+      "instagram|ok|Lote concluído · 1 de 1 perfis (1 lido) · aba fechada",
+    ]);
+  });
+
+  it("counts a profile whose page never answered as a failure, by its handle", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {
+      "instagram:nasa": { ...ig("nasa", now - 3600000), name: "NASA" }, "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    await spyTick({ manual: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(data.fbw_spy_state.igBatch.failed).toBe(1);
+    await observe("nasa");
+    expect(log()).toContain("instagram|warn|@natgeo: a página abriu mas não trouxe os números");
+    expect(log().at(-1)).toBe("instagram|warn|Lote concluído · 2 de 2 perfis (1 lido, 1 com falha) · aba fechada");
+  });
+
+  it("explains why a click did not open Instagram", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000) } };
+    data.fbw_spy_state.igDaily = { day: "2026-10-03", count: 20 };
+    await spyTick({ manual: true });
+    expect(log()).toContain("instagram|warn|Limite de 20 leituras do Instagram hoje já atingido · Medir agora volta amanhã");
+    data.fbw_spy_state.blocked = { instagram: now + 3600000 };
+    data.fbw_spy_state.blockedReason = { instagram: "login_required" };
+    await spyTick({ manual: true });
+    expect(log().at(-1)).toMatch(/^instagram\|warn\|Medir agora não abriu o Instagram: em pausa até \d\d:\d\d \(a rede pediu login/);
+  });
+
+  it("says when the batch tab never answered", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000) } };
+    chrome.tabs.sendMessage = vi.fn(async () => { throw new Error("no receiver"); });
+    const tick = spyTick({ manual: true });
+    await vi.advanceTimersByTimeAsync(21000);
+    await tick;
+    expect(log().at(-1)).toBe("instagram|warn|Lote encerrado · 0 de 1 perfis (0 lidos) — a aba do Instagram não respondeu em 20 s; abra o Instagram neste Chrome e confira se está logado");
+  });
+
+  it("records the hub upload result and logs only the first failure and the recovery", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {} };
+    data.fbw_spy_queue = { ops: [], profiles: {}, snapshots: {}, errors: {}, readings: { r: { profileId: "x", at: 1 } } };
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    await flushSpy({ attempt: 9 });
+    await flushSpy({ attempt: 9 });
+    expect(data.fbw_spy_hub).toMatchObject({ ok: false, status: 0, at: now });
+    expect(log()).toEqual(["hub|error|Envio ao hub falhou (hub fora do ar ou sem rede) · os registros ficam guardados e o envio é tentado de novo"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) })));
+    await flushSpy();
+    expect(data.fbw_spy_hub).toMatchObject({ ok: true, sent: 1 });
+    expect(log().at(-1)).toBe("hub|ok|Envio ao hub voltou a funcionar · 1 registro enviado");
+  });
+
   it("measures every Facebook profile, one per tick, even when all were measured today", async () => {
     data.fbw_spy = { fetchedAt: now, profiles: { "facebook:a": fb("a", now - 3600000), "facebook:b": fb("b", now - 3600000) } };
     await spyTick({ manual: true });

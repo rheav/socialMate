@@ -160,7 +160,9 @@ still handled in `content.js` despite being listed as removed.)
 | `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
 | `fbw_spy` | background | `{ profiles: { [id]: profile }, fetchedAt }` — hub profile-list cache; local `name`, `lastObservedAt`, `avatarUpdatedAt` support display and throttling |
 | `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {} }` — persistent hub upload queue |
-| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, igDaily: { day, count }, igBatch, lastPassAt, lastError }` — persisted daily budget, navigation and pauses |
+| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, blockedReason: {}, igDaily: { day, count }, igBatch, fbManual, reelsJob, lastPassAt, lastError }` — persisted daily budget, navigation and pauses. `igBatch.manualAt` marks a batch started or widened by "Medir agora" (re-reads profiles already measured today); `fbManual` is the Facebook profiles that click queued, one per tick |
+| `fbw_spy_activity` | background | `[{ at, platform, tone, text }]`, newest last, capped at 40 — the Spy panel's history: every step of a pass and why it stopped (`lib/spyActivity.js`) |
+| `fbw_spy_hub` | background | `{ ok, at, sent?, status?, error? }` — result of the last upload to the hub, shown in the Spy panel |
 | `fbw_spy_prefs` | Opções modal | `{ daily: true }` — daily measurement switch; independent of archive automatic upload |
 | `fbw_tx_rep_penalty` | Opções modal | `{ enabled, value }` — Whisper repetition penalty, off by default; read by the background per job and filed on the transcript as `repetitionPenalty` (1 = off) |
 | IndexedDB `emb:<djb2>:<len>` | offscreen, idb-keyval | MiniLM embedding cache |

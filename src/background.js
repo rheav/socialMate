@@ -71,6 +71,8 @@ import {
   queueReels,
   queueReelsStatus,
 } from "./lib/spyStore.js";
+import { SPY_ACTIVITY_KEY, SPY_HUB_KEY, appendActivity, clockText, countText, errorText, profileName } from "./lib/spyActivity.js";
+import { hubErrorText } from "./lib/spyStatus.js";
 
 import { createVoiceJobs } from "./lib/voiceJobs.js";
 
@@ -664,6 +666,34 @@ function mutateSpy(work) {
   return next;
 }
 
+// The panel's activity log (lib/spyActivity.js). Its own short write chain, so a
+// log line never waits on the spy state's critical section and can be written
+// from anywhere, inside a mutateSpy callback included.
+let activityWrite = Promise.resolve();
+function logSpy(platform, tone, text) {
+  const entry = { at: Date.now(), platform, tone, text };
+  activityWrite = activityWrite.then(async () => {
+    const r = await chrome.storage.local.get(SPY_ACTIVITY_KEY);
+    await chrome.storage.local.set({ [SPY_ACTIVITY_KEY]: appendActivity(r[SPY_ACTIVITY_KEY], entry) });
+  }).catch(() => {});
+  return activityWrite;
+}
+const platformOf = (id) => String(id || "").split(":")[0] || null;
+// Instagram lines always use the @handle, the same one the batch lines show.
+const nameOf = (spy, id) => (platformOf(id) === "instagram" ? `@${String(id).split(":")[1]}`
+  : profileName(spy?.profiles?.[id] || { key: String(id || "").split(":")[1] }));
+// Only the first failure of a streak and the recovery are logged; every retry is not.
+async function recordHubResult(result) {
+  const r = await chrome.storage.local.get(SPY_HUB_KEY);
+  const before = r[SPY_HUB_KEY];
+  await chrome.storage.local.set({ [SPY_HUB_KEY]: { ...result, at: Date.now() } });
+  if (!result.ok && before?.ok !== false) {
+    await logSpy("hub", "error", `Envio ao hub falhou (${hubErrorText(result)}) · os registros ficam guardados e o envio é tentado de novo`);
+  } else if (result.ok && before?.ok === false) {
+    await logSpy("hub", "ok", `Envio ao hub voltou a funcionar · ${result.sent} ${result.sent === 1 ? "registro enviado" : "registros enviados"}`);
+  }
+}
+
 function spyQueuePending(queue) {
   return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings"]
     .some((kind) => Object.keys(queue?.[kind] || {}).length));
@@ -706,7 +736,7 @@ async function scheduleSpy() {
 
     if (!isConfigured || !dailyOn) {
       await chrome.alarms.clear("fbw-spy-tick");
-      serializeIg(() => closeIgBatch()).catch(() => {});
+      serializeIg(() => closeIgBatch({ why: !isConfigured ? "acervo não configurado" : "medição desligada em Opções" })).catch(() => {});
       return;
     }
 
@@ -889,6 +919,7 @@ async function flushSpy({ attempt = 0 } = {}) {
       }
     });
 
+    await recordHubResult({ ok: true, sent: records.length });
     scheduleSpy().catch(() => {});
     return {
       ok: !rejected.length,
@@ -897,6 +928,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     };
   } catch (err) {
     const status = err?.status || 0;
+    await recordHubResult({ ok: false, status, error: String(err?.message || err) }).catch(() => {});
     if (isRetryable(status) && attempt < 4) {
       scheduleFlushSpy(backoffDelay(attempt), attempt + 1);
     } else if (!isRetryable(status)) {
@@ -928,7 +960,7 @@ function recordAttempt(state, profileId, success, now = Date.now()) {
 async function blockPlatform(platform, errorCode, profileId, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();
-  const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY]);
+  const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY, SPY_KEY]);
   let state = r[SPY_STATE_KEY] || emptySpyState(now);
   let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
 
@@ -938,8 +970,10 @@ async function blockPlatform(platform, errorCode, profileId, reading = null) {
       ...(state.blocked || {}),
       [platform]: now + 12 * 3600 * 1000,
     },
+    blockedReason: { ...(state.blockedReason || {}), [platform]: errorCode },
     lastError: errorCode,
   };
+  await logSpy(platform, "error", `${profileId ? `${nameOf(r[SPY_KEY], profileId)}: ` : ""}${errorText(errorCode)} · coleta pausada até ${clockText(now + 12 * 3600 * 1000)}`);
 
   if (profileId) {
     queue = queueError(queue, profileId, errorCode, now);
@@ -958,9 +992,10 @@ async function blockPlatform(platform, errorCode, profileId, reading = null) {
 async function recordProfileError(profileId, errorCode, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();
-  const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_STATE_KEY]);
+  const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_STATE_KEY, SPY_KEY]);
   let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
   let state = r[SPY_STATE_KEY] || emptySpyState(now);
+  await logSpy(platformOf(profileId), "warn", `${nameOf(r[SPY_KEY], profileId)}: ${errorText(errorCode)}`);
 
   queue = queueError(queue, profileId, errorCode, now);
   if (reading) queue = queueReading(queue, { profileId, at: now, ...reading, ok: false, error: errorCode });
@@ -1073,6 +1108,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       at: now,
     };
 
+    let added = 0;
     await mutateSpy(async () => {
       const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY, SPY_STATE_KEY]);
       let queue = r[SPY_QUEUE_KEY] || emptySpyQueue();
@@ -1085,7 +1121,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       }
       // Newest reels: the hub keeps each once and counts them as the posts.
       const known = new Set(spy.profiles?.[profile.id]?.reels?.recent || profile.reels?.recent || []);
-      const added = reels.reels.filter((reel) => !known.has(reel.id)).length;
+      added = reels.reels.filter((reel) => !known.has(reel.id)).length;
       queue = queueReels(queue, profile.id, reels.reels);
       queue = queueReading(queue, { profileId: profile.id, at: now, ...followersReading, ok: true, followers: parsed.followers });
       queue = queueReading(queue, { profileId: profile.id, at: now, kind: "reels", source: readingSource, ok: true,
@@ -1121,6 +1157,9 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
 
     });
 
+    await logSpy("facebook", "ok", `${parsed.name || profileName(profile)}: ${countText(parsed.followers)} seguidores`
+      + `${added ? ` · ${added} ${added === 1 ? "reel novo" : "reels novos"}` : ""}`
+      + (force ? " · Medir agora" : source === "visit" ? " · lido pela sua visita" : " · passada diária"));
     scheduleFlushSpy();
     return { ok: true, snapshot };
   } catch (err) {
@@ -1171,7 +1210,8 @@ function armIgStep(at) {
     serializeIg(advanceIgBatch).catch(() => {});
   }, Math.max(0, at - Date.now()));
 }
-async function closeIgBatch({ abandoned = false } = {}) {
+// why: shown in the activity log when the batch stops before reading everyone.
+async function closeIgBatch({ abandoned = false, why = null } = {}) {
   clearTimeout(igStepTimer);
   igStepTimer = null;
   const batch = await mutateSpy(async () => {
@@ -1193,6 +1233,12 @@ async function closeIgBatch({ abandoned = false } = {}) {
     return batch;
   });
   if (!batch) return;
+  const total = Math.max(batch.total || 0, batch.pending.length);
+  const done = total - batch.pending.length;
+  const failed = Math.min(batch.failed || 0, done);
+  const read = `${done} de ${total} perfis (${done - failed} ${done - failed === 1 ? "lido" : "lidos"}${failed ? `, ${failed} com falha` : ""})`;
+  if (!batch.pending.length) await logSpy("instagram", failed ? "warn" : "ok", `Lote concluído · ${read} · aba fechada`);
+  else await logSpy("instagram", "warn", `Lote encerrado · ${read} — ${why || (abandoned ? "passou de 15 min" : "interrompido")}`);
   if (batch.own) {
     try {
       const tab = await chrome.tabs.get(batch.tabId);
@@ -1211,7 +1257,11 @@ async function advanceIgBatch({ manual = false } = {}) {
   const profiles = r[SPY_KEY]?.profiles || {};
   let batch = state.igBatch;
   if (!isSyncConfigured(settings) || r[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram", now)) {
-    await closeIgBatch();
+    if (manual && isBlocked(state, "instagram", now)) {
+      await logSpy("instagram", "warn", `Medir agora não abriu o Instagram: em pausa até ${clockText(state.blocked.instagram)} (${errorText(state.blockedReason?.instagram || "rate_limited")})`);
+    }
+    await closeIgBatch({ why: isBlocked(state, "instagram", now) ? "Instagram em pausa"
+      : !isSyncConfigured(settings) ? "acervo não configurado" : "medição desligada em Opções" });
     return;
   }
   if (batch && (now - batch.startedAt >= 900000 || dayKey(batch.startedAt) !== dayKey(now))) {
@@ -1224,7 +1274,11 @@ async function advanceIgBatch({ manual = false } = {}) {
     const extra = Object.values(profiles)
       .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened))
       .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0)).map((p) => p.key);
-    batch = { ...widened, pending: [...batch.pending, ...extra] };
+    batch = { ...widened, pending: [...batch.pending, ...extra],
+      total: Math.max(batch.total || 0, batch.pending.length) + extra.length };
+    await logSpy("instagram", "info", extra.length
+      ? `Lote em andamento ampliado: +${extra.length} ${extra.length === 1 ? "perfil" : "perfis"} (${extra.map((k) => `@${k}`).join(", ")})`
+      : "Lote já em andamento com todos os perfis");
     await mutateSpy(async () => {
       const latest = await chrome.storage.local.get(SPY_STATE_KEY);
       state = { ...(latest[SPY_STATE_KEY] || state), igBatch: batch };
@@ -1241,11 +1295,19 @@ async function advanceIgBatch({ manual = false } = {}) {
       .filter((p) => p.platform === "instagram")
       .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0))
       .slice(0, Math.max(0, remaining)).map((p) => p.key);
-    if (!pending.length) return;
+    if (!pending.length) {
+      if (manual && remaining <= 0) {
+        await logSpy("instagram", "warn", `Limite de ${IG_SPY_LIMIT} leituras do Instagram hoje já atingido · Medir agora volta amanhã`);
+      }
+      return;
+    }
+    const cut = candidates.filter((p) => p.platform === "instagram").length - pending.length;
+    await logSpy("instagram", "info", `Lote ${manual ? "manual" : "diário"} com ${pending.length} ${pending.length === 1 ? "perfil" : "perfis"}`
+      + `${manual && cut > 0 ? ` (${cut} ficam para amanhã: limite de ${IG_SPY_LIMIT} por dia)` : ""} · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s`);
     const tab = await chrome.tabs.create({ url: "https://www.instagram.com/" + IG_SPY_MARKER, active: false });
     igOwnedTab = tab.id;
     igStopReason = null;
-    batch = { tabId: tab.id, own: true, startedAt: now, pending, current: null, nextAt: now,
+    batch = { tabId: tab.id, own: true, startedAt: now, pending, total: pending.length, current: null, nextAt: now,
       ...(manual ? { manualAt: now } : {}) };
     await mutateSpy(async () => {
       const latest = await chrome.storage.local.get(SPY_STATE_KEY);
@@ -1267,26 +1329,36 @@ async function advanceIgBatch({ manual = false } = {}) {
       await closeIgBatch();
       return;
     }
-    if (!ready) { await closeIgBatch({ abandoned: true }); return; }
+    if (!ready) {
+      await closeIgBatch({ abandoned: true, why: "a aba do Instagram não respondeu em 20 s; abra o Instagram neste Chrome e confira se está logado" });
+      return;
+    }
   }
   if (!batch.own) { await closeIgBatch(); return; }
   igOwnedTab = batch.tabId;
   if (batch.nextAt > Date.now()) { armIgStep(batch.nextAt); return; }
   try {
     const tab = await chrome.tabs.get(batch.tabId);
-    if (!tab?.url?.endsWith(IG_SPY_MARKER)) { await closeIgBatch(); return; }
-  } catch { await closeIgBatch(); return; }
+    if (!tab?.url?.endsWith(IG_SPY_MARKER)) { await closeIgBatch({ why: "a aba do lote foi usada para outra coisa" }); return; }
+  } catch { await closeIgBatch({ why: "a aba do lote foi fechada" }); return; }
   if (batch.current) {
     await recordProfileError(spyId("instagram", batch.current), "parse_failed", igReading(batch));
-    batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null };
+    batch = { ...batch, pending: batch.pending.filter((key) => key !== batch.current), current: null, failed: (batch.failed || 0) + 1 };
   }
   const navigate = await mutateSpy(async () => {
     const currentR = await chrome.storage.local.get([SPY_STATE_KEY, SPY_KEY, SPY_PREFS_KEY]);
     state = currentR[SPY_STATE_KEY] || state;
-    if (currentR[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "instagram")) return false;
     const live = currentR[SPY_KEY]?.profiles || {};
     batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch));
-    if (!batch.pending.length || igDailyCount(state) >= IG_SPY_LIMIT) return false;
+    const stop = currentR[SPY_PREFS_KEY]?.daily === false ? "medição desligada em Opções"
+      : isBlocked(state, "instagram") ? "Instagram em pausa"
+      : !batch.pending.length ? "nada mais a ler"
+      : igDailyCount(state) >= IG_SPY_LIMIT ? `limite de ${IG_SPY_LIMIT} leituras por dia atingido` : null;
+    if (stop) {
+      // closeIgBatch reads the batch back: keep the progress made in this step.
+      await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: batch } });
+      return stop;
+    }
     const key = batch.pending[0];
     const at = Date.now();
     batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
@@ -1298,9 +1370,9 @@ async function advanceIgBatch({ manual = false } = {}) {
       measuring: { id: spyId("instagram", key), platform: "instagram", key, at },
     };
     await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
-    return true;
+    return null;
   });
-  if (!navigate) { await closeIgBatch(); return; }
+  if (navigate) { await closeIgBatch({ why: navigate }); return; }
   if (igStopReason) {
     await blockPlatform("instagram", igStopReason, batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
     await closeIgBatch();
@@ -1308,6 +1380,8 @@ async function advanceIgBatch({ manual = false } = {}) {
   }
   try {
     await chrome.tabs.update(batch.tabId, { url: profileUrl("instagram", batch.current) + IG_SPY_MARKER });
+    const total = Math.max(batch.total || 0, batch.pending.length);
+    await logSpy("instagram", "info", `Abrindo @${batch.current} (${total - batch.pending.length + 1} de ${total})`);
     armIgStep(batch.nextAt);
   } catch {
     await recordProfileError(spyId("instagram", batch.current), "network", igReading(batch));
@@ -1373,6 +1447,8 @@ async function observeIgProfile(msg, sender) {
     return true;
   });
   if (!recorded) return { ok: false, error: "unknown" };
+  await logSpy("instagram", "ok", `@${key}: ${countText(parsed.followers)} seguidores · ${daily
+    ? (batch?.manualAt ? "Medir agora" : "passada diária") : "lido pela sua visita ao perfil"}`);
   if (daily) {
     if (!state.igBatch?.pending.length) await closeIgBatch();
     else armIgStep(state.igBatch.nextAt);
@@ -1444,6 +1520,8 @@ async function startReelsJob() {
     }
     await chrome.storage.local.set({ ...writes, [SPY_QUEUE_KEY]: queue });
   });
+  await logSpy("facebook", "info", `Reels de ${profileName(profile)}: ${mode === "catchup" ? "buscando os novos desde a última leitura" : "leitura completa"}`
+    + " numa aba em segundo plano, 1 página a cada 20–40 s");
   armReelsStep(job.nextAt);
   return job;
 }
@@ -1477,6 +1555,11 @@ async function finishReelsJob(job, { error = null, done = false, logged = false 
     if (error) reelsRetryAt[job.profileId] = now + SPY_RETRY_MS;
     state = { ...state, reelsJob: null, reelsProgress, reelsCatchup, reelsRetryAt };
     await chrome.storage.local.set({ [SPY_STATE_KEY]: state, [SPY_QUEUE_KEY]: queue, ...(spyNext ? { [SPY_KEY]: spyNext } : {}) });
+    if (!active || active.removedAt != null) return;
+    const what = `Reels de ${profileName(active)}: +${job.added} em ${job.pages} ${job.pages === 1 ? "página" : "páginas"}`;
+    if (error) await logSpy("facebook", "warn", `${what} · parou: ${errorText(error)} · tenta de novo em 6 h`);
+    else if (done) await logSpy("facebook", "ok", `${what} · ${job.mode === "initial" ? "leitura completa concluída" : "em dia"}`);
+    else await logSpy("facebook", "info", `${what} · pausado, continua na próxima passada`);
   });
   try {
     const tab = await chrome.tabs.get(job.tabId);
@@ -1618,7 +1701,11 @@ async function spyTick({ manual = false } = {}) {
 
   try {
     const settings = await readSyncSettings();
-    if (!isSyncConfigured(settings)) return { ok: false, error: "acervo não configurado" };
+    if (manual) await logSpy(null, "info", "Medir agora: pedido recebido");
+    if (!isSyncConfigured(settings)) {
+      if (manual) await logSpy(null, "error", "Acervo não configurado · configure o hub em Opções");
+      return { ok: false, error: "acervo não configurado" };
+    }
 
     const now = Date.now();
     const today = dayKey(now);
@@ -1640,7 +1727,8 @@ async function spyTick({ manual = false } = {}) {
 
     const prefs = await chrome.storage.local.get(SPY_PREFS_KEY);
     if (prefs[SPY_PREFS_KEY]?.daily === false) {
-      await serializeIg(() => closeIgBatch());
+      if (manual) await logSpy(null, "warn", "Medição desligada em Opções · ligue \"Atualizar perfis salvos uma vez por dia\" para medir");
+      await serializeIg(() => closeIgBatch({ why: "medição desligada em Opções" }));
       return { ok: true, skipped: "disabled" };
     }
 
@@ -1677,6 +1765,11 @@ async function spyTick({ manual = false } = {}) {
       const ids = manual && !fbBlocked ? Object.values(spy.profiles || {})
         .filter((p) => p && p.platform === "facebook" && p.removedAt == null).map((p) => p.id) : [];
       state = await setFbManual(ids);
+      if (manual && fbBlocked) {
+        await logSpy("facebook", "warn", `Medir agora não mede o Facebook: em pausa até ${clockText(state.blocked.facebook)} (${errorText(state.blockedReason?.facebook || "rate_limited")})`);
+      } else if (manual && ids.length) {
+        await logSpy("facebook", "info", `${ids.length} ${ids.length === 1 ? "perfil" : "perfis"} na fila · 1 por minuto`);
+      }
     }
     if (!fbBlocked) {
       const manualId = state.fbManual?.[0];

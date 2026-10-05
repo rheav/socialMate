@@ -1,10 +1,24 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
+import { Activity, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
-import { dayKey } from "@/lib/spyStore";
-import { ago, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
+import { IG_SPY_LIMIT, dayKey } from "@/lib/spyStore";
+import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
+import { clockText } from "@/lib/spyActivity";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
 import { PLATFORMS } from "@/lib/platforms";
+
+const TONE = {
+  ok: "text-good",
+  warn: "text-amber-600 dark:text-amber-400",
+  error: "text-destructive",
+  info: "text-muted-foreground",
+};
+function SourceIcon({ platform }) {
+  const Glyph = PLATFORMS[platform]?.Glyph;
+  if (Glyph) return <Glyph className="size-3 shrink-0" aria-label={PLATFORMS[platform].name} />;
+  if (platform === "hub") return <CloudUpload className="size-3 shrink-0" aria-label="Hub" />;
+  return <Activity className="size-3 shrink-0" aria-hidden="true" />;
+}
 
 const buttonClass = "sw-hoverable rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50";
 function RemoveButton({ id, remove, disabled = false }) {
@@ -27,15 +41,17 @@ function RemoveButton({ id, remove, disabled = false }) {
 }
 
 export default function SpyTool({ activeUrl = "" }) {
-  const { profiles, state, queue, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
+  const { profiles, state, queue, activity, hub, nextTickAt, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(Date.now);
+  const live = activityNow(state, profiles, { now, nextTickAt });
+  // Countdowns tick every second while something runs.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60000);
+    const timer = setInterval(() => setNow(Date.now()), live.busy ? 1000 : 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [live.busy]);
   const active = parseProfileUrl(activeUrl);
   const activeId = active ? spyId(active.platform, active.key) : null;
   const saved = profiles.find((p) => p.id === activeId);
@@ -49,6 +65,9 @@ export default function SpyTool({ activeUrl = "" }) {
   const removeProfile = (id) => run(id, () => remove(id));
   const measureOne = (id) => run(id, () => measureProfile(id));
   const measured = profiles.filter((p) => p.lastMeasuredAt != null && dayKey(p.lastMeasuredAt) === dayKey(now)).length;
+  const igReads = state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
+  const sync = syncStatus(queue, state, hub, now);
+  const passRunning = !!(state.igBatch || state.fbManual?.length);
 
   return (
     <div className="space-y-4">
@@ -68,6 +87,45 @@ export default function SpyTool({ activeUrl = "" }) {
       </section>
 
       {(error || (configured && loadError)) && <p role="alert" className="text-xs text-destructive">{error || loadError}</p>}
+      {configured && profiles.length > 0 && <section className="rounded-xl border border-border bg-card p-3 space-y-2.5" aria-label="Medição">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Medição</h2>
+          <button
+            type="button"
+            disabled={runningPass || passRunning}
+            className={buttonClass}
+            onClick={async () => {
+              setRunningPass(true); setError(null);
+              try {
+                await runPass();
+              } catch {
+                setError("Não consegui iniciar a medição. Veja o histórico abaixo.");
+              } finally {
+                setRunningPass(false);
+              }
+            }}
+            title={passRunning ? "Já há uma medição em andamento" : "Medir todos os perfis agora"}
+          >
+            {runningPass ? "iniciando…" : passRunning ? "medindo…" : "Medir agora"}
+          </button>
+        </div>
+        <ul className="space-y-1.5 text-[11px] leading-relaxed" aria-live="polite">
+          {live.lines.map((line, i) => (
+            <li key={`${line.platform}-${i}`} className={`flex gap-1.5 ${line.spinning ? "font-medium text-primary" : TONE[line.tone]}`}>
+              <span className="mt-[3px]">{line.spinning ? <Loader2 className="size-3 animate-spin shrink-0" /> : <SourceIcon platform={line.platform} />}</span>
+              <span className="min-w-0">
+                {line.text}
+                {line.detail && <span className="block text-muted-foreground font-normal">{line.detail}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="space-y-0.5 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p>Hoje: {measured} de {profiles.length} medidos · Instagram: {igReads} de {IG_SPY_LIMIT} leituras do dia</p>
+          <p className={TONE[sync.tone]}>Hub: {sync.text}</p>
+          {state.lastError === "hub_sem_spy" && <p className={TONE.warn}>Atualize o acervo para usar a área spy.</p>}
+        </div>
+      </section>}
       <section aria-label="Perfis salvos" className="space-y-2">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfis salvos</h2>
         {!ready ? <p className="text-xs text-muted-foreground">Carregando perfis…</p> : !profiles.length ?
@@ -120,55 +178,21 @@ export default function SpyTool({ activeUrl = "" }) {
             })}
           </ul>}
       </section>
-      <footer className="space-y-2 text-[11px] leading-relaxed text-muted-foreground" aria-live="polite">
-        {!configured ? <p>Configure o acervo em Opções para usar a área spy.</p> : <>
-          {state.measuring ? (
-            <p className="text-primary font-medium flex items-center gap-1.5 py-1">
-              <Loader2 className="size-3.5 animate-spin shrink-0" />
-              Medindo {(() => {
-                const activeP = profiles.find((p) => p.id === state.measuring.id);
-                const isNum = /^\d+$/.test(state.measuring.key);
-                return activeP?.name || (isNum ? `perfil ${state.measuring.key}` : `@${state.measuring.key}`);
-              })()} ({PLATFORMS[state.measuring.platform]?.name || state.measuring.platform})…
-            </p>
-          ) : (
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <p>
-                  {state.lastPassAt ? `Última passada ${ago(state.lastPassAt, now)}` : "Aguardando primeira passada"} · {measured} de {profiles.length} medidos
-                </p>
-                {(() => {
-                  const sync = syncStatus(queue, state);
-                  return <p className={state.lastError === "limit_reached" ? "text-amber-600 dark:text-amber-400" : undefined}>{sync.text}</p>;
-                })()}
-              </div>
-              {profiles.length > 0 && (
-                <button
-                  type="button"
-                  disabled={runningPass || busy != null || !!state.measuring}
-                  className={buttonClass}
-                  onClick={async () => {
-                    setRunningPass(true);
-                    try {
-                      await runPass();
-                    } catch {
-                      setError("Não consegui iniciar a medição.");
-                    } finally {
-                      setRunningPass(false);
-                    }
-                  }}
-                  title="Executar medição agora"
-                >
-                  {runningPass ? "iniciando…" : "Medir agora"}
-                </button>
-              )}
-            </div>
-          )}
-          {["instagram", "facebook"].map((platform) => state.blocked?.[platform] > now &&
-            <p key={platform} className="text-amber-600 dark:text-amber-400">{PLATFORMS[platform].name} em pausa até {new Date(state.blocked[platform]).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — {state.lastError === "login_required" ? "a extensão não está logada nessa rede." : "a rede limitou as consultas."}</p>)}
-          {state.lastError === "hub_sem_spy" && <p>Atualize o acervo para usar a área spy.</p>}
-        </>}
-      </footer>
+      {!configured ? <p className="text-[11px] text-muted-foreground">Configure o acervo em Opções para usar a área spy.</p>
+        : activity.length > 0 && <section aria-label="Histórico" className="space-y-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Histórico</h2>
+          <ol className="max-h-64 overflow-y-auto divide-y divide-border rounded-xl border border-border bg-card text-[11px] leading-relaxed">
+            {[...activity].reverse().map((entry, i) => (
+              <li key={`${entry.at}-${i}`} className={`flex gap-1.5 px-3 py-1.5 ${TONE[entry.tone] || TONE.info}`}>
+                <time className="shrink-0 tabular-nums text-muted-foreground" dateTime={new Date(entry.at).toISOString()}>
+                  {dayKey(entry.at) === dayKey(now) ? clockText(entry.at, true) : `${new Date(entry.at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${clockText(entry.at)}`}
+                </time>
+                <span className="mt-[3px]"><SourceIcon platform={entry.platform} /></span>
+                <span className="min-w-0 break-words">{entry.text}</span>
+              </li>
+            ))}
+          </ol>
+        </section>}
     </div>
   );
 }
