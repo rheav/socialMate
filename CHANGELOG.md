@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.6.1] — 2026-10-05
+
+### Corrigido
+- **"Medir agora" no Instagram:** o botão seguia as regras da passada diária e ignorava perfis já medidos hoje ou em intervalo de nova tentativa — depois da passada diária, clicar não fazia nada. Agora abre (ou amplia) o lote com todos os perfis salvos; a leitura entra como manual. Pausas da plataforma e o limite de 20 por dia continuam valendo.
+- **"Medir agora" no Facebook:** media só um perfil por clique; agora enfileira todos e mede um por minuto.
+- **Tick da área spy adiado sem fim:** cada captura recriava o alarme de 1 minuto, então nenhum tick disparava durante um lote do Instagram.
+
+---
+
 ## [1.6.0] — 2026-10-03
 
 ### Adicionado
