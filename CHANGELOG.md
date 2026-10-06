@@ -16,6 +16,21 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.11.0] — 2026-10-05
+
+### Adicionado
+- **Top 3 da semana:** a extensão envia ao hub visualizações, curtidas e comentários dos posts e reels de cada perfil, e miniaturas dos 3 mais vistos da semana (hub 0.11.0). No Instagram as visualizações vêm da aba Reels do perfil: depois do grid, a leitura clica na aba Reels do próprio perfil (uma navegação dentro da página, como um clique de usuário).
+- **Semana sempre completa:** toda leitura do Instagram cobre os últimos 7 dias (15 na primeira), qualquer que seja o número de posts. No Facebook, quando a leitura diária não alcança 7 dias, os reels são paginados no mesmo dia para atualizar as visualizações da semana.
+- **Painel lateral:** a lista de perfis salvos mostra 5 perfis com um esmaecido e "Mostrar todos", que abre o resto com animação.
+
+### Corrigido
+- O pedido de leitura da semana podia ir para a página anterior da aba do lote e se perder; agora só vai para a página do perfil, com novas tentativas até a página responder.
+- Em aba oculta as esperas da leitura levavam até 5× mais; agora reagem às mudanças da página.
+- Números novos de um post que ainda esperava envio se perdiam.
+- Mensagens do histórico da leitura da semana em linguagem simples.
+
+---
+
 ## [1.10.0] — 2026-10-05
 
 ### Corrigido
