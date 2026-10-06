@@ -82,6 +82,11 @@
       // Who pinned it to the top of their grid: pinned posts carry old dates and
       // say nothing about the days in between (Spy posts per day).
       pinned_by: Array.isArray(m.timeline_pinned_user_ids) ? m.timeline_pinned_user_ids.map(String) : null,
+      // A collab lists every co-author; it counts in each one's posts per day.
+      coauthors: Array.isArray(m.coauthor_producers)
+        ? m.coauthor_producers.map((c) => ({ id: c && c.pk != null ? String(c.pk) : (c && c.id != null ? String(c.id) : null),
+          username: (c && c.username) || null }))
+        : null,
       repost: m.media_repost_count != null ? m.media_repost_count : null,
       // Who posted it, so the creator stats collected below can be joined on.
       userid: u.pk != null ? String(u.pk) : (u.id != null ? String(u.id) : null),
@@ -974,8 +979,21 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // because which one carries a given query changes between releases.
   const xhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
   XMLHttpRequest.prototype.setRequestHeader = function (n, v) {
-    try { captureAppId(n, v); } catch (_) {}
+    try {
+      captureAppId(n, v);
+      (this.__fbwHeaders || (this.__fbwHeaders = {}))[n] = v;
+    } catch (_) {}
     return xhrSetHeader.apply(this, arguments);
+  };
+  const xhrOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    try { this.__fbwUrl = String(url || ""); } catch (_) {}
+    return xhrOpen.apply(this, arguments);
+  };
+  const xhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (body) {
+    try { noteGridRequest(this.__fbwUrl, body, this.__fbwHeaders); } catch (_) {}
+    return xhrSend.apply(this, arguments);
   };
   const origFetch = window.fetch;
   if (typeof origFetch === "function") {
@@ -986,9 +1004,88 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
           if (typeof h.get === "function") captureAppId(IG_APP_ID_HEADER, h.get(IG_APP_ID_HEADER));
           else for (const k in h) captureAppId(k, h[k]);
         }
+        const url = typeof input === "string" ? input : (input && input.url) || "";
+        let headers = null;
+        if (h && typeof h.forEach === "function") { headers = {}; h.forEach((v, k) => { headers[k] = v; }); }
+        else if (h) headers = { ...h };
+        noteGridRequest(url, init && init.body, headers);
       } catch (_) {}
       return origFetch.apply(this, arguments);
     };
+  }
+
+  // ---- Spy: the first reading of a profile reads more of its grid ----
+  // A hidden tab never scrolls, so Instagram stops at the grid's first page (12
+  // posts; measured 2026-10-05). On request, read the next pages ourselves: the
+  // query the page itself sent (its tokens and provided variables), the cursor
+  // from its answer, and the pagination doc_id from the page's own module (the
+  // first query's doc_id also answers with an `after` cursor — measured — and is
+  // the fallback). Each answer goes through JSON.parse like any other, so its
+  // posts are captured on the normal path. Bounded: a few pages, a pause
+  // between them, and it stops at the oldest day wanted.
+  const GRID_PAGE_QUERY = "PolarisProfilePostsTabContentQuery_connection";
+  let gridRequest = null; // { username, body, headers }
+  let gridPage = null; // { cursor, hasNext, oldest }
+  let deepRunning = false;
+  function noteGridRequest(url, body, headers) {
+    if (typeof body !== "string" || String(url).indexOf("/graphql/query") === -1) return;
+    if (body.indexOf("PolarisProfilePosts") === -1) return;
+    const form = new URLSearchParams(body);
+    const username = JSON.parse(form.get("variables") || "{}").username;
+    if (username) gridRequest = { username: String(username).toLowerCase(), body, headers: headers || {} };
+  }
+  function noteGridPage(root) {
+    const conn = root && root.data && root.data.xdt_api__v1__feed__user_timeline_graphql_connection;
+    if (!conn || !conn.page_info) return;
+    let oldest = null;
+    for (const edge of conn.edges || []) {
+      const t = edge && edge.node && edge.node.taken_at;
+      if (typeof t === "number" && !(edge.node.timeline_pinned_user_ids || []).length) oldest = oldest == null ? t : Math.min(oldest, t);
+    }
+    gridPage = { cursor: conn.page_info.end_cursor || null, hasNext: !!conn.page_info.has_next_page, oldest };
+  }
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  async function readMoreGrid({ username, maxPages, untilSec }) {
+    const handle = String(username || "").toLowerCase();
+    const finish = (result) => window.postMessage({ __fbwIgDeepDone: { username: handle, ...result } }, location.origin);
+    if (deepRunning) return finish({ ok: false, pages: 0, error: "busy" });
+    deepRunning = true;
+    let pages = 0;
+    try {
+      // The page sends its own first query a moment after load.
+      for (let i = 0; i < 20 && !(gridRequest && gridPage); i++) await pause(500);
+      if (!gridRequest || gridRequest.username !== handle || !gridPage) return finish({ ok: false, pages, error: "no_grid" });
+      const first = new URLSearchParams(gridRequest.body);
+      const vars = JSON.parse(first.get("variables") || "{}");
+      const provided = {};
+      for (const k in vars) if (k.indexOf("__relay_internal__") === 0) provided[k] = vars[k];
+      let docId = null;
+      try { docId = window.require(GRID_PAGE_QUERY + ".graphql").params.id; } catch (_) {}
+      if (!docId) docId = first.get("doc_id");
+      const headers = {};
+      for (const k in gridRequest.headers) if (k.toLowerCase() !== "x-fb-friendly-name") headers[k] = gridRequest.headers[k];
+      headers["X-FB-Friendly-Name"] = GRID_PAGE_QUERY;
+      while (pages < (maxPages || 0) && gridPage.hasNext && gridPage.cursor &&
+             !(untilSec && gridPage.oldest != null && gridPage.oldest <= untilSec)) {
+        await pause(2500 + Math.floor(Math.random() * 2500));
+        const form = new URLSearchParams(gridRequest.body);
+        form.set("doc_id", docId);
+        form.set("fb_api_req_friendly_name", GRID_PAGE_QUERY);
+        form.set("variables", JSON.stringify({ after: gridPage.cursor, before: null, data: vars.data, first: 12,
+          include_multi_captions: true, last: null, username: vars.username, ...provided }));
+        const r = await origFetch("/graphql/query", { method: "POST", credentials: "include", headers, body: form.toString() });
+        if (!r.ok) return finish({ ok: false, pages, error: r.status === 429 ? "rate_limited" : "http_" + r.status });
+        const cursor = gridPage.cursor;
+        JSON.parse(await r.text()); // the hook below captures the posts and moves gridPage
+        pages += 1;
+        if (gridPage.cursor === cursor) return finish({ ok: false, pages, error: "no_page" });
+      }
+      return finish({ ok: true, pages, done: !gridPage.hasNext });
+    } catch (_) {
+      return finish({ ok: false, pages, error: "failed" });
+    } finally {
+      deepRunning = false;
+    }
   }
 
   function queueEnrichment(rec) {
@@ -1101,6 +1198,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       // Creator stats travel in payloads with no media in them at all (a profile
       // header, a suggested-users rail), so they get their own sniff.
       if (mediaish || (txt && txt.indexOf("follower_count") > -1)) scanUsers(out);
+      if (txt && txt.indexOf("user_timeline_graphql_connection") > -1) { try { noteGridPage(out); } catch (_) {} }
       if (txt && (txt.indexOf("expiring_at") > -1 || txt.indexOf("reel_type") > -1)) scanReels(out);
       if (txt && txt.indexOf(COMMENT_ROOT) > -1) scanComments(out);
     }
@@ -1211,6 +1309,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // The isolated bridge attaches its listener at document_idle — long after we start
   // capturing. It asks us to replay everything we've buffered (media + reels).
   window.addEventListener("message", (e) => {
+    if (e.source === window && e.data && e.data.__fbwIgDeep) { readMoreGrid(e.data.__fbwIgDeep); return; }
     if (e.source === window && e.data && e.data.__fbwIgReq)
       send([...new Set(all.values()), ...reelAll.values(), ...allIgCom.values(),
         ...Array.from(users.values(), (user) => ({ __kind: "user", ...user }))]);

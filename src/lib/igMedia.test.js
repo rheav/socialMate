@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sortComparator, sortRecords, recordToCard,
-  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate, fmtDate, fmtER, dateFromPk,
+  sanitizeFilenamePart, filenameFor, extFromUrl, fmtCount, filterBySurface, engagementRate, fmtDate, fmtER, dateFromPk, pkSeconds,
 } from "./igMedia.js";
 
 const recs = [
@@ -96,7 +96,9 @@ describe("engagementRate", () => {
 
 describe("fmtDate", () => {
   it("formats unix seconds to YYYY-MM-DD", () => {
-    expect(fmtDate(1704067200)).toBe("2024-01-01");
+    // The viewer's day, whatever zone the tests run in.
+    expect(fmtDate(new Date(2024, 0, 1, 0, 30).getTime() / 1000)).toBe("2024-01-01");
+    expect(fmtDate(new Date(2024, 0, 1, 23, 56).getTime() / 1000)).toBe("2024-01-01");
     expect(fmtDate(null)).toBe("");
     expect(fmtDate(0)).toBe("");
   });
@@ -104,8 +106,11 @@ describe("fmtDate", () => {
 
 describe("dateFromPk", () => {
   it("decodes the creation date from an IG media id", () => {
-    expect(dateFromPk("3930984963814834483")).toBe("2026-06-30");
-    expect(dateFromPk("3930984963814834483_1234")).toBe("2026-06-30");
+    // Minted ~30 s before taken_at (03/10/2026 23:56:43 in São Paulo, measured).
+    expect(pkSeconds("4000212975751592878")).toBe(1791082568);
+    expect(dateFromPk("4000212975751592878")).toBe(fmtDate(1791082568));
+    expect(dateFromPk("4000212975751592878_27092017544")).toBe(fmtDate(1791082568));
+    expect(pkSeconds("abc")).toBeNull();
     expect(dateFromPk("abc")).toBe("");
     expect(dateFromPk(null)).toBe("");
   });

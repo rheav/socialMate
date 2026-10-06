@@ -95,9 +95,16 @@ bridge, `{ usernames }`) asks for passive cache replay after navigation. Path B
 does not use the API-based `FBW_SPY_IG_RESULT` / `FBW_SPY_IG_DONE` loop.
 `FBW_SPY_POSTS` (`{ platform, key, posts: [{ id, createdAt, mediaType, pinned }] }`,
 IG bridge → background) carries the posts of a saved profile's grid (surface
-`profile:<key>`, so a collab counts for each co-author) with their publication
-time, once per document; the background queues them in `fbw_spy_queue.posts` for
-the hub's posts per day.
+`profile:<key>`) that the profile authored or co-authored — the grid page also
+loads the viewer's home feed, other accounts and ads — with their publication
+time (`taken_at`, else the time minted in the media id), once per document; the
+background queues them in `fbw_spy_queue.posts` for the hub's posts per day.
+First reading: for a profile not yet in `fbw_spy_state.igSeeded`, the batch sends
+`FBW_SPY_IG_BATCH` with `deep: { maxPages, untilSec }`; the MAIN world replays
+the grid query the page sent (its tokens, the cursor of its answer and the
+pagination doc_id from the page's own module) for up to 4 more pages back to 15
+days, and the bridge reports `FBW_SPY_IG_DEEP_DONE` (`{ key, ok, pages, done |
+error }`) after sending their posts. The batch holds the tab until then.
 
 Instagram path B persists `igBatch` with `current` and `nextAt` alongside the
 pending usernames, tab ownership and start time. It navigates an inactive owned
@@ -165,7 +172,7 @@ still handled in `content.js` despite being listed as removed.)
 | `fbw_sync_state` | background `flushSync` | `{ running, lastOkAt, lastSent, error, errorAt, pending }`, read by Opções and the header's connection dot |
 | `fbw_spy` | background | `{ profiles: { [id]: profile }, fetchedAt }` — hub profile-list cache; local `name`, `lastObservedAt`, `avatarUpdatedAt` support display and throttling |
 | `fbw_spy_queue` | background | `{ ops: [], profiles: {}, snapshots: {}, errors: {}, reels: {}, reelsStatus: {}, readings: {}, posts: {} }` — persistent hub upload queue |
-| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, blockedReason: {}, igDaily: { day, count }, igBatch, fbManual, reelsJob, lastPassAt, lastError }` — persisted daily budget, navigation and pauses. `igBatch.manualAt` marks a batch started or widened by "Medir agora" (re-reads profiles already measured today); `fbManual` is the Facebook profiles that click queued, one per tick |
+| `fbw_spy_state` | background | `{ day, attempts: {}, blocked: {}, blockedReason: {}, igDaily: { day, count }, igBatch, igSeeded: {}, fbManual, reelsJob, lastPassAt, lastError }` — persisted daily budget, navigation and pauses. `igBatch.manualAt` marks a batch started or widened by "Medir agora" (re-reads profiles already measured today); `fbManual` is the Facebook profiles that click queued, one per tick |
 | `fbw_spy_activity` | background | `[{ at, platform, tone, text }]`, newest last, capped at 40 — the Spy panel's history: every step of a pass and why it stopped (`lib/spyActivity.js`) |
 | `fbw_spy_hub` | background | `{ ok, at, sent?, status?, error? }` — result of the last upload to the hub, shown in the Spy panel |
 | `fbw_spy_prefs` | Opções modal | `{ daily: true, igLimit? }` — daily measurement switch, independent of archive automatic upload; `igLimit` is the Instagram readings per day (1–60, default 20, `igLimit()` in `lib/spyStore.js`), for the daily pass and "Medir agora" alike. Off stops only the automatic pass: "Medir agora" and the work it queued (`fbManual`, a batch with `manualAt`) still run |

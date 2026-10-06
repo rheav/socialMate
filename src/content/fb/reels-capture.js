@@ -783,11 +783,14 @@ function fbReelJob(rec, action, language = 'en') {
 // two implementations, and only one of them was tested — exactly the drift this
 // directory exists to stop. (Count formatting is next door, in counts.js.)
 
-/** Unix SECONDS → "YYYY-MM-DD" (empty string when missing/invalid). */
+/** Unix SECONDS → "YYYY-MM-DD" in the viewer's time zone (empty string when
+ *  missing/invalid). Local, like the hub's posts per day: a post at 23:56 in São
+ *  Paulo is that day, not the next one in UTC. */
 function fmtDate(unixSeconds) {
   if (!unixSeconds) return "";
   const d = new Date(unixSeconds * 1000);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Engagement-rate label. Never collapses to "0.0%": 1 decimal ≥10, 2 decimals

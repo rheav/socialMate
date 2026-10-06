@@ -11,6 +11,7 @@ import { sanitizeFilenamePart } from "./shared/filenames.js";
 import {
   engagementRate,
   dateFromPk,
+  pkSeconds,
   extFromUrl,
   baseNameFor,
 } from "./shared/igFormat.js";
@@ -18,7 +19,7 @@ import {
 // TikTok prints the identical strings from the identical code.
 import { fmtDate, fmtER } from "./shared/fmt.js";
 export { fmtCount };
-export { engagementRate, fmtDate, dateFromPk, fmtER, extFromUrl, baseNameFor };
+export { engagementRate, fmtDate, dateFromPk, pkSeconds, fmtER, extFromUrl, baseNameFor };
 
 const METRIC = {
   likes: (r) => r.like_count,

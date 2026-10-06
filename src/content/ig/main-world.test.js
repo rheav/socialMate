@@ -49,7 +49,8 @@ describe("Instagram grid posts for posts per day", () => {
     vm.runInContext(readFileSync(new URL("./main-world.js", import.meta.url), "utf8"), context);
     const node = (code, pk, takenAt, pinned) => ({ code, pk, taken_at: takenAt, media_type: 1,
       image_versions2: { candidates: [{ url: "https://x/i.jpg" }] },
-      timeline_pinned_user_ids: pinned, user: { pk: "123", username: "nasa" } });
+      timeline_pinned_user_ids: pinned, user: { pk: "123", username: "nasa" },
+      coauthor_producers: [{ pk: "123", username: "nasa" }, { pk: "456", username: "partner" }] });
     const payload = { data: { xdt_api__v1__feed__user_timeline_graphql_connection: { edges: [
       { node: node("AAA", "3001", 1791000000, ["123"]) }, { node: node("BBB", "3002", 1791000100, []) }] } } };
     vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify(payload))})`, context);
@@ -57,7 +58,89 @@ describe("Instagram grid posts for posts per day", () => {
     vm.runInContext('relay({source:window,data:{__fbwIgReq:true}})', context);
     const records = delivered.flatMap((m) => m.records || []);
     expect(records).toContainEqual(expect.objectContaining({ code: "AAA", pk: "3001", taken_at: 1791000000,
-      pinned_by: ["123"], __surface: "profile:nasa" }));
+      pinned_by: ["123"], __surface: "profile:nasa", userid: "123",
+      coauthors: [{ id: "123", username: "nasa" }, { id: "456", username: "partner" }] }));
     expect(records).toContainEqual(expect.objectContaining({ code: "BBB", pinned_by: [] }));
+  });
+});
+
+describe("first reading: more grid pages from a hidden tab", () => {
+  // A hidden tab never scrolls the grid, so the MAIN world asks for the next pages
+  // itself with the query the page sent, its cursor and the page's own doc_id.
+  function boot({ requireStub } = {}) {
+    const delivered = [];
+    const handlers = {};
+    const fetches = [];
+    const page = {
+      location: { pathname: "/barbie.the.aries/", search: "", hash: "#socialmate-spy", origin: "https://www.instagram.com" },
+      document: { visibilityState: "hidden", querySelectorAll: () => [], addEventListener: () => {} },
+      setInterval: () => 1, setTimeout: (fn) => { Promise.resolve().then(fn); return 1; }, URL, URLSearchParams, Promise,
+      Math: Object.create(Math, { random: { value: () => 0 } }),
+    };
+    page.XMLHttpRequest = function () {};
+    page.XMLHttpRequest.prototype.open = function () {};
+    page.XMLHttpRequest.prototype.send = function () {};
+    page.XMLHttpRequest.prototype.setRequestHeader = function () {};
+    page.window = page;
+    page.require = requireStub;
+    page.postMessage = (message) => delivered.push(message);
+    page.addEventListener = (event, listener) => { handlers[event] = listener; };
+    const pageOf = (n, cursor, hasNext, takenAt) => JSON.stringify({ data: { xdt_api__v1__feed__user_timeline_graphql_connection: {
+      edges: [{ node: { code: `C${n}`, pk: String(4000000000000000000 + n), taken_at: takenAt, media_type: 2,
+        image_versions2: { candidates: [{ url: "u" }] }, video_versions: [{ url: "v" }],
+        user: { pk: "27092017544", username: "barbie.the.aries" } } }],
+      page_info: { end_cursor: cursor, has_next_page: hasNext } } } });
+    let served = 1;
+    page.fetch = async (url, init) => {
+      fetches.push({ url, init });
+      served += 1;
+      return { ok: true, status: 200, text: async () => pageOf(served, `CUR${served}`, served < 3, 1791000000 - served * 86400) };
+    };
+    const context = vm.createContext(page);
+    vm.runInContext(readFileSync(new URL("./main-world.js", import.meta.url), "utf8"), context);
+    // The page's own first-page query, then its response.
+    const variables = JSON.stringify({ data: { count: 12 }, username: "barbie.the.aries", __relay_internal__pv__X: true });
+    const body = new URLSearchParams({ doc_id: "111", fb_api_req_friendly_name: "PolarisProfilePostsQuery", variables, lsd: "L" }).toString();
+    vm.runInContext(`(() => { const x = new XMLHttpRequest(); x.open("POST", "/graphql/query"); x.setRequestHeader("X-FB-LSD", "L");
+      x.setRequestHeader("X-FB-Friendly-Name", "PolarisProfilePostsQuery"); x.send(${JSON.stringify(body)}); })()`, context);
+    vm.runInContext(`JSON.parse(${JSON.stringify(pageOf(1, "CUR1", true, 1791000000))})`, context);
+    // Inside the context `window` is the contextified global, not `page` itself.
+    return { page, win: vm.runInContext("window", context), handlers, delivered, fetches, context };
+  }
+  const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+
+  it("asks for the next pages with the cursor and the page's doc_id until there are no more", async () => {
+    const t = boot({ requireStub: (name) => ({ params: { id: name.startsWith("PolarisProfilePostsTabContentQuery") ? "222" : "?" } }) });
+    t.handlers.message({ source: t.win, data: { __fbwIgDeep: { username: "barbie.the.aries", maxPages: 4, untilSec: 0 } } });
+    await settle();
+    expect(t.fetches).toHaveLength(2); // page 3 says has_next_page: false
+    const form = new URLSearchParams(t.fetches[0].init.body);
+    expect(form.get("doc_id")).toBe("222");
+    expect(form.get("fb_api_req_friendly_name")).toBe("PolarisProfilePostsTabContentQuery_connection");
+    expect(form.get("lsd")).toBe("L");
+    expect(JSON.parse(form.get("variables"))).toMatchObject({ after: "CUR1", first: 12, username: "barbie.the.aries",
+      data: { count: 12 }, __relay_internal__pv__X: true });
+    expect(JSON.parse(new URLSearchParams(t.fetches[1].init.body).get("variables")).after).toBe("CUR2");
+    expect(t.fetches[0].init.headers).toMatchObject({ "X-FB-LSD": "L", "X-FB-Friendly-Name": "PolarisProfilePostsTabContentQuery_connection" });
+    const done = t.delivered.find((m) => m.__fbwIgDeepDone);
+    expect(done.__fbwIgDeepDone).toEqual({ username: "barbie.the.aries", ok: true, pages: 2, done: true });
+    const codes = t.delivered.flatMap((m) => m.records || []).map((r) => r.code);
+    expect(codes).toEqual(expect.arrayContaining(["C2", "C3"]));
+  });
+
+  it("stops once the grid reaches the oldest day wanted, and falls back to the first query's doc_id", async () => {
+    const t = boot({ requireStub: () => { throw new Error("not loaded"); } });
+    t.handlers.message({ source: t.win, data: { __fbwIgDeep: { username: "barbie.the.aries", maxPages: 4, untilSec: 1791000000 - 2 * 86400 } } });
+    await settle();
+    expect(t.fetches).toHaveLength(1); // page 2 is already 2 days back
+    expect(new URLSearchParams(t.fetches[0].init.body).get("doc_id")).toBe("111");
+  });
+
+  it("does nothing for another profile's grid", async () => {
+    const t = boot();
+    t.handlers.message({ source: t.win, data: { __fbwIgDeep: { username: "someone.else", maxPages: 4, untilSec: 0 } } });
+    await settle();
+    expect(t.fetches).toHaveLength(0);
+    expect(t.delivered.find((m) => m.__fbwIgDeepDone).__fbwIgDeepDone).toMatchObject({ ok: false, error: "no_grid" });
   });
 });

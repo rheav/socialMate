@@ -589,6 +589,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   const igUsers = new Map();
   const igUsersByName = new Map();
   let spyNames = new Set();
+  const spyUserIds = new Map(); // key -> the network user id the hub knows
   const spyObservedAt = new Map();
   function observeSpyUser(user) {
     if (disabled) return;
@@ -609,6 +610,10 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     spyNames = new Set(Object.values(spy?.profiles || {})
       .filter((p) => p.platform === "instagram" && p.removedAt == null)
       .map((p) => p.key.toLowerCase()));
+    spyUserIds.clear();
+    for (const p of Object.values(spy?.profiles || {})) {
+      if (p.platform === "instagram" && p.removedAt == null && p.userId) spyUserIds.set(p.key.toLowerCase(), String(p.userId));
+    }
     for (const key of spyObservedAt.keys()) if (!spyNames.has(key)) spyObservedAt.delete(key);
     // Capture can arrive before the asynchronous storage read (or before Save).
     for (const user of igUsers.values()) {
@@ -628,8 +633,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     if (disabled) return;
     for (const key of spyNames) {
       const sent = spyPostsSent.get(key) || new Set();
-      const ownerId = igUsersByName.get(key)?.userid || null;
-      const posts = spyGridPosts(byId.values(), key, ownerId, sent).slice(0, 60);
+      const ownerId = igUsersByName.get(key)?.userid || spyUserIds.get(key) || null;
+      const posts = spyGridPosts(byId.values(), key, ownerId, sent, pkSeconds).slice(0, 60);
       if (!posts.length) continue;
       spyPostsSent.set(key, sent);
       for (const p of posts) sent.add(p.id);
@@ -739,6 +744,15 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     scheduleSpyPosts();
   };
   window.addEventListener("message", onIgRelay);
+  // The extra grid pages are in: send their posts now, then tell the worker it
+  // may move the batch on.
+  window.addEventListener("message", (e) => {
+    if (e.source !== window || !e.data || !e.data.__fbwIgDeepDone || disabled) return;
+    const { username, ...result } = e.data.__fbwIgDeepDone;
+    clearTimeout(spyPostsTimer);
+    flushSpyPosts();
+    try { chrome.runtime.sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: username, ...result }, () => void chrome.runtime.lastError); } catch {}
+  });
 
   // MAIN-world capture starts at document_start (before this listener exists) → ask it
   // to replay its buffer, on init and whenever we're missing the current record.
@@ -857,6 +871,9 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       for (const key of msg.usernames || []) {
         const user = igUsersByName.get(key);
         if (user) observeSpyUser(user);
+        // First reading: the MAIN world reads more of the grid (a hidden tab
+        // never scrolls) and answers with __fbwIgDeepDone.
+        if (msg.deep) window.postMessage({ __fbwIgDeep: { username: key, ...msg.deep } }, location.origin);
       }
       sendResponse({ ok: true });
       return;
@@ -959,20 +976,30 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // stay a DIRECT content script: an ES import makes CRXJS wrap it in a
   // loader/dynamic-import, which Instagram's strict CSP can kill (that would take
   // capture, FBW_IG_LIST and the overlay with it). Run `npm run gen:inline`.
-// Spy posts per day: the posts of a saved profile's grid that carry a publication
-// time and were not sent yet. A collab sits in each co-author's grid, so the
-// surface decides, not the author. Pinned = pinned by this profile (any pin while
-// its user id is still unknown).
-function spyGridPosts(records, key, ownerId, sent) {
-  const surface = "profile:" + String(key).toLowerCase();
+// Spy posts per day: the profile's own posts (or collabs it co-authors) seen in
+// its grid, not sent yet. The grid page also loads the viewer's home feed — other
+// accounts and ads (measured 2026-10-05) — so the surface alone is not enough: the
+// author decides, by id once known (a record can be relabelled by handle), by
+// handle before. Reels-tab items carry no taken_at; their id is ~30 s earlier.
+// Pinned = pinned by this profile (any pin while its id is unknown).
+function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
+  const handle = String(key).toLowerCase();
+  const surface = "profile:" + handle;
+  const owner = ownerId ? String(ownerId) : null;
+  const isProfile = (id, username) =>
+    owner && id ? String(id) === owner : String(username || "").toLowerCase() === handle;
   const out = [];
   for (const rec of records) {
     if (String(rec.surface || "").toLowerCase() !== surface) continue;
-    if (!/^\d{3,30}$/.test(rec.pk || "") || !Number.isInteger(rec.taken_at) || sent.has(rec.pk)) continue;
+    if (!/^\d{3,30}$/.test(rec.pk || "") || sent.has(rec.pk)) continue;
+    const coauthors = Array.isArray(rec.coauthors) ? rec.coauthors : [];
+    if (!isProfile(rec.userid, rec.username) && !coauthors.some((c) => c && isProfile(c.id, c.username))) continue;
+    const createdAt = Number.isInteger(rec.taken_at) ? rec.taken_at : pkSeconds(rec.pk);
+    if (!Number.isInteger(createdAt)) continue;
     const pinnedBy = Array.isArray(rec.pinned_by) ? rec.pinned_by : [];
     out.push({
-      id: rec.pk, createdAt: rec.taken_at, mediaType: rec.media_type || null,
-      pinned: pinnedBy.length > 0 && (!ownerId || pinnedBy.includes(String(ownerId))),
+      id: rec.pk, createdAt, mediaType: rec.media_type || null,
+      pinned: pinnedBy.length > 0 && (!owner || pinnedBy.includes(owner)),
     });
   }
   return out;
@@ -1183,11 +1210,14 @@ function readReactMediaRef(props) {
 // two implementations, and only one of them was tested — exactly the drift this
 // directory exists to stop. (Count formatting is next door, in counts.js.)
 
-/** Unix SECONDS → "YYYY-MM-DD" (empty string when missing/invalid). */
+/** Unix SECONDS → "YYYY-MM-DD" in the viewer's time zone (empty string when
+ *  missing/invalid). Local, like the hub's posts per day: a post at 23:56 in São
+ *  Paulo is that day, not the next one in UTC. */
 function fmtDate(unixSeconds) {
   if (!unixSeconds) return "";
   const d = new Date(unixSeconds * 1000);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Engagement-rate label. Never collapses to "0.0%": 1 decimal ≥10, 2 decimals
@@ -1265,17 +1295,22 @@ function engagementRate(rec, weights) {
 
 // IG media ids encode creation time in their high bits (snowflake, epoch below),
 // so we can show a date even when the lightweight grid JSON omits taken_at.
+// The id is minted when the upload starts, ~30 s before taken_at (measured
+// 2026-10-05 on five posts: 29–37 s), so prefer taken_at whenever it is there.
 const IG_EPOCH_MS = 1314220021721n;
-function dateFromPk(pk) {
+/** Unix SECONDS the media id was minted, or null. */
+function pkSeconds(pk) {
   const raw = String(pk || "").split("_")[0];
-  if (!/^\d{6,}$/.test(raw)) return "";
+  if (!/^\d{6,}$/.test(raw)) return null;
   try {
-    const ms = (BigInt(raw) >> 23n) + IG_EPOCH_MS;
-    const d = new Date(Number(ms));
-    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+    return Number(((BigInt(raw) >> 23n) + IG_EPOCH_MS) / 1000n);
   } catch {
-    return "";
+    return null;
   }
+}
+/** "YYYY-MM-DD" (viewer's time zone) the media id was minted, or "". */
+function dateFromPk(pk) {
+  return fmtDate(pkSeconds(pk));
 }
 
 // Same scrubber as downloadPath.js's, which the fb/tt/pin libs share. It has to be

@@ -472,7 +472,7 @@ describe("formatters", () => {
   });
 
   it("formats dates and tolerates missing values", () => {
-    expect(fmtDate(1470290467)).toBe("2016-08-04");
+    expect(fmtDate(new Date(2016, 7, 4, 3).getTime() / 1000)).toBe("2016-08-04");
     expect(fmtDate(null)).toBe("");
   });
 });

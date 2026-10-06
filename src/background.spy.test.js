@@ -528,6 +528,65 @@ describe("Instagram posts per day", () => {
   });
 });
 
+describe("first reading: more of a new Instagram profile's grid", () => {
+  const now = new Date(2026, 9, 3, 12).getTime();
+  const profile = (key) => ({ id: `instagram:${key}`, platform: "instagram", key, lastMeasuredAt: null, hasAvatar: true, removedAt: null });
+  const batchTab = { tab: { id: 90 }, url: "https://www.instagram.com/nasa/#socialmate-spy", frameId: 0 };
+  const complete = async () => {
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: "https://www.instagram.com/nasa/#socialmate-spy" });
+    await spyTick(); // serialize behind the tab handler
+  };
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": profile("nasa"), "instagram:natgeo": profile("natgeo") } };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {}, igBatch: null };
+    chrome.tabs.create = vi.fn(async (opts) => ({ id: 90, ...opts }));
+    chrome.tabs.update = vi.fn(async (id, opts) => ({ id, ...opts }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id, url: "https://www.instagram.com/nasa/#socialmate-spy" }));
+    chrome.tabs.remove = vi.fn(async () => {});
+    chrome.tabs.sendMessage = vi.fn(async () => ({ ok: true, spy: true }));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) })));
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("asks a profile never read in depth for up to 15 days of grid, and holds the batch for it", async () => {
+    await spyTick({ manual: true });
+    const current = data.fbw_spy_state.igBatch.current;
+    await complete();
+    const batchMsg = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).find((m) => m.type === "FBW_SPY_IG_BATCH");
+    expect(batchMsg).toMatchObject({ usernames: [current], deep: { maxPages: 4, untilSec: Math.floor(now / 1000) - 15 * 86400 } });
+    expect(data.fbw_spy_state.igBatch.deep).toBe(current);
+    expect(data.fbw_spy_state.igBatch.nextAt).toBeGreaterThanOrEqual(now + 60000);
+    // The followers arrive first: the batch must not close the tab under the reading.
+    await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: current,
+      data: { username: current, follower_count: 42 } }, { ...batchTab, url: `https://www.instagram.com/${current}/#socialmate-spy` });
+    expect(chrome.tabs.remove).not.toHaveBeenCalled();
+    expect(await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 3, done: false }, batchTab))
+      .toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igSeeded[`instagram:${current}`]).toBe(now);
+    expect(data.fbw_spy_state.igBatch.deep).toBeNull();
+    expect(data.fbw_spy_state.igBatch.nextAt).toBeLessThanOrEqual(now + 40000);
+    expect((data.fbw_spy_activity || []).map((e) => e.text)).toContain(`@${current}: leitura inicial do grid · +3 páginas`);
+  });
+
+  it("reads only the first page of a profile already read in depth", async () => {
+    data.fbw_spy_state.igSeeded = { "instagram:nasa": 1, "instagram:natgeo": 1 };
+    await spyTick({ manual: true });
+    await complete();
+    const batchMsg = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).find((m) => m.type === "FBW_SPY_IG_BATCH");
+    expect(batchMsg.deep).toBeNull();
+    expect(data.fbw_spy_state.igBatch.deep ?? null).toBeNull();
+  });
+
+  it("ignores a done message from a tab that is not the batch's", async () => {
+    await spyTick({ manual: true });
+    expect(await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: "nasa", ok: true, pages: 1 },
+      { tab: { id: 5 }, url: "https://www.instagram.com/nasa/", frameId: 0 })).toMatchObject({ ok: false });
+    expect(data.fbw_spy_state.igSeeded).toBeUndefined();
+  });
+});
+
 describe("spy queue acknowledgement", () => {
   it("has one upload owner even when two callers enter before storage resolves", async () => {
     data.fbw_sync = { url: "https://hub", token: "secret" };

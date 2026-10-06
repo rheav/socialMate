@@ -15,6 +15,7 @@
 // don't. Missing reposts count as 0; missing views make ER null so ER-sorted lists
 // and labels degrade gracefully (null sorts last, shows "—").
 import { sanitizeFilenamePart } from "./filenames.js";
+import { fmtDate } from "./fmt.js";
 // The weights live in igFilters (one definition: the panel edits them, the page
 // reads them, and two inlined copies of the same const would not parse).
 import { ER_WEIGHTS } from "./igFilters.js";
@@ -38,17 +39,22 @@ export function engagementRate(rec, weights) {
 
 // IG media ids encode creation time in their high bits (snowflake, epoch below),
 // so we can show a date even when the lightweight grid JSON omits taken_at.
+// The id is minted when the upload starts, ~30 s before taken_at (measured
+// 2026-10-05 on five posts: 29–37 s), so prefer taken_at whenever it is there.
 const IG_EPOCH_MS = 1314220021721n;
-export function dateFromPk(pk) {
+/** Unix SECONDS the media id was minted, or null. */
+export function pkSeconds(pk) {
   const raw = String(pk || "").split("_")[0];
-  if (!/^\d{6,}$/.test(raw)) return "";
+  if (!/^\d{6,}$/.test(raw)) return null;
   try {
-    const ms = (BigInt(raw) >> 23n) + IG_EPOCH_MS;
-    const d = new Date(Number(ms));
-    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+    return Number(((BigInt(raw) >> 23n) + IG_EPOCH_MS) / 1000n);
   } catch {
-    return "";
+    return null;
   }
+}
+/** "YYYY-MM-DD" (viewer's time zone) the media id was minted, or "". */
+export function dateFromPk(pk) {
+  return fmtDate(pkSeconds(pk));
 }
 
 // Same scrubber as downloadPath.js's, which the fb/tt/pin libs share. It has to be

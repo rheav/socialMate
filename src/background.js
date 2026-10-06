@@ -1206,6 +1206,49 @@ function serializeIg(work) {
   return next;
 }
 const IG_SPY_MARKER = "#socialmate-spy";
+// First reading of a profile's grid: at most this many extra pages (12 posts
+// each), stopping at this many days back.
+const IG_DEEP_PAGES = 4;
+const IG_DEEP_DAYS = 15;
+const IG_DEEP_HOLD_MS = 60000;
+async function holdIgBatchForDeep(key) {
+  const batch = await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = r[SPY_STATE_KEY] || emptySpyState();
+    const b = state.igBatch;
+    if (!b || b.current !== key) return null;
+    const next = { ...b, deep: key, deepAsked: [...(b.deepAsked || []), key], baseNextAt: b.nextAt,
+      nextAt: Math.max(b.nextAt || 0, Date.now() + IG_DEEP_HOLD_MS) };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: next } });
+    return next;
+  });
+  if (batch) armIgStep(batch.nextAt);
+}
+// The bridge's report that the extra grid pages were read (or why not). The
+// profile is marked either way, so a failure is not retried every reading.
+async function finishIgDeep(msg, sender) {
+  if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
+  const key = String(msg.key || "").toLowerCase();
+  const id = spyId("instagram", key);
+  const batch = await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = r[SPY_STATE_KEY] || emptySpyState();
+    const b = state.igBatch;
+    if (!b?.own || b.tabId !== sender.tab?.id) return null;
+    const now = Date.now();
+    const next = b.deep === key ? { ...b, deep: null, nextAt: Math.max(now + 4000, b.baseNextAt || 0) } : b;
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igSeeded: { ...(state.igSeeded || {}), [id]: now }, igBatch: next } });
+    return next;
+  });
+  if (!batch) return { ok: false, error: "unknown" };
+  const pages = Number.isInteger(msg.pages) ? msg.pages : 0;
+  const pagesText = `${pages} ${pages === 1 ? "página" : "páginas"}`;
+  if (msg.ok) await logSpy("instagram", "ok", `@${key}: leitura inicial do grid · +${pagesText}${msg.done ? " (o grid acabou)" : ""}`);
+  else if (msg.error === "rate_limited") await blockPlatform("instagram", "rate_limited", id, igReading(batch));
+  else await logSpy("instagram", "warn", `@${key}: leitura inicial do grid parou (${msg.error || "falhou"}) · +${pagesText}`);
+  armIgStep(batch.nextAt);
+  return { ok: true };
+}
 const IG_DAILY_READING = { kind: "followers", source: "daily" };
 // A batch started or widened by "Medir agora" carries manualAt: it re-reads
 // profiles measured earlier today and logs its readings as manual.
@@ -1495,7 +1538,8 @@ async function observeIgProfile(msg, sender) {
   await logSpy("instagram", "ok", `@${key}: ${countText(parsed.followers)} seguidores · ${daily
     ? (batch?.manualAt ? "Medir agora" : "passada diária") : "lido pela sua visita ao perfil"}`);
   if (daily) {
-    if (!state.igBatch?.pending.length) await closeIgBatch();
+    // A first reading still paging through the grid keeps the tab open.
+    if (!state.igBatch?.pending.length && !state.igBatch?.deep) await closeIgBatch();
     else armIgStep(state.igBatch.nextAt);
   }
   scheduleFlushSpy();
@@ -1726,7 +1770,16 @@ chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
       await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
       await closeIgBatch();
     } else if (change.status === "complete" && batch.current) {
-      try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [batch.current] }); } catch { /* alarm handles missing bridge */ }
+      // A profile never read in depth gets its first reading: up to 15 days of
+      // grid, a few pages, read by the page itself (the tab is hidden and never
+      // scrolls). The batch waits for it.
+      const current = batch.current;
+      let deep = null;
+      if (!r[SPY_STATE_KEY]?.igSeeded?.[spyId("instagram", current)] && !(batch.deepAsked || []).includes(current)) {
+        deep = { maxPages: IG_DEEP_PAGES, untilSec: Math.floor(Date.now() / 1000) - IG_DEEP_DAYS * 86400 };
+        await holdIgBatchForDeep(current);
+      }
+      try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [current], deep }); } catch { /* alarm handles missing bridge */ }
     }
   }).catch(() => {});
 });
@@ -2993,6 +3046,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case "FBW_SPY_OBSERVE": {
       serializeIg(() => observeIgProfile(msg, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "network" }));
+      return true;
+    }
+    case "FBW_SPY_IG_DEEP_DONE": {
+      finishIgDeep(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     case "FBW_SPY_POSTS": {
