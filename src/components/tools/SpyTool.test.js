@@ -56,3 +56,21 @@ describe("Spy measurement messages", () => {
     expect(items[1]).toContain("pedido recebido");
   });
 });
+
+describe("saved profiles list", () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `instagram:p${i}`, platform: "instagram", key: `p${i}` }));
+  it("folds a long list behind 'Mostrar todos', with every profile still in the page", () => {
+    spy.current.profiles = many(9);
+    render();
+    const box = section("Perfis salvos");
+    expect(box.querySelectorAll("li")).toHaveLength(9);
+    const toggle = [...box.querySelectorAll("button")].find((b) => b.textContent.startsWith("Mostrar"));
+    expect(toggle.textContent).toBe("Mostrar todos (9)");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("shows a short list whole", () => {
+    spy.current.profiles = many(6);
+    render();
+    expect([...section("Perfis salvos").querySelectorAll("button")].some((b) => b.textContent.startsWith("Mostrar"))).toBe(false);
+  });
+});

@@ -70,6 +70,10 @@ import {
   queueReading,
   queueReels,
   queuePosts,
+  queueThumb,
+  rememberThumbUrls,
+  thumbsToFetch,
+  SPY_THUMB_URLS_KEY,
   queueReelsStatus,
 } from "./lib/spyStore.js";
 import { SPY_ACTIVITY_KEY, SPY_HUB_KEY, appendActivity, clockText, countText, errorText, profileName } from "./lib/spyActivity.js";
@@ -680,6 +684,41 @@ function logSpy(platform, tone, text) {
   return activityWrite;
 }
 const platformOf = (id) => String(id || "").split(":")[0] || null;
+
+// ---- Top 3 thumbnails ----
+// Readings remember each post's image address for a few days; the hub answers
+// every upload with its top 3 still lacking a thumbnail (wantThumbs), and those
+// are made here from a fresh address. A failed one is not retried for 6 h.
+let thumbUrlWrite = Promise.resolve();
+function rememberThumbs(profileId, items) {
+  if (!items?.some((i) => i?.thumbUrl)) return thumbUrlWrite;
+  thumbUrlWrite = thumbUrlWrite.then(async () => {
+    const r = await chrome.storage.local.get(SPY_THUMB_URLS_KEY);
+    await chrome.storage.local.set({ [SPY_THUMB_URLS_KEY]: rememberThumbUrls(r[SPY_THUMB_URLS_KEY], profileId, items) });
+  }).catch(() => {});
+  return thumbUrlWrite;
+}
+const thumbTried = new Map(); // "<profileId>|<id>" -> ms
+async function fetchWantedThumbs(profiles, makeThumb = durableThumb) {
+  await thumbUrlWrite;
+  const r = await chrome.storage.local.get(SPY_THUMB_URLS_KEY);
+  const now = Date.now();
+  const jobs = thumbsToFetch(r[SPY_THUMB_URLS_KEY], profiles, now)
+    .filter((j) => now - (thumbTried.get(`${j.profileId}|${j.id}`) || 0) > 6 * 3600000).slice(0, 12);
+  let made = 0;
+  for (const job of jobs) {
+    thumbTried.set(`${job.profileId}|${job.id}`, now);
+    const thumb = await makeThumb(job.url);
+    if (typeof thumb !== "string" || !thumb.startsWith("data:image/")) continue;
+    await mutateSpy(async () => {
+      const q = await chrome.storage.local.get(SPY_QUEUE_KEY);
+      await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queueThumb(q[SPY_QUEUE_KEY], job.profileId, job.id, thumb) });
+    });
+    made += 1;
+  }
+  if (made) scheduleFlushSpy();
+  return made;
+}
 // Instagram lines always use the @handle, the same one the batch lines show.
 const nameOf = (spy, id) => (platformOf(id) === "instagram" ? `@${String(id).split(":")[1]}`
   : profileName(spy?.profiles?.[id] || { key: String(id || "").split(":")[1] }));
@@ -696,7 +735,7 @@ async function recordHubResult(result) {
 }
 
 function spyQueuePending(queue) {
-  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings", "posts"]
+  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings", "posts", "thumbs"]
     .some((kind) => Object.keys(queue?.[kind] || {}).length));
 }
 
@@ -810,6 +849,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     const reelsStatusToSend = Object.values(queue.reelsStatus || {});
     const readingsToSend = Object.values(queue.readings || {});
     const postsToSend = Object.values(queue.posts || {});
+    const thumbsToSend = Object.values(queue.thumbs || {});
 
     if (
       !opsToSend.length &&
@@ -819,7 +859,8 @@ async function flushSpy({ attempt = 0 } = {}) {
       !reelsToSend.length &&
       !reelsStatusToSend.length &&
       !readingsToSend.length &&
-      !postsToSend.length
+      !postsToSend.length &&
+      !thumbsToSend.length
     ) {
       await chrome.alarms?.clear?.("fbw-spy-sync");
       return { ok: true, sent: 0 };
@@ -839,6 +880,8 @@ async function flushSpy({ attempt = 0 } = {}) {
       ...reelsStatusToSend.map((r) => ["reelsStatus", r]),
       ...readingsToSend.map((r) => ["readings", r]),
       ...postsToSend.map((r) => ["posts", r]),
+      // Thumbnails are heavier: a few per request.
+      ...thumbsToSend.map((r) => ["thumbs", r]),
     ];
     let lastRes = null;
     for (const batch of batchRecords(records, { maxItems: 500 })) {
@@ -910,6 +953,7 @@ async function flushSpy({ attempt = 0 } = {}) {
         reelsStatus: unsent("reelsStatus"),
         readings: unsent("readings"),
         posts: unsent("posts"),
+        thumbs: unsent("thumbs"),
       };
 
       let nextSpy = freshSpy;
@@ -935,6 +979,7 @@ async function flushSpy({ attempt = 0 } = {}) {
     });
 
     await recordHubResult({ ok: true, sent: records.length });
+    if (Array.isArray(lastRes?.profiles)) fetchWantedThumbs(lastRes.profiles).catch(() => {});
     scheduleSpy().catch(() => {});
     return {
       ok: !rejected.length,
@@ -1139,6 +1184,14 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       added = reels.reels.filter((reel) => !known.has(reel.id)).length;
       queue = queueReels(queue, profile.id, reels.reels);
       queue = queueReading(queue, { profileId: profile.id, at: now, ...followersReading, ok: true, followers: parsed.followers });
+      // The week's views: when this page does not reach 7 days back, the reels job
+      // pages on today until it does (mode "refresh").
+      const weekStart = Math.floor(now / 1000) - 7 * 86400;
+      const oldest = Math.min(...reels.reels.map((reel) => reel.createdAt).filter(Number.isFinite));
+      const reelsRefresh = { ...(state.reelsRefresh || {}) };
+      if (reels.hasNext && !(oldest <= weekStart)) reelsRefresh[profile.id] = { day: today };
+      else delete reelsRefresh[profile.id];
+      state = { ...state, reelsRefresh };
       queue = queueReading(queue, { profileId: profile.id, at: now, kind: "reels", source: readingSource, ok: true,
         reelsAdded: added, pages: 1 });
       // More than a page of new reels since the last reading: page on until the
@@ -1172,6 +1225,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
 
     });
 
+    await rememberThumbs(profile.id, reels.reels);
     await logSpy("facebook", "ok", `${parsed.name || profileName(profile)}: ${countText(parsed.followers)} seguidores`
       + `${added ? ` · ${added} ${added === 1 ? "reel novo" : "reels novos"}` : ""}`
       + (force ? " · Medir agora" : source === "visit" ? " · lido pela sua visita" : " · passada diária"));
@@ -1208,9 +1262,30 @@ function serializeIg(work) {
 const IG_SPY_MARKER = "#socialmate-spy";
 // First reading of a profile's grid: at most this many extra pages (12 posts
 // each), stopping at this many days back.
-const IG_DEEP_PAGES = 4;
+// Every reading covers the whole week: the grid back 7 days (15 on a profile's
+// first reading) for posts per day, then the Reels tab back 7 days for views.
+const IG_DEEP_PAGES = 8;
 const IG_DEEP_DAYS = 15;
-const IG_DEEP_HOLD_MS = 60000;
+const IG_WEEK_DAYS = 7;
+const IG_DEEP_HOLD_MS = 120000;
+// The batch tab's previous document (Instagram's home, or the last profile) can
+// finish loading after the navigation to the next profile started (measured
+// 2026-10-05): only the profile's own page is asked for the week.
+function onProfilePage(url, key) {
+  try { return new URL(url).pathname.toLowerCase().startsWith(`/${String(key).toLowerCase()}/`); } catch { return false; }
+}
+async function deliverIgBatch(tabId, message, tries = 15) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, message);
+      if (res?.ok) return true;
+    } catch { /* no listener yet */ }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    if (r[SPY_STATE_KEY]?.igBatch?.tabId !== tabId) return false; // the batch moved on
+  }
+  return false;
+}
 async function holdIgBatchForDeep(key) {
   const batch = await mutateSpy(async () => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
@@ -1226,26 +1301,40 @@ async function holdIgBatchForDeep(key) {
 }
 // The bridge's report that the extra grid pages were read (or why not). The
 // profile is marked either way, so a failure is not retried every reading.
+function weekErrorText(code) {
+  if (code === "no_grid") return "a página do perfil não carregou os posts";
+  if (code === "no_reels") return "a aba de reels não carregou";
+  if (/^http_|^no_page$/.test(code || "")) return "o Instagram não respondeu à consulta";
+  return "erro inesperado";
+}
 async function finishIgDeep(msg, sender) {
   if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
   const key = String(msg.key || "").toLowerCase();
   const id = spyId("instagram", key);
+  let wasSeeded = false;
   const batch = await mutateSpy(async () => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
     const state = r[SPY_STATE_KEY] || emptySpyState();
     const b = state.igBatch;
     if (!b?.own || b.tabId !== sender.tab?.id) return null;
+    wasSeeded = !!state.igSeeded?.[id];
     const now = Date.now();
     const next = b.deep === key ? { ...b, deep: null, nextAt: Math.max(now + 4000, b.baseNextAt || 0) } : b;
     await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igSeeded: { ...(state.igSeeded || {}), [id]: now }, igBatch: next } });
     return next;
   });
   if (!batch) return { ok: false, error: "unknown" };
-  const pages = Number.isInteger(msg.pages) ? msg.pages : 0;
-  const pagesText = `${pages} ${pages === 1 ? "página" : "páginas"}`;
-  if (msg.ok) await logSpy("instagram", "ok", `@${key}: leitura inicial do grid · +${pagesText}${msg.done ? " (o grid acabou)" : ""}`);
-  else if (msg.error === "rate_limited") await blockPlatform("instagram", "rate_limited", id, igReading(batch));
-  else await logSpy("instagram", "warn", `@${key}: leitura inicial do grid parou (${msg.error || "falhou"}) · +${pagesText}`);
+  // A profile with no reels has no Reels tab: nothing to read there, not a failure.
+  const noReels = msg.reelsError === "no_reels_tab";
+  const first = !wasSeeded;
+  const posts = first ? "posts dos últimos 15 dias" : "posts dos últimos 7 dias";
+  if (msg.error === "rate_limited" || msg.reelsError === "rate_limited") await blockPlatform("instagram", "rate_limited", id, igReading(batch));
+  else if (msg.ok && (!msg.reelsError || noReels)) {
+    await logSpy("instagram", "ok", `@${key}: ${first ? "primeira leitura feita" : "semana em dia"} · ${posts}`
+      + (noReels ? " (o perfil não tem reels)" : " e visualizações dos reels da semana"));
+  } else {
+    await logSpy("instagram", "warn", `@${key}: não deu para ler a semana inteira — ${weekErrorText(msg.error || msg.reelsError)}; tento de novo na próxima leitura`);
+  }
   armIgStep(batch.nextAt);
   return { ok: true };
 }
@@ -1463,18 +1552,24 @@ async function receiveIgPosts(msg, sender) {
     const r = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
     const profile = r[SPY_KEY]?.profiles?.[id];
     if (msg.platform !== "instagram" || !profile || profile.removedAt != null) return null;
-    const before = Object.keys(r[SPY_QUEUE_KEY]?.posts || {}).length;
+    // Rewrite when anything moved: a post still waiting can get its views from
+    // the Reels tab a moment after the grid sent it.
+    const before = JSON.stringify(r[SPY_QUEUE_KEY]?.posts || {});
     const queue = queuePosts(r[SPY_QUEUE_KEY], id, posts);
-    const added = Object.keys(queue.posts).length - before;
-    if (added) await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queue });
-    return added;
+    const changed = JSON.stringify(queue.posts) !== before;
+    if (changed) await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queue });
+    return changed;
   });
   if (queued == null) return { ok: false, error: "unknown" };
-  if (queued) {
-    await logSpy("instagram", "info", `@${key}: ${queued} ${queued === 1 ? "post" : "posts"} com data lidos do grid`);
-    scheduleFlushSpy();
+  await rememberThumbs(id, posts);
+  const valid = posts.filter((p) => /^\d{3,30}$/.test(p?.id || "") && Number.isInteger(p.createdAt));
+  if (queued && valid.length) {
+    const withViews = valid.filter((p) => Number.isInteger(p.views)).length;
+    await logSpy("instagram", "info", `@${key}: ${valid.length} ${valid.length === 1 ? "post lido" : "posts lidos"}`
+      + (withViews ? `, ${withViews} com visualizações` : ""));
   }
-  return { ok: true, queued };
+  if (queued) scheduleFlushSpy();
+  return { ok: true, queued: valid.length };
 }
 async function observeIgProfile(msg, sender) {
   if (sender.frameId && sender.frameId !== 0) return { ok: false, error: "invalid_sender" };
@@ -1573,7 +1668,7 @@ function armReelsStep(at) {
 function reelsDaily(state, now = Date.now()) {
   return state.reelsDaily?.day === dayKey(now) ? state.reelsDaily : { day: dayKey(now), total: 0, byProfile: {} };
 }
-/** Next profile whose reels need reading: catch-ups first, then first readings. */
+/** Next profile whose reels need reading: catch-ups, the week's views, then first readings. */
 function pickReelsWork(profiles, state, now = Date.now()) {
   if (isBlocked(state, "facebook", now)) return null;
   const daily = reelsDaily(state, now);
@@ -1582,6 +1677,9 @@ function pickReelsWork(profiles, state, now = Date.now()) {
     p.reels && (daily.byProfile[p.id] || 0) < REELS_PAGES_PER_PROFILE && !((state.reelsRetryAt?.[p.id] || 0) > now));
   const catchup = eligible.find((p) => state.reelsCatchup?.[p.id] && p.reels.status === "done");
   if (catchup) return { profile: catchup, mode: "catchup" };
+  // The week's views come before the long first readings.
+  const refresh = eligible.find((p) => state.reelsRefresh?.[p.id]?.day === dayKey(now));
+  if (refresh) return { profile: refresh, mode: "refresh" };
   const initial = eligible.find((p) => p.reels.status !== "done");
   return initial ? { profile: initial, mode: "initial" } : null;
 }
@@ -1597,6 +1695,7 @@ async function startReelsJob() {
   const tab = await chrome.tabs.create({ url: reelsUrl(profile.key) + REELS_MARKER, active: false });
   const progress = mode === "initial" ? state.reelsProgress?.[profile.id] : null;
   const job = { profileId: profile.id, key: profile.key, mode, tabId: tab.id, startedAt: now, nextAt: now + 8000,
+    ...(mode === "refresh" ? { untilSec: Math.floor(now / 1000) - 7 * 86400 } : {}),
     cursor: progress?.cursor || null, collectionId: progress?.collectionId || null,
     known: profile.reels.recent || [], seen: [], pages: 0, added: 0, waits: 0 };
   await mutateSpy(async () => {
@@ -1609,7 +1708,8 @@ async function startReelsJob() {
     }
     await chrome.storage.local.set({ ...writes, [SPY_QUEUE_KEY]: queue });
   });
-  await logSpy("facebook", "info", `Reels de ${profileName(profile)}: ${mode === "catchup" ? "buscando os novos desde a última leitura" : "leitura completa"}`
+  await logSpy("facebook", "info", `Reels de ${profileName(profile)}: ${mode === "catchup" ? "buscando os novos desde a última leitura"
+    : mode === "refresh" ? "atualizando as visualizações da semana" : "leitura completa"}`
     + " numa aba em segundo plano, 1 página a cada 20–40 s");
   armReelsStep(job.nextAt);
   return job;
@@ -1637,16 +1737,19 @@ async function finishReelsJob(job, { error = null, done = false, logged = false 
     const reelsProgress = { ...(state.reelsProgress || {}) };
     const reelsCatchup = { ...(state.reelsCatchup || {}) };
     const reelsRetryAt = { ...(state.reelsRetryAt || {}) };
-    if (done) {
+    const reelsRefresh = { ...(state.reelsRefresh || {}) };
+    if (done && job.mode === "refresh") delete reelsRefresh[job.profileId];
+    else if (done) {
       delete reelsProgress[job.profileId];
       delete reelsCatchup[job.profileId];
     }
     if (error) reelsRetryAt[job.profileId] = now + SPY_RETRY_MS;
-    state = { ...state, reelsJob: null, reelsProgress, reelsCatchup, reelsRetryAt };
+    state = { ...state, reelsJob: null, reelsProgress, reelsCatchup, reelsRetryAt, reelsRefresh };
     await chrome.storage.local.set({ [SPY_STATE_KEY]: state, [SPY_QUEUE_KEY]: queue, ...(spyNext ? { [SPY_KEY]: spyNext } : {}) });
     if (!active || active.removedAt != null) return;
     const what = `Reels de ${profileName(active)}: +${job.added} em ${job.pages} ${job.pages === 1 ? "página" : "páginas"}`;
     if (error) await logSpy("facebook", "warn", `${what} · parou: ${errorText(error)} · tenta de novo em 6 h`);
+    else if (done && job.mode === "refresh") await logSpy("facebook", "ok", `Reels de ${profileName(active)}: visualizações dos últimos 7 dias atualizadas`);
     else if (done) await logSpy("facebook", "ok", `${what} · ${job.mode === "initial" ? "leitura completa concluída" : "em dia"}`);
     else await logSpy("facebook", "info", `${what} · pausado, continua na próxima passada`);
   });
@@ -1718,8 +1821,11 @@ async function stepReelsJob(job) {
       [SPY_STATE_KEY]: { ...st, reelsJob: next, reelsDaily: reelsDailyNext, reelsProgress },
     });
   });
+  await rememberThumbs(job.profileId, page.rows || []);
   scheduleFlushSpy();
-  if (!page.hasNext || (job.mode === "catchup" && reachedKnown)) return finishReelsJob(next, { done: true });
+  const pageOldest = Math.min(...(page.rows || []).map((row) => row.createdAt).filter(Number.isFinite));
+  const reachedWeekStart = job.mode === "refresh" && pageOldest <= job.untilSec;
+  if (!page.hasNext || (job.mode === "catchup" && reachedKnown) || reachedWeekStart) return finishReelsJob(next, { done: true });
   if (capped) return finishReelsJob(next);
   armReelsStep(next.nextAt);
 }
@@ -1769,17 +1875,24 @@ chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
     if (/instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(url)) {
       await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
       await closeIgBatch();
-    } else if (change.status === "complete" && batch.current) {
+    } else if (change.status === "complete" && batch.current && onProfilePage(url, batch.current)) {
       // A profile never read in depth gets its first reading: up to 15 days of
       // grid, a few pages, read by the page itself (the tab is hidden and never
       // scrolls). The batch waits for it.
       const current = batch.current;
       let deep = null;
-      if (!r[SPY_STATE_KEY]?.igSeeded?.[spyId("instagram", current)] && !(batch.deepAsked || []).includes(current)) {
-        deep = { maxPages: IG_DEEP_PAGES, untilSec: Math.floor(Date.now() / 1000) - IG_DEEP_DAYS * 86400 };
+      if (!(batch.deepAsked || []).includes(current)) {
+        const nowS = Math.floor(Date.now() / 1000);
+        const first = !r[SPY_STATE_KEY]?.igSeeded?.[spyId("instagram", current)];
+        deep = {
+          grid: { maxPages: IG_DEEP_PAGES, untilSec: nowS - (first ? IG_DEEP_DAYS : IG_WEEK_DAYS) * 86400 },
+          reels: { maxPages: IG_DEEP_PAGES, untilSec: nowS - IG_WEEK_DAYS * 86400 },
+        };
         await holdIgBatchForDeep(current);
       }
-      try { await chrome.tabs.sendMessage(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [current], deep }); } catch { /* alarm handles missing bridge */ }
+      // The bridge loads at document_idle, which can come after "complete": keep
+      // asking (outside the Instagram queue) until it answers.
+      deliverIgBatch(tabId, { type: "FBW_SPY_IG_BATCH", usernames: [current], deep }).catch(() => {});
     }
   }).catch(() => {});
 });
@@ -1839,6 +1952,7 @@ async function spyTick({ manual = false } = {}) {
       try {
         const res = await getSpyProfiles(settings);
         if (res?.profiles) {
+          fetchWantedThumbs(res.profiles).catch(() => {});
           await mutateSpy(async () => {
             const freshR = await chrome.storage.local.get([SPY_KEY, SPY_QUEUE_KEY]);
             const currentSpy = freshR[SPY_KEY] || spy;
@@ -3373,5 +3487,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-export { scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob }; // test seam
+export { scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs }; // test seam
 

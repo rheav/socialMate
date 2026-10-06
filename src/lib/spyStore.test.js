@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   igLimit,
   queuePosts,
+  queueThumb,
+  rememberThumbUrls,
+  thumbsToFetch,
   dayKey,
   dueProfiles,
   emptySpyQueue,
@@ -407,9 +410,43 @@ describe("queuePosts", () => {
     ]);
     q = queuePosts(q, "instagram:nasa", [{ id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false }]);
     expect(Object.values(q.posts)).toEqual([
-      { profileId: "instagram:nasa", id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false },
-      { profileId: "instagram:nasa", id: "3002", createdAt: 1791000100, mediaType: "video", pinned: true },
+      { profileId: "instagram:nasa", id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false,
+        code: null, views: null, likes: null, comments: null, exactDate: true },
+      { profileId: "instagram:nasa", id: "3002", createdAt: 1791000100, mediaType: "video", pinned: true,
+        code: null, views: null, likes: null, comments: null, exactDate: true },
     ]);
     expect(Object.keys(q.posts)).toEqual(["instagram:nasa|3001", "instagram:nasa|3002"]);
+  });
+});
+
+describe("top 3 numbers and thumbnails", () => {
+  it("queues a post's numbers and link code, never its image address", () => {
+    const q = queuePosts(undefined, "instagram:nasa", [{ id: "3001", createdAt: 1791000000, mediaType: "video",
+      code: "DeIOdt4jVu6", views: 528, likes: 12, comments: 13, thumbUrl: "https://cdn/t.jpg" }]);
+    expect(q.posts["instagram:nasa|3001"]).toEqual({ profileId: "instagram:nasa", id: "3001", createdAt: 1791000000,
+      mediaType: "video", pinned: false, code: "DeIOdt4jVu6", views: 528, likes: 12, comments: 13, exactDate: true });
+    const fromId = queuePosts(undefined, "instagram:nasa", [{ id: "3002", createdAt: 1791000000, exactDate: false }]);
+    expect(fromId.posts["instagram:nasa|3002"].exactDate).toBe(false);
+  });
+
+  it("remembers image addresses for a few days and picks the ones the hub asks for", () => {
+    const now = 1_791_000_000_000;
+    let cache = rememberThumbUrls({}, "instagram:nasa", [{ id: "3001", thumbUrl: "https://cdn/a.jpg" },
+      { id: "3002", thumbUrl: "https://cdn/b.jpg" }, { id: "3003" }], now);
+    cache = rememberThumbUrls(cache, "facebook:x", [{ id: "900101", thumbUrl: "https://fb/c.jpg" }], now - 4 * 86400000);
+    const jobs = thumbsToFetch(cache, [
+      { id: "instagram:nasa", wantThumbs: ["3002", "3009"] }, { id: "facebook:x", wantThumbs: ["900101"] }, { id: "instagram:y" },
+    ], now);
+    expect(jobs).toEqual([{ profileId: "instagram:nasa", id: "3002", url: "https://cdn/b.jpg" }]); // the Facebook one is stale
+  });
+
+  it("caps the address cache", () => {
+    const items = Array.from({ length: 700 }, (_, i) => ({ id: String(1000 + i), thumbUrl: `https://cdn/${i}` }));
+    expect(Object.keys(rememberThumbUrls({}, "instagram:nasa", items, 1)).length).toBe(500);
+  });
+
+  it("queues a thumbnail per post", () => {
+    const q = queueThumb(undefined, "instagram:nasa", "3001", "data:image/webp;base64,AAAA");
+    expect(q.thumbs).toEqual({ "instagram:nasa|3001": { profileId: "instagram:nasa", id: "3001", thumb: "data:image/webp;base64,AAAA" } });
   });
 });

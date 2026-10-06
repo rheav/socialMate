@@ -28,6 +28,7 @@ export function emptySpyQueue() {
     reelsStatus: {}, // profileId -> first full reading state
     readings: {},    // "<profileId>|<at>|<kind>" -> collection attempt
     posts: {},       // "<profileId>|<postId>" -> Instagram post seen in the profile's grid
+    thumbs: {},      // "<profileId>|<postId>" -> thumbnail of a top 3 post the hub asked for
   };
 }
 
@@ -62,6 +63,7 @@ function normalizeQueue(queue) {
     reelsStatus: queue.reelsStatus && typeof queue.reelsStatus === "object" ? queue.reelsStatus : {},
     readings: queue.readings && typeof queue.readings === "object" ? queue.readings : {},
     posts: queue.posts && typeof queue.posts === "object" ? queue.posts : {},
+    thumbs: queue.thumbs && typeof queue.thumbs === "object" ? queue.thumbs : {},
   };
 }
 
@@ -343,12 +345,52 @@ export function queuePosts(queue, profileId, posts) {
   const next = { ...q.posts };
   for (const p of posts || []) {
     if (!profileId || !/^\d{3,30}$/.test(p?.id || "") || !Number.isInteger(p.createdAt)) continue;
+    const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
     next[`${profileId}|${p.id}`] = {
       profileId, id: p.id, createdAt: p.createdAt,
       mediaType: typeof p.mediaType === "string" ? p.mediaType : null, pinned: p.pinned === true,
+      code: typeof p.code === "string" && /^[\w-]{5,40}$/.test(p.code) ? p.code : null,
+      views: count(p.views), likes: count(p.likes), comments: count(p.comments),
+      exactDate: p.exactDate !== false,
     };
   }
   return { ...q, posts: next };
+}
+
+/** A top 3 post's thumbnail (small data: URL) for the hub to keep. */
+export function queueThumb(queue, profileId, id, thumb) {
+  const q = normalizeQueue(queue);
+  if (!profileId || !id || typeof thumb !== "string" || !thumb.startsWith("data:image/")) return q;
+  return { ...q, thumbs: { ...q.thumbs, [`${profileId}|${id}`]: { profileId, id, thumb } } };
+}
+
+// Image addresses of recent posts and reels, kept a few days: the hub names its
+// top 3 after the upload that brought their numbers, and the networks' image
+// links are signed and expire, so the thumbnail is made from a recent address.
+export const SPY_THUMB_URLS_KEY = "fbw_spy_thumb_urls";
+const THUMB_URLS_CAP = 500;
+const THUMB_URL_TTL_MS = 3 * 86400000;
+export function rememberThumbUrls(cache, profileId, items, now = Date.now()) {
+  const next = { ...(cache && typeof cache === "object" ? cache : {}) };
+  for (const item of items || []) {
+    if (!profileId || !item?.id || typeof item.thumbUrl !== "string" || !/^https:\/\//.test(item.thumbUrl)) continue;
+    delete next[`${profileId}|${item.id}`]; // re-insert: newest last
+    next[`${profileId}|${item.id}`] = { url: item.thumbUrl, at: now };
+  }
+  const keys = Object.keys(next);
+  for (const key of keys.slice(0, Math.max(0, keys.length - THUMB_URLS_CAP))) delete next[key];
+  return next;
+}
+/** The thumbnails the hub asked for (profile.wantThumbs) whose address is still fresh. */
+export function thumbsToFetch(cache, profiles, now = Date.now()) {
+  const out = [];
+  for (const p of profiles || []) {
+    for (const id of Array.isArray(p?.wantThumbs) ? p.wantThumbs : []) {
+      const hit = cache?.[`${p.id}|${id}`];
+      if (hit && now - hit.at < THUMB_URL_TTL_MS) out.push({ profileId: p.id, id, url: hit.url });
+    }
+  }
+  return out;
 }
 
 /** State of a profile's first full reels reading: pending -> running -> done. */

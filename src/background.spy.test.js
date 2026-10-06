@@ -59,11 +59,11 @@ function chromeStub() {
   return stub;
 }
 
-let scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob;
+let scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob } = await import("./background.js"));
+  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs } = await import("./background.js"));
 });
 
 beforeEach(() => {
@@ -515,8 +515,18 @@ describe("Instagram posts per day", () => {
     vi.stubGlobal("fetch", fetcher);
     await flushSpy();
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
-    expect(body.posts).toEqual(posts.map((p) => ({ profileId: "instagram:nasa", ...p })));
+    expect(body.posts).toEqual(posts.map((p) => ({ profileId: "instagram:nasa", ...p,
+      code: null, views: null, likes: null, comments: null, exactDate: true })));
     expect(data.fbw_spy_queue.posts).toEqual({});
+  });
+
+  it("keeps the newest numbers of a post still waiting in the queue, and says what was read", async () => {
+    data.fbw_sync = {}; // keep the queue visible
+    await sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key: "nasa", posts: [posts[1]] }, sender);
+    await sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key: "nasa",
+      posts: [{ ...posts[1], views: 777, likes: 5 }, { id: "3003", createdAt: 1791000200, mediaType: "photo" }] }, sender);
+    expect(data.fbw_spy_queue.posts["instagram:nasa|3002"]).toMatchObject({ views: 777, likes: 5 });
+    expect((data.fbw_spy_activity || []).map((e) => e.text).at(-1)).toBe("@nasa: 2 posts lidos, 1 com visualizações");
   });
 
   it("refuses posts from another site, a subframe or for a profile that is not saved", async () => {
@@ -533,7 +543,8 @@ describe("first reading: more of a new Instagram profile's grid", () => {
   const profile = (key) => ({ id: `instagram:${key}`, platform: "instagram", key, lastMeasuredAt: null, hasAvatar: true, removedAt: null });
   const batchTab = { tab: { id: 90 }, url: "https://www.instagram.com/nasa/#socialmate-spy", frameId: 0 };
   const complete = async () => {
-    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: "https://www.instagram.com/nasa/#socialmate-spy" });
+    const current = data.fbw_spy_state.igBatch?.current || "nasa";
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: `https://www.instagram.com/${current}/#socialmate-spy` });
     await spyTick(); // serialize behind the tab handler
   };
   beforeEach(() => {
@@ -555,28 +566,75 @@ describe("first reading: more of a new Instagram profile's grid", () => {
     const current = data.fbw_spy_state.igBatch.current;
     await complete();
     const batchMsg = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).find((m) => m.type === "FBW_SPY_IG_BATCH");
-    expect(batchMsg).toMatchObject({ usernames: [current], deep: { maxPages: 4, untilSec: Math.floor(now / 1000) - 15 * 86400 } });
+    // The whole week every time: grid back 15 days on the first reading, then the Reels tab back 7.
+    expect(batchMsg).toMatchObject({ usernames: [current], deep: {
+      grid: { maxPages: 8, untilSec: Math.floor(now / 1000) - 15 * 86400 },
+      reels: { maxPages: 8, untilSec: Math.floor(now / 1000) - 7 * 86400 } } });
     expect(data.fbw_spy_state.igBatch.deep).toBe(current);
-    expect(data.fbw_spy_state.igBatch.nextAt).toBeGreaterThanOrEqual(now + 60000);
+    expect(data.fbw_spy_state.igBatch.nextAt).toBeGreaterThanOrEqual(now + 120000);
     // The followers arrive first: the batch must not close the tab under the reading.
     await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: current,
       data: { username: current, follower_count: 42 } }, { ...batchTab, url: `https://www.instagram.com/${current}/#socialmate-spy` });
     expect(chrome.tabs.remove).not.toHaveBeenCalled();
-    expect(await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 3, done: false }, batchTab))
+    expect(await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 3, done: false, reelsPages: 1 }, batchTab))
       .toMatchObject({ ok: true });
     expect(data.fbw_spy_state.igSeeded[`instagram:${current}`]).toBe(now);
     expect(data.fbw_spy_state.igBatch.deep).toBeNull();
     expect(data.fbw_spy_state.igBatch.nextAt).toBeLessThanOrEqual(now + 40000);
-    expect((data.fbw_spy_activity || []).map((e) => e.text)).toContain(`@${current}: leitura inicial do grid · +3 páginas`);
+    expect((data.fbw_spy_activity || []).map((e) => e.text))
+      .toContain(`@${current}: primeira leitura feita · posts dos últimos 15 dias e visualizações dos reels da semana`);
   });
 
-  it("reads only the first page of a profile already read in depth", async () => {
+  it("keeps asking until the tab's bridge is listening (it loads after the page completes)", async () => {
+    let calls = 0;
+    chrome.tabs.sendMessage = vi.fn(async (_tab, msg) => {
+      if (msg.type !== "FBW_SPY_IG_BATCH") return { ok: true, spy: true };
+      calls += 1;
+      if (calls < 3) throw new Error("Could not establish connection. Receiving end does not exist.");
+      return { ok: true };
+    });
+    await spyTick({ manual: true });
+    await complete();
+    await vi.advanceTimersByTimeAsync(3000);
+    const sent = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).filter((m) => m.type === "FBW_SPY_IG_BATCH");
+    expect(sent).toHaveLength(3);
+    expect(sent.every((m) => m.deep?.reels)).toBe(true);
+  });
+
+  it("asks only the profile's page, not the page the tab showed before it", async () => {
+    await spyTick({ manual: true });
+    const current = data.fbw_spy_state.igBatch.current;
+    // The tab's previous document (Instagram's home) finishes loading after the navigation started.
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: "https://www.instagram.com/#socialmate-spy" });
+    await spyTick();
+    expect(chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).filter((m) => m.type === "FBW_SPY_IG_BATCH")).toHaveLength(0);
+    expect(data.fbw_spy_state.igBatch.deepAsked ?? []).toEqual([]);
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: `https://www.instagram.com/${current}/#socialmate-spy` });
+    await spyTick();
+    const sent = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).filter((m) => m.type === "FBW_SPY_IG_BATCH");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].deep?.reels).toBeTruthy();
+  });
+
+  it("reads back 7 days on the grid of a profile already read in depth", async () => {
     data.fbw_spy_state.igSeeded = { "instagram:nasa": 1, "instagram:natgeo": 1 };
     await spyTick({ manual: true });
     await complete();
     const batchMsg = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).find((m) => m.type === "FBW_SPY_IG_BATCH");
-    expect(batchMsg.deep).toBeNull();
-    expect(data.fbw_spy_state.igBatch.deep ?? null).toBeNull();
+    expect(batchMsg.deep.grid.untilSec).toBe(Math.floor(now / 1000) - 7 * 86400);
+  });
+
+  it("tells in plain words what a reading covered, or why it could not", async () => {
+    data.fbw_spy_state.igSeeded = { "instagram:nasa": 1, "instagram:natgeo": 1 };
+    await spyTick({ manual: true });
+    const current = data.fbw_spy_state.igBatch.current;
+    await complete();
+    await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 0, done: true, reelsPages: 0, reelsError: "no_reels_tab" }, batchTab);
+    await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: false, pages: 0, error: "no_grid" }, batchTab);
+    const texts = (data.fbw_spy_activity || []).map((e) => e.text);
+    expect(texts).toContain(`@${current}: semana em dia · posts dos últimos 7 dias (o perfil não tem reels)`);
+    expect(texts).toContain(`@${current}: não deu para ler a semana inteira — a página do perfil não carregou os posts; tento de novo na próxima leitura`);
+    expect(texts.join(" ")).not.toMatch(/grid|página(s)? \+|no_|DBG/);
   });
 
   it("ignores a done message from a tab that is not the batch's", async () => {
@@ -1129,5 +1187,75 @@ describe("Medir agora measures every profile on demand", () => {
     await spyTick();
     expect(fbRequests).toHaveLength(2);
     expect(data.fbw_spy_state.fbManual ?? null).toBeNull();
+  });
+});
+
+
+describe("the week's top 3: views kept current and thumbnails", () => {
+  const now = new Date(2026, 9, 5, 12).getTime();
+  const nowS = Math.floor(now / 1000);
+  const pid = "facebook:61589642519378";
+  const fbProfile = (reels) => ({ id: pid, platform: "facebook", key: "61589642519378", removedAt: null, listUpdatedAt: 1,
+    lastMeasuredAt: null, reels });
+  const reelNode = (id, created, thumb) => ({ profile_reel_node: { node: { __typename: "Story", creation_time: created, actors: [{ id: "6" }],
+    attachments: [{ media: { __typename: "Video", id, created_time: created, play_count_reduced: "1.2K",
+      ...(thumb ? { preferred_thumbnail: { image: { uri: thumb } } } : {}) } }] } } });
+  const reelsHtml = (nodes, hasNext) => `"profile_social_context":{"text":"1.5M followers"}<script type="application/json" data-sjs>${JSON.stringify({
+    x: { id: "COL", aggregated_fb_shorts: { edges: nodes, page_info: { end_cursor: "C", has_next_page: hasNext } } },
+  })}</script>`;
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy_state = { day: "2026-10-05", attempts: {}, blocked: {} };
+    data.fbw_spy_queue = undefined;
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("pages a Facebook profile's reels back 7 days today when the daily page does not reach it", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fbProfile({ status: "running", count: 50, recent: [] }) } };
+    data.fbw_spy_state.reelsProgress = { [pid]: { cursor: "OLD", collectionId: "COL" } };
+    const busy = reelsHtml([reelNode("2209826979599001", nowS - 3600), reelNode("2209826979599002", nowS - 2 * 86400)], true);
+    expect((await measureFbProfile(data.fbw_spy.profiles[pid], "daily", async () => ({ status: 200, text: async () => busy }))).ok).toBe(true);
+    expect(data.fbw_spy_state.reelsRefresh[pid]).toEqual({ day: "2026-10-05" });
+
+    const script = [
+      { ok: true, rows: [{ id: "2209826979599003", createdAt: nowS - 4 * 86400, views: 10 }], hasNext: true, cursor: "P2", collectionId: "COL" },
+      { ok: true, rows: [{ id: "2209826979599004", createdAt: nowS - 8 * 86400, views: 20 }], hasNext: true, cursor: "P3", collectionId: "COL" },
+    ];
+    const asked = [];
+    chrome.tabs.create = vi.fn(async (opts) => ({ id: 77, ...opts }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id, url: "https://www.facebook.com/profile.php?id=61589642519378&sk=reels_tab#socialmate-reels" }));
+    chrome.tabs.remove = vi.fn(async () => {});
+    chrome.tabs.sendMessage = vi.fn(async (_t, msg) => { asked.push(msg); return script[asked.length - 1] ?? { ok: false, error: "x" }; });
+    for (let i = 0; i < 4; i++) { await advanceReelsJob(); vi.setSystemTime(Date.now() + 41_000); }
+    expect(asked.map((m) => m.cursor)).toEqual([null, "P2"]); // the week, before the first reading's old pages
+    expect(data.fbw_spy_state.reelsRefresh[pid]).toBeUndefined();
+    // Then the first reading goes on from where it was, untouched.
+    expect(data.fbw_spy_state.reelsJob).toMatchObject({ mode: "initial", cursor: "OLD", collectionId: "COL" });
+    expect(Object.keys(data.fbw_spy_queue.reels)).toEqual(expect.arrayContaining([`${pid}|2209826979599003`, `${pid}|2209826979599004`]));
+  });
+
+  it("asks nothing more when the daily page already reaches 7 days back", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { [pid]: fbProfile({ status: "done", count: 2, recent: ["2209826979599009"] }) } };
+    const calm = reelsHtml([reelNode("2209826979599001", nowS - 3600), reelNode("2209826979599002", nowS - 9 * 86400)], true);
+    await measureFbProfile(data.fbw_spy.profiles[pid], "daily", async () => ({ status: 200, text: async () => calm }));
+    expect(data.fbw_spy_state.reelsRefresh?.[pid]).toBeUndefined();
+  });
+
+  it("makes the thumbnails the hub asks for from the addresses the readings saw", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": { id: "instagram:nasa", platform: "instagram", key: "nasa", removedAt: null } } };
+    await sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key: "nasa", posts: [
+      { id: "3001", createdAt: nowS - 60, mediaType: "video", views: 9, thumbUrl: "https://cdn/a.jpg" },
+      { id: "3002", createdAt: nowS - 90, mediaType: "video", views: 3, thumbUrl: "https://cdn/b.jpg" },
+    ] }, { tab: { id: 7 }, url: "https://www.instagram.com/nasa/", frameId: 0 });
+    expect(JSON.stringify(data.fbw_spy_queue.posts)).not.toContain("cdn/a.jpg"); // addresses never go to the hub
+    const made = [];
+    const n = await fetchWantedThumbs([{ id: "instagram:nasa", wantThumbs: ["3001", "3999"] }],
+      async (url) => { made.push(url); return "data:image/webp;base64,AAAA"; });
+    expect(n).toBe(1);
+    expect(made).toEqual(["https://cdn/a.jpg"]);
+    expect(data.fbw_spy_queue.thumbs).toEqual({ "instagram:nasa|3001": { profileId: "instagram:nasa", id: "3001", thumb: "data:image/webp;base64,AAAA" } });
+    // Not retried for a while once tried.
+    expect(await fetchWantedThumbs([{ id: "instagram:nasa", wantThumbs: ["3001"] }], async () => "data:image/webp;base64,BBBB")).toBe(0);
   });
 });

@@ -144,3 +144,66 @@ describe("first reading: more grid pages from a hidden tab", () => {
     expect(t.delivered.find((m) => m.__fbwIgDeepDone).__fbwIgDeepDone).toMatchObject({ ok: false, error: "no_grid" });
   });
 });
+
+describe("a reading's Reels tab: views for the whole week", () => {
+  const mintedAt = (pk) => Number(((BigInt(pk) >> 23n) + 1314220021721n) / 1000n);
+  const PKS = ["4001511883701836730", "4000212975751592878", "3999464916472908097", "3998039909910548690"]; // 05/10 … 30/09
+  it("opens the Reels tab, puts the batch hash back, and pages the reels back to the oldest day wanted", async () => {
+    const delivered = []; const handlers = {}; const fetches = []; const replaced = [];
+    const location = { pathname: "/barbie.the.aries/", search: "", hash: "#socialmate-spy", origin: "https://www.instagram.com" };
+    const page = {
+      location,
+      document: { visibilityState: "hidden", querySelectorAll: () => [], addEventListener: () => {}, querySelector: () => null },
+      history: { state: null, replaceState: (_s, _t, url) => { replaced.push(url); location.hash = url.slice(url.indexOf("#")); } },
+      setInterval: () => 1, setTimeout: (fn) => { Promise.resolve().then(fn); return 1; }, URL, URLSearchParams,
+    };
+    page.XMLHttpRequest = function () {};
+    page.XMLHttpRequest.prototype.open = function () {};
+    page.XMLHttpRequest.prototype.send = function () {};
+    page.XMLHttpRequest.prototype.setRequestHeader = function () {};
+    page.window = page;
+    page.require = (name) => ({ params: { id: name === "PolarisProfileReelsTabContentQuery_connection.graphql" ? "R2" : "G2" } });
+    page.postMessage = (message) => delivered.push(message);
+    page.addEventListener = (event, listener) => { handlers[event] = listener; };
+    const reelsAnswer = (pks, cursor, hasNext) => JSON.stringify({ data: { fetch__XDTUserDict: { clips_connection: {
+      edges: pks.map((pk) => ({ node: { media: { pk, code: `R${pk.slice(-4)}`, user: { pk: "27092017544" }, play_count: 1000,
+        like_count: 10, image_versions2: { candidates: [{ url: "u" }] }, video_versions: [{ url: "v" }] } } })),
+      page_info: { end_cursor: cursor, has_next_page: hasNext } } } } });
+    page.fetch = async (url, init) => {
+      fetches.push(init);
+      return { ok: true, status: 200, text: async () => reelsAnswer([PKS[2], PKS[3]], "RC2", true) };
+    };
+    const context = vm.createContext(page);
+    vm.runInContext(readFileSync(new URL("./main-world.js", import.meta.url), "utf8"), context);
+    const win = vm.runInContext("window", context);
+    // The grid: its own query and a last page.
+    const gridVars = JSON.stringify({ data: { count: 12 }, username: "barbie.the.aries" });
+    vm.runInContext(`(() => { const x = new XMLHttpRequest(); x.open("POST", "/graphql/query");
+      x.send(${JSON.stringify(new URLSearchParams({ doc_id: "G1", fb_api_req_friendly_name: "PolarisProfilePostsQuery", variables: gridVars }).toString())}); })()`, context);
+    vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify({ data: { xdt_api__v1__feed__user_timeline_graphql_connection: {
+      edges: [], page_info: { end_cursor: null, has_next_page: false } } } }))})`, context);
+    // Clicking the Reels link: Instagram navigates in-page (dropping the hash) and sends its reels query.
+    const reelsVars = JSON.stringify({ data: { include_feed_video: true, page_size: 12, target_user_id: "27092017544" }, user_id: "27092017544", __relay_internal__pv__X: false });
+    const link = { click: () => {
+      location.pathname = "/barbie.the.aries/reels/"; location.hash = "";
+      vm.runInContext(`(() => { const x = new XMLHttpRequest(); x.open("POST", "/graphql/query"); x.setRequestHeader("X-FB-LSD", "L");
+        x.send(${JSON.stringify(new URLSearchParams({ doc_id: "R1", fb_api_req_friendly_name: "PolarisProfileReelsTabContentQuery", variables: reelsVars, lsd: "L" }).toString())}); })()`, context);
+      vm.runInContext(`JSON.parse(${JSON.stringify(reelsAnswer([PKS[0], PKS[1]], "RC1", true))})`, context);
+    } };
+    page.document.querySelector = (sel) => (sel === 'a[href="/barbie.the.aries/reels/"]' ? link : null);
+    handlers.message({ source: win, data: { __fbwIgDeep: { username: "barbie.the.aries",
+      grid: { maxPages: 8, untilSec: 0 }, reels: { maxPages: 8, untilSec: mintedAt(PKS[3]) + 60 } } } });
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+
+    expect(replaced).toEqual(["/barbie.the.aries/reels/#socialmate-spy"]);
+    expect(fetches).toHaveLength(1); // page 2 reaches 30/09, past the oldest day wanted
+    const form = new URLSearchParams(fetches[0].body);
+    expect(form.get("doc_id")).toBe("R2");
+    expect(JSON.parse(form.get("variables"))).toEqual({ after: "RC1", first: 12, id: "27092017544",
+      data: { include_feed_video: true, page_size: 12, target_user_id: "27092017544" }, __relay_internal__pv__X: false });
+    expect(fetches[0].headers).toMatchObject({ "X-FB-LSD": "L", "X-FB-Friendly-Name": "PolarisProfileReelsTabContentQuery_connection" });
+    expect(delivered.find((m) => m.__fbwIgDeepDone).__fbwIgDeepDone).toMatchObject({ ok: true, pages: 0, reelsPages: 1 });
+    const views = delivered.flatMap((m) => m.records || []).filter((r) => r.play_count === 1000).map((r) => r.pk);
+    expect(views).toEqual(expect.arrayContaining(PKS));
+  });
+});

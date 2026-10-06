@@ -588,6 +588,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // author — so a post carries how big the account behind it is.
   const igUsers = new Map();
   const igUsersByName = new Map();
+  // Read once: opening the profile's Reels tab (in-page) drops the batch hash.
+  const SPY_TAB_AT_LOAD = location.hash === "#socialmate-spy";
   let spyNames = new Set();
   const spyUserIds = new Map(); // key -> the network user id the hub knows
   const spyObservedAt = new Map();
@@ -626,21 +628,23 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   }
   // Posts per day: each grid post of a saved profile goes to the worker once per
   // document, a couple of seconds after the grid payloads settle.
-  const spyPostsSent = new Map(); // key -> Set(pk)
+  const spyPostsSent = new Map(); // key -> Map(pk -> numbers last sent)
   let spyPostsTimer = null;
   function flushSpyPosts() {
     spyPostsTimer = null;
     if (disabled) return;
     for (const key of spyNames) {
-      const sent = spyPostsSent.get(key) || new Set();
+      const sent = spyPostsSent.get(key) || new Map();
       const ownerId = igUsersByName.get(key)?.userid || spyUserIds.get(key) || null;
       const posts = spyGridPosts(byId.values(), key, ownerId, sent, pkSeconds).slice(0, 60);
       if (!posts.length) continue;
       spyPostsSent.set(key, sent);
-      for (const p of posts) sent.add(p.id);
-      const unsend = () => { for (const p of posts) sent.delete(p.id); };
+      const before = posts.map((p) => [p.id, sent.get(p.id)]);
+      for (const p of posts) sent.set(p.id, p.sig);
+      const unsend = () => { for (const [id, sig] of before) if (sig === undefined) sent.delete(id); else sent.set(id, sig); };
       try {
-        chrome.runtime.sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key, posts }, (res) => {
+        chrome.runtime.sendMessage({ type: "FBW_SPY_POSTS", platform: "instagram", key,
+          posts: posts.map(({ sig, ...post }) => post) }, (res) => {
           if (chrome.runtime.lastError || !res?.ok) unsend();
         });
       } catch { unsend(); }
@@ -867,7 +871,13 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     if (msg?.type === "FBW_SPY_IG_BATCH") {
       // Path B only reads the passive cache on this document; navigation belongs
       // to the worker and survives this document being replaced.
-      if (location.hash !== "#socialmate-spy") { sendResponse({ ok: false }); return; }
+      if (!SPY_TAB_AT_LOAD && location.hash !== "#socialmate-spy") { sendResponse({ ok: false }); return; }
+      // A request for another profile is for the page about to replace this one:
+      // answer no, and the worker asks again once that page is up.
+      if (msg.deep && !(msg.usernames || []).every((key) => location.pathname.toLowerCase().startsWith(`/${String(key).toLowerCase()}/`))) {
+        sendResponse({ ok: false, error: "other_page" });
+        return;
+      }
       for (const key of msg.usernames || []) {
         const user = igUsersByName.get(key);
         if (user) observeSpyUser(user);
@@ -981,7 +991,10 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
 // accounts and ads (measured 2026-10-05) — so the surface alone is not enough: the
 // author decides, by id once known (a record can be relabelled by handle), by
 // handle before. Reels-tab items carry no taken_at; their id is ~30 s earlier.
-// Pinned = pinned by this profile (any pin while its id is unknown).
+// Pinned = pinned by this profile (any pin while its id is unknown). Views (Reels
+// tab), likes and comments go along for the week's top 3; `sent` maps each post
+// to the numbers last sent, so a post goes again only when they move. `sig` is
+// that signature, for the caller to record (not sent).
 function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
   const handle = String(key).toLowerCase();
   const surface = "profile:" + handle;
@@ -991,15 +1004,24 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
   const out = [];
   for (const rec of records) {
     if (String(rec.surface || "").toLowerCase() !== surface) continue;
-    if (!/^\d{3,30}$/.test(rec.pk || "") || sent.has(rec.pk)) continue;
+    if (!/^\d{3,30}$/.test(rec.pk || "")) continue;
     const coauthors = Array.isArray(rec.coauthors) ? rec.coauthors : [];
     if (!isProfile(rec.userid, rec.username) && !coauthors.some((c) => c && isProfile(c.id, c.username))) continue;
     const createdAt = Number.isInteger(rec.taken_at) ? rec.taken_at : pkSeconds(rec.pk);
     if (!Number.isInteger(createdAt)) continue;
+    const num = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+    const views = num(rec.play_count);
+    const likes = num(rec.like_count);
+    const comments = num(rec.comment_count);
+    const sig = `${views ?? ""}|${likes ?? ""}|${comments ?? ""}|${createdAt}`;
+    if (sent.get(rec.pk) === sig) continue;
     const pinnedBy = Array.isArray(rec.pinned_by) ? rec.pinned_by : [];
     out.push({
-      id: rec.pk, createdAt, mediaType: rec.media_type || null,
+      // exactDate: the grid's publication time, not one read from the id; only
+      // those tell the hub how far back the grid was read.
+      id: rec.pk, createdAt, exactDate: Number.isInteger(rec.taken_at), mediaType: rec.media_type || null,
       pinned: pinnedBy.length > 0 && (!owner || pinnedBy.includes(owner)),
+      code: rec.code || null, views, likes, comments, thumbUrl: rec.thumb || rec.image || null, sig,
     });
   }
   return out;

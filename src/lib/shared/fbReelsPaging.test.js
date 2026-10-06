@@ -18,8 +18,8 @@ describe("Facebook reels paging", () => {
     expect(reelsStart(ssr)).toEqual({
       collectionId: "COLLECTION", cursor: "C1", hasNext: true,
       rows: [
-        { id: "2209826979599001", createdAt: 1791000000, duration: null, views: 1200 },
-        { id: "2209826979599002", createdAt: 1790990000, duration: null, views: 9100 },
+        { id: "2209826979599001", createdAt: 1791000000, duration: null, views: 1200, thumbUrl: null },
+        { id: "2209826979599002", createdAt: 1790990000, duration: null, views: 9100, thumbUrl: null },
       ],
     });
     expect(reelsStart([{ nothing: 1 }])).toEqual({ collectionId: null, cursor: null, hasNext: false, rows: [] });
@@ -46,7 +46,7 @@ describe("Facebook reels paging", () => {
       JSON.stringify({ label: "deferred", path: ["node", "aggregated_fb_shorts", "edges", 0], data: {} }),
     ].join("\n");
     expect(reelsPageResult(text)).toEqual({
-      rows: [{ id: "2209826979599003", createdAt: 1790980000, duration: null, views: 1200 }],
+      rows: [{ id: "2209826979599003", createdAt: 1790980000, duration: null, views: 1200, thumbUrl: null }],
       hasNext: false, cursor: null, error: null,
     });
     expect(reelsPageResult(JSON.stringify({ errors: [{ message: "A server error missing_required_variable_value occured." }] })))

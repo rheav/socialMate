@@ -5,7 +5,9 @@ import { parseFbReels } from "./fbReelsData.js";
 
 /** A reel as the hub stores it. */
 export function toSpyReel(r) {
-  return { id: r.id, createdAt: r.taken_at ?? r.created_at ?? null, duration: r.duration ?? null, views: r.views ?? null };
+  // thumbUrl stays in the extension (top 3 thumbnails); queueReels never sends it.
+  return { id: r.id, createdAt: r.taken_at ?? r.created_at ?? null, duration: r.duration ?? null, views: r.views ?? null,
+    thumbUrl: r.thumb ?? null };
 }
 
 function findShorts(root) {

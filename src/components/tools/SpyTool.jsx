@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Activity, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Activity, ChevronDown, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
 import { dayKey } from "@/lib/spyStore";
 import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
@@ -18,6 +18,51 @@ function SourceIcon({ platform }) {
   if (Glyph) return <Glyph className="size-3 shrink-0" aria-label={PLATFORMS[platform].name} />;
   if (platform === "hub") return <CloudUpload className="size-3 shrink-0" aria-label="Hub" />;
   return <Activity className="size-3 shrink-0" aria-hidden="true" />;
+}
+
+// The saved list shows its first profiles and a peek of the next one under a
+// fade; "Mostrar todos" opens the rest with a height transition. A list only one
+// or two longer than that is shown whole.
+const COLLAPSED_COUNT = 5;
+const PEEK_PX = 34;
+function CollapsibleList({ count, children }) {
+  const listRef = useRef(null);
+  const [expanded, setExpanded] = useState(false);
+  const [heights, setHeights] = useState({ collapsed: null, full: null });
+  const collapsible = count > COLLAPSED_COUNT + 1;
+  useLayoutEffect(() => {
+    const ul = listRef.current;
+    if (!ul || !collapsible) return undefined;
+    const measure = () => {
+      const last = ul.children[COLLAPSED_COUNT - 1];
+      setHeights({ collapsed: last ? last.offsetTop + last.offsetHeight + PEEK_PX : null, full: ul.scrollHeight });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(measure);
+    for (const child of ul.children) ro.observe(child);
+    return () => ro.disconnect();
+  }, [count, collapsible]);
+  const maxHeight = !collapsible || heights.collapsed == null ? undefined : expanded ? heights.full : heights.collapsed;
+  return (
+    <div className="space-y-1.5">
+      <div className="relative overflow-hidden rounded-xl border border-border bg-card motion-safe:transition-[max-height] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={maxHeight != null ? { maxHeight } : undefined}>
+        <ul ref={listRef} className="divide-y divide-border">{children}</ul>
+        {collapsible && (
+          <div aria-hidden="true"
+            className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card via-card/80 to-transparent motion-safe:transition-opacity motion-safe:duration-300 ${expanded ? "opacity-0" : "opacity-100"}`} />
+        )}
+      </div>
+      {collapsible && (
+        <button type="button" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}
+          className="sw-hoverable mx-auto flex items-center gap-1 rounded-full px-3 py-1 text-[11px] text-muted-foreground hover:text-foreground">
+          {expanded ? "Mostrar menos" : `Mostrar todos (${count})`}
+          <ChevronDown className={`size-3.5 motion-safe:transition-transform motion-safe:duration-300 ${expanded ? "rotate-180" : ""}`} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 const buttonClass = "sw-hoverable rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50";
@@ -130,7 +175,7 @@ export default function SpyTool({ activeUrl = "" }) {
         <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfis salvos</h2>
         {!ready ? <p className="text-xs text-muted-foreground">Carregando perfis…</p> : !profiles.length ?
           <p className="text-xs text-muted-foreground">Nenhum perfil salvo.</p> :
-          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+          <CollapsibleList count={profiles.length}>
             {profiles.map((p) => {
               const isNumeric = /^\d+$/.test(p.key);
               const displayName = p.name || (isNumeric ? `Perfil ${p.key}` : `@${p.key}`);
@@ -176,7 +221,7 @@ export default function SpyTool({ activeUrl = "" }) {
                 </li>
               );
             })}
-          </ul>}
+          </CollapsibleList>}
       </section>
       {!configured ? <p className="text-[11px] text-muted-foreground">Configure o acervo em Opções para usar a área spy.</p>
         : activity.length > 0 && <section aria-label="Histórico" className="space-y-2">

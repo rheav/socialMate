@@ -71,7 +71,7 @@ describe("Facebook SPA video capture", () => {
       return messages.filter((m) => m.type === "__fbwSpyReelsPageResult");
     };
     expect(await run("#socialmate-reels")).toEqual([expect.objectContaining({ reqId: "r1", ok: true, collectionId: "COLL", cursor: "C1", hasNext: true,
-      rows: [{ id: "2209826979599628", createdAt: 1791000000, duration: null, views: 9100 }] })]);
+      rows: [{ id: "2209826979599628", createdAt: 1791000000, duration: null, views: 9100, thumbUrl: null }] })]);
     expect(await run("")).toEqual([]);
     script.remove();
   });
