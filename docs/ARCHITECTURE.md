@@ -26,7 +26,7 @@ Five processes:
 | Process | Files | Notes |
 |---|---|---|
 | Side panel (React) | `src/App.jsx`, `Shell.jsx`, `components/tools/*` | normal extension page: has `URL.createObjectURL`, can fetch fbcdn via host perms |
-| Service worker | `src/background.js` | message router, badge, `chrome.downloads` (sole caller), fbcdn track registry, offscreen owner |
+| Service worker | `src/background.js`, `src/background/spy.js` | message router, badge, `chrome.downloads` (sole caller), fbcdn track registry, offscreen owner; the spy area (measurement, IG batch tab, FB reels job, hub upload queue) lives in `background/spy.js`, imported by the router |
 | Offscreen document | `src/offscreen/*` | Whisper ASR + MiniLM embeddings + ffmpeg mux; released 45 s after last job |
 | Content scripts (isolated) | `content.js`, `content/**` | warm engine, bridges, overlays, scrapers |
 | Content scripts (MAIN world) | `fb/photos-capture.js`, `ig/main-world.js`, `tt/tt-capture.js` | network/parse tees — impossible from an isolated world |
