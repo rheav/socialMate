@@ -43,6 +43,8 @@
     "vitest": "^4.1.9"
   },
   "overrides": {
-    "rollup": "^4.61.0"
+    "rollup": "^4.61.0",
+    "onnxruntime-node": "^1.30.0",
+    "sharp": "^0.35.5"
   }
 }
