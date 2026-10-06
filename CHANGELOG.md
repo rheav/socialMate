@@ -16,6 +16,18 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.10.0] — 2026-10-05
+
+### Corrigido
+- **Posts por dia — posts de outras contas:** a página de um perfil do Instagram também carrega o feed da conta logada (outras contas e anúncios), e esses posts entravam como se fossem do perfil. Agora só contam posts do próprio perfil ou em parceria com ele. O hub (0.10.0) apaga uma vez os posts coletados antes e recoleta na próxima leitura.
+- **Datas no fuso local:** o overlay mostrava a data em UTC (um reel às 23:56 em São Paulo aparecia como o dia seguinte), enquanto o hub conta no seu fuso. Agora os dois usam a data local.
+- **Reels sem data:** itens da aba Reels vêm sem data de publicação; a data agora sai do id do post (cerca de 30 s antes da publicação).
+
+### Adicionado
+- **Leitura inicial do grid:** na primeira leitura de um perfil do Instagram, o lote busca até 4 páginas a mais do grid (até 15 dias), uma a cada poucos segundos, porque a aba em segundo plano só recebe os 12 posts mais recentes. Depois disso, cada leitura diária pega só a primeira página.
+
+---
+
 ## [1.9.0] — 2026-10-05
 
 ### Adicionado
