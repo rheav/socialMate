@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.11.2] — 2026-10-06
+
+### Alterado
+- Organização interna: a parte do Spy saiu do arquivo principal do service worker para um módulo próprio. Nada muda no uso; a medição e o envio ao hub foram conferidos com a extensão recarregada.
+
 ## [1.11.1] — 2026-10-06
 
 ### Corrigido
