@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.11.4] — 2026-10-08
+
+### Alterado
+- O tema (paleta Nord, tokens do shadcn, utilidade de texto) agora vem de `src/theme/nord.css`, cópia de `~/Code/libs/nord-theme` v1.0.0 — a mesma fonte dos outros apps e extensões. Nada muda na tela: cores, raios e estilos computados conferidos iguais nos dois temas.
+
 ## [1.11.3] — 2026-10-08
 
 ### Corrigido

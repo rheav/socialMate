@@ -1,0 +1,185 @@
+/* GERADO por libs/nord-theme v1.0.0 — não edite aqui.
+   Mude ~/Code/libs/nord-theme/nord.css e rode `npm run sync` lá. */
+
+/* ---- Paleta Nord, com a aurora ligada ----
+   Fonte única do tema dos apps e extensões. Cada projeto recebe uma CÓPIA
+   deste arquivo em `src/theme/nord.css` (via `npm run sync` aqui na lib) e a
+   importa logo depois do Tailwind. A cópia vai no commit do projeto, então o
+   build no Docker não depende de nada fora do repo.
+
+   Contrato com o projeto: ele declara uma variante `light` que diga quando o
+   claro está ligado. Apps que nascem escuros:
+     @custom-variant light (&:where(.light, .light *));
+   Extensões que nascem claras e ligam o escuro com `.dark`:
+     @custom-variant light (&:where(:root:not(.dark), :root:not(.dark) *));
+   O resto (cores, tokens do shadcn, raios, a utilidade de texto) vem daqui.
+
+   `fg` e `panel` são as cores-base que invertem: todo `text-fg/40`,
+   `bg-panel/[0.03]` e `border-panel/10` resolve por color-mix, então trocar
+   essas duas re-tematiza tudo. Os tokens semânticos do shadcn apontam para a
+   mesma paleta.
+
+   O Nord original é cinza-ardósia puro; aqui o chão carrega um índigo leve e
+   os acentos subiram de croma até virarem pastéis de verdade. No claro os
+   acentos NÃO são o pastel escurecido — isso vira mostarda e oliva. Eles
+   mantêm o matiz e ganham croma (≥4.8:1 sobre o fundo), e o pastel reaparece
+   pelo alpha sobre o papel. Cada acento é um único token: serve de texto, de
+   borda e de fundo translúcido ao mesmo tempo. */
+
+/* Escuro é o valor de @theme porque é o @theme que gera as utilidades
+   (`text-fg/…`, `bg-panel/…`, `text-amber`); o claro só reescreve as mesmas
+   variáveis mais abaixo. */
+@theme {
+  --color-bg: #2a2f3c; /* nord0 puxado pro índigo */
+  --color-bg-2: #3b4356; /* nord1 */
+  --color-fg: #eceff4; /* nord6 */
+  --color-panel: #d9e0ee; /* nord4 */
+  --color-scrim: #11141c;
+
+  --color-amber: #f2cf94; /* palha da estufa */
+  --color-amber-soft: #e3ba79;
+  --color-sky: #8ecae6; /* frost, vidro frio */
+  --color-sky-soft: #7dafd6;
+  --color-good: #b2dba4; /* broto */
+  --color-danger: #e79aa4; /* terracota desbotada */
+  --color-violet: #cbaad9; /* dormência */
+  --color-onaccent: #232833;
+
+  --radius-card: 1.25rem;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Tokens semânticos do shadcn, escritos em Nord. */
+:root {
+  --background: #2a2f3c;
+  --foreground: #eceff4;
+  --card: #363d4e;
+  --card-foreground: #eceff4;
+  --popover: #363d4e;
+  --popover-foreground: #eceff4;
+  --primary: #8ecae6;
+  --primary-foreground: #232833;
+  --secondary: #414a5f;
+  --secondary-foreground: #eceff4;
+  --muted: #363d4e;
+  --muted-foreground: #aeb9cd;
+  --accent: #414a5f;
+  --accent-foreground: #eceff4;
+  --destructive: #e79aa4;
+  --destructive-foreground: #232833;
+  --border: color-mix(in oklab, #d9e0ee 13%, transparent);
+  --input: color-mix(in oklab, #d9e0ee 17%, transparent);
+  --ring: #8ecae6;
+
+  --chart-1: #8ecae6;
+  --chart-2: #b2dba4;
+  --chart-3: #f2cf94;
+  --chart-4: #cbaad9;
+  --chart-5: #e79aa4;
+
+  --radius: 0.75rem;
+
+  /* Ver `@utility text-*` no fim do arquivo. */
+  --text-fade: 1;
+
+  /* `panel` claro é um índigo, não o quase-preto do Nord: é ele que dá matiz
+     a toda lavagem `bg-panel/[0.0x]`, senão o tema claro volta a ser cinza. */
+  @variant light {
+    --color-bg: #f1f4fa;
+    --color-bg-2: #ffffff;
+    --color-fg: #232a37;
+    --color-panel: #3d4a68;
+    --color-scrim: #3d4a68;
+
+    --color-amber: #995f00;
+    --color-amber-soft: #885300;
+    --color-sky: #2e6ead;
+    --color-sky-soft: #2d6196;
+    --color-good: #38784a;
+    --color-danger: #b54554;
+    --color-violet: #855aa2;
+    --color-onaccent: #ffffff;
+
+    --background: #f1f4fa;
+    --foreground: #232a37;
+    --card: #ffffff;
+    --card-foreground: #232a37;
+    --popover: #ffffff;
+    --popover-foreground: #232a37;
+    --primary: #2e6ead;
+    --primary-foreground: #ffffff;
+    --secondary: #e6ecf6;
+    --secondary-foreground: #232a37;
+    --muted: #e6ecf6;
+    --muted-foreground: #46536d;
+    --accent: #e6ecf6;
+    --accent-foreground: #232a37;
+    --destructive: #b54554;
+    --destructive-foreground: #ffffff;
+    --border: color-mix(in oklab, #3d4a68 14%, transparent);
+    --input: color-mix(in oklab, #3d4a68 20%, transparent);
+    --ring: #2e6ead;
+
+    --chart-1: #2e6ead;
+    --chart-2: #38784a;
+    --chart-3: #995f00;
+    --chart-4: #855aa2;
+    --chart-5: #b54554;
+
+    --text-fade: 0.65;
+  }
+}
+
+/* shadcn → utilidades do Tailwind. `inline` mantém a referência var() viva,
+   então o que o claro reescreve continua fluindo para bg-card / rounded-lg. */
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* Texto translúcido no claro. `text-fg/40` é o fg a 40% sobre o fundo: no
+   escuro isso lê bem, no claro a mesma fração some (2.2:1 contra 3.2:1). Esta
+   utilidade se soma à do Tailwind em toda cor de tema com `/NN` e puxa o alpha
+   em direção ao opaco por `--text-fade` — 1 (o escuro) devolve o mesmo NN%, e
+   0.65 no claro leva 40→61% e 55→71%. Só texto: fundos e bordas `/NN` não
+   passam por aqui. */
+@utility text-* {
+  color: color-mix(
+    in oklab,
+    --value(--color-*) calc(100% - (100% - --modifier(integer) * 1%) * var(--text-fade, 1)),
+    transparent
+  );
+}
