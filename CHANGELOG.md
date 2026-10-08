@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.11.3] — 2026-10-08
+
+### Corrigido
+- Tema claro: texto mais contrastado. O texto translúcido (`text-fg/40` e afins) ganha opacidade só no claro, o texto base ficou um tom mais escuro e os acentos (amber, sky, good, danger, violet) passaram de ~3.5:1 para ≥4.8:1 sobre o fundo. O tema escuro não muda.
+
 ## [1.11.2] — 2026-10-06
 
 ### Alterado
