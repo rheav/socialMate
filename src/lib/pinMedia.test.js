@@ -423,10 +423,10 @@ describe("filenames", () => {
     // A pin is an image OR a video, so the same record files under different
     // sub-folders depending on the media actually being saved.
     expect(filenameFor(rec, "png")).toBe(
-      "imagens/marianam7536-pin-819655200979225688.png",
+      "marianam7536-pin-819655200979225688.png",
     );
     expect(filenameFor(rec, "mp4", 2)).toBe(
-      "videos/marianam7536-pin-819655200979225688_2.mp4",
+      "marianam7536-pin-819655200979225688_2.mp4",
     );
   });
 

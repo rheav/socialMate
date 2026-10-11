@@ -85,9 +85,9 @@ describe("buildExport", () => {
 });
 
 describe("filenameFor", () => {
-  it("files the export under dados with the post id", () => {
+  it("saves the export directly in Downloads with the post id", () => {
     expect(filenameFor("123")).toMatch(
-      /^dados\/fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/,
+      /^fb-123-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/,
     );
     expect(filenameFor(null)).toMatch(/fb-post-/);
   });

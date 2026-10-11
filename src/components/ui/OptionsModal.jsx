@@ -476,7 +476,7 @@ function DownloadsSection() {
   };
 
   const shown = prefs.folder || "a pasta de downloads do navegador";
-  const example = [prefs.folder, prefs.flat ? null : "videos", "ivymoontarot7-ig-DaBFBcgxZIi.mp4"]
+  const example = [prefs.folder, !prefs.folder || prefs.flat ? null : "videos", "ivymoontarot7-ig-DaBFBcgxZIi.mp4"]
     .filter(Boolean)
     .join("/");
 
@@ -501,13 +501,15 @@ function DownloadsSection() {
           className="mt-1 h-8 text-sm"
         />
       </div>
-      <Row
+      {prefs.folder ? <Row
         id="dl-flat"
         label="Tudo numa pasta só"
         hint="Sem videos/ imagens/ dados/ — vídeos, capas, planilhas e transcrições ficam juntos. Cada arquivo já começa com o @ do perfil, então a ordem alfabética agrupa por criador."
         checked={prefs.flat}
         onChange={(v) => save({ flat: v })}
-      />
+      /> : <p className="py-1 text-xs text-muted-foreground">
+        Pasta vazia: todos os arquivos vão direto para Downloads, sem subpastas.
+      </p>}
       <p className="mt-1 break-all text-[11px] leading-relaxed text-muted-foreground">
         Salvando em <span className="font-medium text-foreground">{shown}</span>
         <br />

@@ -52,10 +52,10 @@ describe("filenames", () => {
   });
   it("builds base and indexed names", () => {
     expect(filenameFor({ username: "ivy", code: "X1" }, "mp4")).toBe(
-      "videos/ivy-ig-X1.mp4",
+      "ivy-ig-X1.mp4",
     );
     expect(filenameFor({ username: "ivy", code: "X1" }, "jpg", 2)).toBe(
-      "imagens/ivy-ig-X1_2.jpg",
+      "ivy-ig-X1_2.jpg",
     );
   });
   it("derives extension", () => {

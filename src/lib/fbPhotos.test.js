@@ -488,26 +488,26 @@ describe("filename helpers (must behave exactly like igMedia/ttMedia)", () => {
     expect(baseNameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe("Astra-fb-9_2.jpg");
   });
 
-  it("files <owner>-fb-<fbid>.<ext> under imagens/", () => {
+  it("saves <owner>-fb-<fbid>.<ext> directly in Downloads by default", () => {
     expect(filenameFor({ owner: "Astra Vale", fbid: "122111787357372141" }, "jpg")).toBe(
-      "imagens/Astra Vale-fb-122111787357372141.jpg",
+      "Astra Vale-fb-122111787357372141.jpg",
     );
     expect(filenameFor({ owner: "a/b", fbid: "9" }, "png")).toBe(
-      "imagens/a_b-fb-9.png",
+      "a_b-fb-9.png",
     );
     expect(filenameFor({ owner: "Astra", fbid: "9" }, "jpg", 2)).toBe(
-      "imagens/Astra-fb-9_2.jpg",
+      "Astra-fb-9_2.jpg",
     );
   });
 
   it("falls back to the profile key, then to 'perfil', rather than an empty segment", () => {
     expect(filenameFor({ ownerKey: "61591164255809", fbid: "9" }, "jpg")).toBe(
-      "imagens/61591164255809-fb-9.jpg",
+      "61591164255809-fb-9.jpg",
     );
     expect(filenameFor({ owner: "///", fbid: "9" }, "jpg")).toBe(
-      "imagens/perfil-fb-9.jpg",
+      "perfil-fb-9.jpg",
     );
-    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("imagens/perfil-fb-9.jpg");
+    expect(filenameFor({ fbid: "9" }, "jpg")).toBe("perfil-fb-9.jpg");
   });
 });
 
@@ -521,10 +521,10 @@ describe("stampFor / zipFilename", () => {
   // archives instead of burying the loose photos next to it.
   it("files the archive under dados, not with the photos", () => {
     expect(zipFilename("Astra Vale", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "dados/Astra Vale-fb-2026-07-25_16-40-12.zip",
+      "Astra Vale-fb-2026-07-25_16-40-12.zip",
     );
     expect(zipFilename("", new Date(2026, 6, 25, 16, 40, 12))).toBe(
-      "dados/perfil-fb-2026-07-25_16-40-12.zip",
+      "perfil-fb-2026-07-25_16-40-12.zip",
     );
   });
 });

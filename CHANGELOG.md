@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.11.5] — 2026-10-09
+
+### Corrigido
+- Downloads: deixar “Pasta” vazia agora salva todos os arquivos diretamente na pasta de downloads do navegador, mesmo com “Tudo numa pasta só” desligado. Miniaturas, imagens, vídeos, áudios e dados não criam subpastas. O exemplo nas opções reflete esse destino; a organização por tipo continua disponível quando uma pasta é preenchida.
+
 ## [1.11.4] — 2026-10-08
 
 ### Alterado

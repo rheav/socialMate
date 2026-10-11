@@ -175,12 +175,12 @@ function bucketFor(kind, filename) {
 /**
  * Build the download path for one file.
  *
- *   downloadPath("video", "ig-ivy-X1.mp4")      -> "social-mate/videos/ig-ivy-X1.mp4"
- *   downloadPath("comments", "fb-123-x.json")   -> "social-mate/dados/fb-123-x.json"
- *   downloadPath("thumb", "tt-a-1-thumb.jpg")   -> "social-mate/imagens/tt-a-1-thumb.jpg"
+ * With an empty folder, every kind returns just the sanitized file name.
+ * With folder "pesquisa" and flat off, videos go under "pesquisa/videos/",
+ * images/covers under "pesquisa/imagens/", and data under "pesquisa/dados/".
  *
  * `filename` is a path relative to the bucket — usually a bare name, but it may
- * carry sub-folders. Each segment is scrubbed on its own, so an author literally
+ * carry sub-folders when a folder is configured. Each segment is scrubbed, so an author literally
  * named "../../etc" lands as a segment inside the tree instead of escaping it.
  *
  * The result is always relative to ~/Downloads: it never starts with "/", never has a
@@ -189,27 +189,24 @@ function bucketFor(kind, filename) {
  */
 export function downloadPath(kind, filename) {
   const parts = folderSegments(PREFS.folder);
-  // `flat` is the whole point of the setting: one folder, sorted by name, and
-  // every name starts with the creator's handle.
-  const bucket = PREFS.flat ? null : bucketFor(kind, filename);
+  // An empty folder always means directly in Downloads, regardless of `flat`.
+  // Buckets only apply inside an explicitly configured folder.
+  const bucket = !PREFS.folder || PREFS.flat ? null : bucketFor(kind, filename);
   if (bucket) parts.push(bucket);
 
   const tail = String(filename == null ? "" : filename)
     .split(/[\\/]+/)
     .map(safeSegment)
     .filter(Boolean);
+  if (!PREFS.folder) return tail.at(-1) || FALLBACK_NAME;
   parts.push(...(tail.length ? tail : [FALLBACK_NAME]));
   return parts.join("/");
 }
 
 /**
- * Last line of defence, used by background.js — the only context that actually calls
- * chrome.downloads, and the one that receives filenames over messages from panels and
- * content scripts. A caller that forgot downloadPath() would otherwise drop a file
- * straight into ~/Downloads, which is exactly the mess this module exists to end.
- *
- * A path already under social-mate/ comes back byte-identical (so nothing that is
- * already correct is rewritten); anything else is scrubbed and re-rooted.
+ * Reapply the current destination in background.js to filenames received from
+ * panels and content scripts. An empty folder strips any previous directories;
+ * a configured folder rebuilds the path with the current bucketing preference.
  */
 export function underDownloadRoot(path) {
   const segs = String(path == null ? "" : path)
@@ -225,7 +222,7 @@ export function underDownloadRoot(path) {
   // prefs, which is what "last line of defence" has to mean once the root moves.
   const prior = segs.length && BUCKET_NAMES.has(segs[segs.length - 1]) ? segs[segs.length - 1] : null;
   const parts = folderSegments(PREFS.folder);
-  const bucket = PREFS.flat ? null : prior || bucketFor(null, name);
+  const bucket = !PREFS.folder || PREFS.flat ? null : prior || bucketFor(null, name);
   if (bucket) parts.push(bucket);
   parts.push(name);
   return parts.join("/");
