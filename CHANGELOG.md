@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.12.0] — 2026-10-10
+
+### Adicionado
+- Spy: cada leitura da aba Reels do Instagram agora é registrada no hub (deu certo, com as páginas lidas, ou o motivo da falha), como o Facebook já fazia. O hub (0.15.0) usa a hora dessa leitura para somar as views dos reels publicados nas 24 h, 3 e 7 dias antes dela, e a aba Leituras do painel passa a mostrar essas leituras.
+
+### Observado
+- A aba Reels do Facebook só traz as visualizações abreviadas (“53K”), sem o número exato (sonda de 2026-10-10). As views do Facebook continuam arredondadas.
+
 ## [1.11.5] — 2026-10-09
 
 ### Corrigido
