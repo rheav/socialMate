@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.12.1] — 2026-10-11
+
+### Corrigido
+- Spy: a lista consulta o hub a cada 15 segundos enquanto visível e ao voltar ao painel, para refletir exclusões feitas no hub mesmo com a medição diária desligada. Não dispara medições nas redes sociais. Falhas mantêm os perfis em cache e são tentadas novamente; o aviso some quando a conexão volta.
+
 ## [1.12.0] — 2026-10-10
 
 ### Adicionado

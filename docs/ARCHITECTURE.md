@@ -417,7 +417,10 @@ which is the whole reason it exists.
 `Shell` holds one `nav` object `{tab, platform, perPlatform:{platform:{toolId}}}`
 under `sw_nav3`. Top-level `tab` picks Pesquisa, Aquecer, Arquivo or Spy. Spy follows the active
 profile URL through `useFollowActiveTab`, reads the hub-list cache via `useSpy`,
-and offers save, confirmed removal, profile links and daily-pass status. It has
+and offers save, confirmed removal, profile links and daily-pass status.
+While Spy is visible, the hook refreshes the hub list every 15 seconds and on
+focus/visibility return, independently of daily measurement preferences; it
+serializes its refreshes and keeps cached profiles on failures. It has
 no manual-refresh control. The daily toggle lives under Acervo in Options.
 The shared `Segmented` measures its labels with `ResizeObserver` and collapses
 them to accessible icons at narrow widths, including the four-tab row at 260 px. Inside Warmer,

@@ -30,16 +30,33 @@ export function useSpy() {
         if (!dead && mine === ticket) { setStored(next); setReady(true); }
       } catch { if (!dead) setError("Não consegui ler os perfis salvos."); }
     };
-    const alarmTimer = setInterval(readAlarm, 15000);
+    let refreshing = false;
+    const refresh = async () => {
+      if (dead || refreshing || document.visibilityState !== "visible") return;
+      refreshing = true;
+      try {
+        await requireOk({ type: "FBW_SPY_REFRESH_LIST" });
+        if (!dead) setError(null);
+      } catch {
+        if (!dead) setError("Não consegui atualizar a lista. Os perfis salvos continuam disponíveis.");
+      } finally { refreshing = false; }
+    };
+    // List sync is independent of daily measurements and only runs while visible.
+    const alarmTimer = setInterval(() => { readAlarm(); refresh(); }, 15000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
     const changed = (changes, area) => {
       if (area === "local" && keys.some((key) => changes[key])) load();
     };
     chrome.storage.onChanged.addListener(changed);
     load();
-    requireOk({ type: "FBW_SPY_REFRESH_LIST" }).catch(() => {
-      if (!dead) setError("Não consegui atualizar a lista. Os perfis salvos continuam disponíveis.");
-    });
-    return () => { dead = true; ticket++; clearInterval(alarmTimer); chrome.storage.onChanged.removeListener(changed); };
+    refresh();
+    return () => {
+      dead = true; ticket++; clearInterval(alarmTimer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      chrome.storage.onChanged.removeListener(changed);
+    };
   }, []);
   return {
     profiles: Object.values(stored[SPY_KEY]?.profiles || {}).filter((p) => p.removedAt == null)
