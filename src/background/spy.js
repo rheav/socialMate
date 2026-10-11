@@ -723,6 +723,19 @@ export async function finishIgDeep(msg, sender) {
   if (!batch) return { ok: false, error: "unknown" };
   // A profile with no reels has no Reels tab: nothing to read there, not a failure.
   const noReels = msg.reelsError === "no_reels_tab";
+  // The Reels tab carries the views: the hub ends its views per period at this
+  // reading, so it learns when one ran (a profile without reels read fine too).
+  const viewsOk = !!msg.ok && (!msg.reelsError || noReels);
+  await mutateSpy(async () => {
+    const q = await chrome.storage.local.get(SPY_QUEUE_KEY);
+    await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queueReading(q[SPY_QUEUE_KEY], {
+      profileId: id, at: Date.now(), kind: "reels", source: igReading(batch).source, ok: viewsOk,
+      ...(viewsOk
+        ? { pages: Number.isInteger(msg.reelsPages) ? msg.reelsPages : null }
+        : { error: String(msg.reelsError || msg.error || "unknown").slice(0, 40) }),
+    }) });
+  });
+  scheduleFlushSpy();
   const first = !wasSeeded;
   const posts = first ? "posts dos últimos 15 dias" : "posts dos últimos 7 dias";
   if (msg.error === "rate_limited" || msg.reelsError === "rate_limited") await blockPlatform("instagram", "rate_limited", id, igReading(batch));

@@ -637,6 +637,21 @@ describe("first reading: more of a new Instagram profile's grid", () => {
     expect(texts.join(" ")).not.toMatch(/grid|página(s)? \+|no_|DBG/);
   });
 
+  it("reports each Reels tab reading to the hub, which ends the views windows there", async () => {
+    data.fbw_spy_state.igSeeded = { "instagram:nasa": 1, "instagram:natgeo": 1 };
+    await spyTick({ manual: true });
+    const current = data.fbw_spy_state.igBatch.current;
+    await complete();
+    await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 2, done: true, reelsPages: 3 }, batchTab);
+    vi.setSystemTime(now + 1000);
+    await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 2, done: true, reelsPages: 0, reelsError: "no_reels" }, batchTab);
+    const reels = Object.values(data.fbw_spy_queue.readings).filter((r) => r.kind === "reels");
+    expect(reels).toEqual([
+      { profileId: `instagram:${current}`, at: now, kind: "reels", source: "manual", ok: true, pages: 3 },
+      { profileId: `instagram:${current}`, at: now + 1000, kind: "reels", source: "manual", ok: false, error: "no_reels" },
+    ]);
+  });
+
   it("ignores a done message from a tab that is not the batch's", async () => {
     await spyTick({ manual: true });
     expect(await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: "nasa", ok: true, pages: 1 },

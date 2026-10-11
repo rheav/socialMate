@@ -112,9 +112,14 @@ only there, and its items are dated from the media id (`exactDate: false`).
 Waits use the page's DOM changes, not 200 ms polling, because a hidden tab runs
 timers at most once a second. The bridge sends a post again when its numbers
 move, and reports `FBW_SPY_IG_DEEP_DONE` (`{ key, ok, pages, reelsPages, done |
-error | reelsError }`) after sending; the batch holds the tab until then.
+error | reelsError }`) after sending; the batch holds the tab until then. On
+that message the worker queues a `reels` reading (`fbw_spy_queue.readings`: ok
+with `pages`, or the error code): the hub ends its views per period (24 h, 3
+and 7 days) at the last successful one, as it does with Facebook's reels
+readings. Facebook's reels page carries only `play_count_reduced` ("53K"; no
+exact `play_count`, probed 2026-10-10), so its views stay rounded.
 Image addresses never go to the hub: the worker keeps them a few days
-(`fbw_spy_thumb_urls`) and, when the hub's list names the top 3 still lacking a
+(`fbw_spy_thumb_urls`) and, when the hub's list names the posts still lacking a
 thumbnail (`wantThumbs`), queues a small thumbnail (`fbw_spy_queue.thumbs`).
 
 Instagram path B persists `igBatch` with `current` and `nextAt` alongside the
