@@ -1013,7 +1013,8 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
     const views = num(rec.play_count);
     const likes = num(rec.like_count);
     const comments = num(rec.comment_count);
-    const sig = `${views ?? ""}|${likes ?? ""}|${comments ?? ""}|${createdAt}`;
+    const durationS = rec.media_type === "video" && Number.isFinite(rec.duration) && rec.duration > 0 ? rec.duration : null;
+    const sig = `${views ?? ""}|${likes ?? ""}|${comments ?? ""}|${createdAt}|${durationS ?? ""}`;
     if (sent.get(rec.pk) === sig) continue;
     const pinnedBy = Array.isArray(rec.pinned_by) ? rec.pinned_by : [];
     out.push({
@@ -1021,7 +1022,7 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
       // those tell the hub how far back the grid was read.
       id: rec.pk, createdAt, exactDate: Number.isInteger(rec.taken_at), mediaType: rec.media_type || null,
       pinned: pinnedBy.length > 0 && (!owner || pinnedBy.includes(owner)),
-      code: rec.code || null, views, likes, comments, thumbUrl: rec.thumb || rec.image || null, sig,
+      code: rec.code || null, views, likes, comments, durationS, observedAt: Date.now(), thumbUrl: rec.thumb || rec.image || null, sig,
     });
   }
   return out;

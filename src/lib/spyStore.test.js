@@ -420,6 +420,23 @@ describe("queuePosts", () => {
 });
 
 describe("top 3 numbers and thumbnails", () => {
+  it("coalesces partial fields for the same queued observation", () => {
+    const post = { id: "3001", createdAt: 1791000000, mediaType: "video", observedAt: 1791001000000 };
+    let q = queuePosts(undefined, "instagram:nasa", [{ ...post, views: 1000, durationS: 60 }]);
+    q = queuePosts(q, "instagram:nasa", [{ ...post, likes: 30, comments: 2 }]);
+    expect(Object.values(q.posts)).toEqual([expect.objectContaining({ views: 1000, likes: 30, comments: 2, durationS: 60 })]);
+  });
+  it("keeps separate timestamped observations while offline, with duration in seconds", () => {
+    const post = { id: "3001", createdAt: 1791000000, mediaType: "video", views: 100, durationS: 42.5, observedAt: 1791001000000 };
+    let q = queuePosts(undefined, "instagram:nasa", [post]);
+    q = queuePosts(q, "instagram:nasa", [{ ...post, views: 200, observedAt: 1791002000000 }]);
+    expect(Object.values(q.posts)).toEqual([
+      expect.objectContaining({ views: 100, durationS: 42.5, observedAt: 1791001000000 }),
+      expect.objectContaining({ views: 200, durationS: 42.5, observedAt: 1791002000000 }),
+    ]);
+    q = queuePosts(q, "instagram:nasa", [post]);
+    expect(Object.values(q.posts)).toHaveLength(2);
+  });
   it("queues a post's numbers and link code, never its image address", () => {
     const q = queuePosts(undefined, "instagram:nasa", [{ id: "3001", createdAt: 1791000000, mediaType: "video",
       code: "DeIOdt4jVu6", views: 528, likes: 12, comments: 13, thumbUrl: "https://cdn/t.jpg" }]);

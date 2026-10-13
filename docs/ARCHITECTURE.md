@@ -459,3 +459,16 @@ Still untested: every content script (the code that actually touches the
 platforms), and the near-pure background functions `resolveTracks` (the 5-rung
 trust ladder that has already produced cross-video bugs), `parseWebVtt`,
 `capSavedStore`, `jsonDataUrl`.
+
+
+### Instagram Spy observations (1.13.0)
+
+`FBW_SPY_POSTS` also carries `durationS` and `observedAt`. Duration comes from the
+already captured video metadata, in seconds; unavailable values stay null.
+`observedAt` is when the bridge forwards its coalesced record, not a promise that
+all fields were captured at that same instant. The Hub distinguishes this from
+legacy receipt-time observations. `fbw_spy_queue.posts` keys timestamped entries
+by `<profileId>|<postId>|<observedAt>` (legacy entries retain the two-part key),
+so offline observations do not overwrite each other. Retries of one observation
+coalesce known counters. Upload acknowledgment continues comparing exact values
+before removal. No additional Instagram requests were introduced.

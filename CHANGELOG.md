@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.13.0] — 2026-10-13
+
+### Added
+- Instagram Spy forwards video duration in seconds and the observation timestamp to the Hub, enabling duration averages in Top posts and post-level measurement history.
+- Offline Spy uploads retain distinct timestamped observations. Partial updates of the same observation preserve known counters and duration; newly available duration triggers a new upload even when counts did not change.
+
 ## [1.12.1] — 2026-10-11
 
 ### Corrigido

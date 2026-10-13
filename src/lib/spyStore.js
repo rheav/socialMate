@@ -346,13 +346,22 @@ export function queuePosts(queue, profileId, posts) {
   for (const p of posts || []) {
     if (!profileId || !/^\d{3,30}$/.test(p?.id || "") || !Number.isInteger(p.createdAt)) continue;
     const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
-    next[`${profileId}|${p.id}`] = {
+    const observedAt = Number.isSafeInteger(p.observedAt) && p.observedAt > 0 ? p.observedAt : null;
+    // Keep distinct observations through an offline queue; retries replace the same one.
+    const observationKey = `${profileId}|${p.id}${observedAt == null ? "" : `|${observedAt}`}`;
+    const previous = observedAt == null ? null : next[observationKey];
+    next[observationKey] = {
       profileId, id: p.id, createdAt: p.createdAt,
       mediaType: typeof p.mediaType === "string" ? p.mediaType : null, pinned: p.pinned === true,
       code: typeof p.code === "string" && /^[\w-]{5,40}$/.test(p.code) ? p.code : null,
       views: count(p.views), likes: count(p.likes), comments: count(p.comments),
       exactDate: p.exactDate !== false,
+      ...(observedAt == null ? {} : { observedAt }),
+      ...(p.durationS === undefined ? {} : { durationS: p.mediaType === "video" && Number.isFinite(p.durationS) && p.durationS > 0 ? p.durationS : null }),
     };
+    if (previous) for (const field of ["views", "likes", "comments", "durationS", "code"]) {
+      if (next[observationKey][field] == null && previous[field] != null) next[observationKey][field] = previous[field];
+    }
   }
   return { ...q, posts: next };
 }

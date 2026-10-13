@@ -97,7 +97,7 @@ describe("posts per day from a saved profile's grid", () => {
   it("skips what was already sent, other grids and ids that are not media ids", () => {
     const records = [rec("4000000000000000003"), rec("4000000000000000004", { surface: "profile:other" }),
       rec("4000000000000000005", { surface: "related:profile:barbie.the.aries" }), rec("abc")];
-    const sent = new Map([["4000000000000000003", "|||1791000003"]]);
+    const sent = new Map([["4000000000000000003", "|||1791000003|"]]);
     expect(ids(spyGridPosts(records, "barbie.the.aries", OWNER, sent, pkSeconds))).toEqual([]);
   });
 
@@ -115,10 +115,10 @@ describe("the week's numbers for the top 3", () => {
 
   it("sends views, likes, comments, the link code and the image address", () => {
     const [{ sig, ...post }] = spyGridPosts([reel()], "barbie.the.aries", OWNER, new Map(), pkSeconds);
-    expect(sig).toBe("528|12|13|1791237442");
+    expect(sig).toBe("528|12|13|1791237442|");
     expect([post]).toEqual([{
       id: "4001511883701836730", createdAt: 1791237442, exactDate: true, mediaType: "video", pinned: false, code: "DeIOdt4jVu6",
-      views: 528, likes: 12, comments: 13, thumbUrl: "https://cdn/t.jpg",
+      views: 528, likes: 12, comments: 13, durationS: null, observedAt: expect.any(Number), thumbUrl: "https://cdn/t.jpg",
     }]);
   });
 
@@ -128,5 +128,14 @@ describe("the week's numbers for the top 3", () => {
     sent.set(first.id, first.sig);
     expect(spyGridPosts([reel()], "barbie.the.aries", OWNER, sent, pkSeconds)).toEqual([]);
     expect(spyGridPosts([reel({ play_count: 600 })], "barbie.the.aries", OWNER, sent, pkSeconds)).toHaveLength(1);
+  });
+
+  it("forwards video duration and observes duration enrichment even with unchanged counts", () => {
+    const sent = new Map();
+    const [first] = spyGridPosts([reel()], "barbie.the.aries", OWNER, sent, pkSeconds);
+    sent.set(first.id, first.sig);
+    const [enriched] = spyGridPosts([reel({ duration: 42.5 })], "barbie.the.aries", OWNER, sent, pkSeconds);
+    expect(enriched).toMatchObject({ durationS: 42.5, observedAt: expect.any(Number) });
+    expect(spyGridPosts([reel({ duration: -2 })], "barbie.the.aries", OWNER, new Map(), pkSeconds)[0].durationS).toBeNull();
   });
 });
