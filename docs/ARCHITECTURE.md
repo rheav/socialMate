@@ -472,3 +472,12 @@ by `<profileId>|<postId>|<observedAt>` (legacy entries retain the two-part key),
 so offline observations do not overwrite each other. Retries of one observation
 coalesce known counters. Upload acknowledgment continues comparing exact values
 before removal. No additional Instagram requests were introduced.
+
+### Instagram Spy duration (1.13.1)
+
+Profile-grid responses omit `video_duration` but carry `video_dash_manifest`
+(observed 2026-10-15). `main-world.js` reads the MPD's
+`mediaPresentationDuration` as a fallback, preserving fractional seconds. It does
+not use soundtrack duration or CDN preview hints. Duration participates in relay
+deduplication and survives sparse readings in the replay cache, so the batch tab
+can supply Hub durations with per-media enrichment still disabled.

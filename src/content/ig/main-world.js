@@ -52,6 +52,19 @@
     }));
   }
 
+  // Profile-grid payloads omit video_duration, but include the same video's
+  // DASH manifest (observed 2026-10-15). Read its presentation duration without
+  // fetching media/info or confusing it with the soundtrack/preview length.
+  function videoDuration(m) {
+    if (Number.isFinite(m.video_duration) && m.video_duration > 0) return m.video_duration;
+    if (typeof m.video_dash_manifest !== "string") return null;
+    const mpd = m.video_dash_manifest.match(/<MPD\b[^>]*>/i);
+    const duration = mpd && mpd[0].match(/\bmediaPresentationDuration\s*=\s*(["'])PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?\1/);
+    if (!duration) return null;
+    const seconds = Number(duration[2] || 0) * 3600 + Number(duration[3] || 0) * 60 + Number(duration[4] || 0);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  }
+
   function lite(m) {
     const u = m.user || m.owner || {};
     const img = m.image_versions2 && m.image_versions2.candidates && m.image_versions2.candidates[0];
@@ -79,7 +92,7 @@
       fb_play_count: typeof m.fb_play_count === "number" ? m.fb_play_count : null,
       thumb: img ? img.url : null,
       video: vid ? vid.url : null,
-      duration: m.video_duration != null ? Math.round(m.video_duration) : null,
+      duration: videoDuration(m),
       media_type: mediaTypeName(m),
       image: bestImage(m),
       carousel: carouselOf(m),
@@ -871,9 +884,11 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         // (see src/lib/shared/igSurface.js).
         r.__surface = igSurface.stamp();
         const key = r.code || r.pk;
+        // A later sparse grid payload must not erase duration from bridge replay.
+        if (r.duration == null) r.duration = all.get(key)?.duration ?? null;
         if (r.code) all.set(r.code, r);
         if (r.pk) all.set(r.pk, r);
-        const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}`;
+        const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}|${r.duration}`;
         if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
         queueEnrichment(r);
       }

@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.13.1] — 2026-10-15
+
+### Fixed
+- Instagram Spy reads video duration from the DASH manifest already included in profile-grid responses when `video_duration` is absent. Automatic collections now send duration to the Hub without per-video enrichment requests.
+- Duration-only updates reach the bridge even when counters are unchanged, and later sparse payloads preserve known duration for bridge replay. Durations retain fractional seconds.
+
 ## [1.13.0] — 2026-10-13
 
 ### Added

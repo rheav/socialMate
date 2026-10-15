@@ -64,6 +64,62 @@ describe("Instagram grid posts for posts per day", () => {
   });
 });
 
+describe("Instagram Spy video duration", () => {
+  function boot() {
+    const delivered = []; const handlers = {};
+    const page = {
+      location: { pathname: "/nasa/", search: "", hash: "#socialmate-spy", origin: "https://www.instagram.com" },
+      document: { visibilityState: "hidden", querySelectorAll: () => [], addEventListener: () => {} },
+      setInterval: () => 1, setTimeout: () => 1, XMLHttpRequest: function () {}, URL,
+    };
+    page.XMLHttpRequest.prototype.setRequestHeader = () => {};
+    page.window = page;
+    page.postMessage = (m) => delivered.push(m);
+    page.addEventListener = (event, fn) => { handlers[event] = fn; };
+    const context = vm.createContext(page);
+    vm.runInContext(readFileSync(new URL("./main-world.js", import.meta.url), "utf8"), context);
+    const parse = (extra) => {
+      delivered.length = 0;
+      const media = { code: "ABCDEF", pk: "4008200743129957062", media_type: 2,
+        image_versions2: { candidates: [] }, video_versions: [{ url: "https://cdn/video.mp4" }],
+        like_count: 12, play_count: 200, ...extra };
+      vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify({ media }))})`, context);
+      return delivered.flatMap((m) => m.records || []).filter((r) => r.code === "ABCDEF");
+    };
+    return { parse, replay: () => {
+      delivered.length = 0;
+      page.relay = handlers.message;
+      vm.runInContext('relay({source:window,data:{__fbwIgReq:true}})', context);
+      return delivered.flatMap((m) => m.records || []).filter((r) => r.code === "ABCDEF");
+    } };
+  }
+
+  it("reads the profile grid's DASH duration without individual media requests", () => {
+    const t = boot();
+    expect(t.parse({ video_dash_manifest: '<MPD minBufferTime="PT2S" mediaPresentationDuration="PT123.297958S"></MPD>' })[0])
+      .toMatchObject({ duration: 123.297958 });
+  });
+
+  it("relays duration-only enrichment and retains it in replay after a sparse grid reading", () => {
+    const t = boot();
+    expect(t.parse({})[0].duration).toBeNull();
+    expect(t.parse({ video_duration: 42.5 })[0]).toMatchObject({ duration: 42.5 });
+    t.parse({});
+    expect(t.replay()[0]).toMatchObject({ duration: 42.5 });
+  });
+
+  it.each([
+    [{ video_duration: 15.25, video_dash_manifest: '<MPD mediaPresentationDuration="PT99S"/>' }, 15.25],
+    [{ video_duration: 0, video_dash_manifest: "<MPD mediaPresentationDuration='PT1H2M3.5S'/>" }, 3723.5],
+    [{ video_dash_manifest: '<MPD mediaPresentationDuration="PT0S"/>' }, null],
+    [{ video_duration: -3, video_dash_manifest: '<MPD><Period duration="PT12S"/></MPD>' }, null],
+    [{ video_dash_manifest: '<MPD mediaPresentationDuration="garbage"/>' }, null],
+    [{ video_dash_manifest: { mediaPresentationDuration: "PT12S" } }, null],
+  ])("validates duration metadata: %j", (extra, expected) => {
+    expect(boot().parse(extra)[0].duration).toBe(expected);
+  });
+});
+
 describe("first reading: more grid pages from a hidden tab", () => {
   // A hidden tab never scrolls the grid, so the MAIN world asks for the next pages
   // itself with the query the page sent, its cursor and the page's own doc_id.
