@@ -152,6 +152,25 @@ describe("jobs", () => {
     expect(ws.sent.filter((m) => m.type === "heartbeat")).toHaveLength(2);
   });
 
+  it("carries what the collector is doing in its heartbeats, sending a new phase at once", async () => {
+    let live;
+    collect.preparePost.mockImplementation((_job, opts) => {
+      live = opts.live;
+      return new Promise(() => {});
+    });
+    const ws = await connected();
+    ws.receive(job);
+    await flush();
+    live({ phase: "comments", detail: "até 200" });
+    const first = ws.sent.filter((m) => m.type === "heartbeat").at(-1);
+    expect(first.live).toMatchObject({ phase: "comments", detail: "até 200", stepStartedAt: expect.any(Number) });
+    live({ phase: "comments", detail: "mais" });
+    expect(ws.sent.filter((m) => m.type === "heartbeat")).toHaveLength(1);
+    ws.receive({ type: "ping", at: 1 });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(ws.sent.filter((m) => m.type === "heartbeat").at(-1).live).toMatchObject({ phase: "comments", detail: "mais" });
+  });
+
   it("reports a failure with its code", async () => {
     collect.preparePost.mockResolvedValue({ ok: false, code: "rate_limited" });
     const ws = await connected();

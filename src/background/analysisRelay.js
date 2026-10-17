@@ -95,12 +95,21 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
       send({ type: "error", taskId: msg.taskId, leaseToken: msg.leaseToken, code: "busy" });
       return;
     }
-    const task = { taskId: msg.taskId, leaseToken: msg.leaseToken, beat: null };
+    const task = { taskId: msg.taskId, leaseToken: msg.leaseToken, beat: null, live: null };
     working = task;
-    task.beat = setInterval(() => send({ type: "heartbeat", taskId: task.taskId, leaseToken: task.leaseToken }), HEARTBEAT_MS);
+    const beat = () => send({ type: "heartbeat", taskId: task.taskId, leaseToken: task.leaseToken, ...(task.live ? { live: task.live } : {}) });
+    task.beat = setInterval(beat, HEARTBEAT_MS);
     const progress = (code) => send({ type: "progress", taskId: task.taskId, leaseToken: task.leaseToken, code });
+    // What the collector is doing now: sent at once on a new phase, then with every heartbeat.
+    const live = (patch) => {
+      const fresh = !task.live || patch.phase !== task.live.phase;
+      task.live = fresh
+        ? { phase: patch.phase, provider: null, detail: patch.detail ?? null, stepStartedAt: Date.now(), activityAt: null, toolCalls: null, framesOpened: null, framesTotal: null, lastTool: null, lastFile: null }
+        : { ...task.live, ...patch };
+      if (fresh) beat();
+    };
     Promise.resolve()
-      .then(() => collect.preparePost({ taskId: msg.taskId, leaseToken: msg.leaseToken, deadlineAt: msg.deadlineAt ?? null, payload: msg.payload || {} }, { progress }))
+      .then(() => collect.preparePost({ taskId: msg.taskId, leaseToken: msg.leaseToken, deadlineAt: msg.deadlineAt ?? null, payload: msg.payload || {} }, { progress, live }))
       .then(
         (out) => finish(task, out),
         () => finish(task, { ok: false, code: "collect_failed" }),

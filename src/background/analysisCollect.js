@@ -119,7 +119,9 @@ export function createAnalysisCollect({
 
   /** The page's answer for this post, or null when the page could not say. */
   async function readPage(job, p, comments) {
+    job.live?.({ phase: "opening" });
     if (!(await whenReady(job))) return null;
+    if (comments) job.live?.({ phase: "comments", detail: "até 200 comentários, 20 cliques ou 90 s" });
     const res = await ask(job.tabId, {
       type: "FBW_ANALYSIS_COLLECT",
       code: job.code,
@@ -134,6 +136,7 @@ export function createAnalysisCollect({
     if (page.durationS != null && page.durationS > L.maxDurationS) return { state: "too_large" };
     let variant = pickVideoVariant(page.variants);
     if (!variant) return { state: "unavailable" };
+    job.live?.({ phase: "video_download", detail: variant.w && variant.h ? `${variant.w}×${variant.h}` : null });
     let got = await downloadLimited(variant.url, { maxBytes: L.maxBytes, fetchImpl, timeoutMs: L.downloadMs });
     if (!got.ok && got.code === "url_expired" && !job.cancelled && !job.stop) {
       // One fresh look: the page hands out newly signed links.
@@ -230,10 +233,14 @@ export function createAnalysisCollect({
     while (await instagram.busy()) {
       if (job.cancelled) return "cancelled";
       if (now() >= waitUntil) return "instagram_busy";
+      job.live?.({ phase: "waiting_spy" });
       await wait(L.busyPollMs, job);
     }
     const { nextAt } = await load();
-    if (nextAt > now()) await wait(nextAt - now(), job);
+    if (nextAt > now()) {
+      job.live?.({ phase: "waiting_gap", detail: `${Math.round((nextAt - now()) / 1000)} s` });
+      await wait(nextAt - now(), job);
+    }
     return job.cancelled ? "cancelled" : null;
   }
 
@@ -244,16 +251,17 @@ export function createAnalysisCollect({
 
   /**
    * Prepare one post. → { ok: true, result: { evidenceHash } } or { ok: false, code }.
-   * `progress(code)` reports a step to the Hub's log.
+   * `progress(code)` records a milestone in the Hub's log; `live(patch)` says
+   * what is happening right now (the panel's "Agora").
    */
-  async function preparePost(task, { progress = () => {} } = {}) {
+  async function preparePost(task, { progress = () => {}, live = () => {} } = {}) {
     const p = task?.payload || {};
     const code = p.code || (p.mediaPk && /^\d{1,25}$/.test(String(p.mediaPk)) ? igCodeFromPk(String(p.mediaPk)) : null);
     if (!task?.taskId || !task.leaseToken || !code || !CODE_RE.test(code)) return { ok: false, code: "bad_job" };
     const settings = await hub();
     if (!settings?.url || !settings?.token) return { ok: false, code: "hub_not_configured" };
 
-    const job = { taskId: task.taskId, leaseToken: task.leaseToken, code, tabId: null, stop: null, cancelled: false };
+    const job = { taskId: task.taskId, leaseToken: task.leaseToken, code, tabId: null, stop: null, cancelled: false, live };
     jobs.add(job);
     let touchedInstagram = false;
     try {
@@ -279,6 +287,7 @@ export function createAnalysisCollect({
       if (p.reuseAssetId) video = { state: "available", assetId: p.reuseAssetId, width: null, height: null };
       else if (inTab.video?.state === "available") {
         const v = inTab.video;
+        live({ phase: "video_upload", detail: `${(v.data.byteLength / 1024 ** 2).toFixed(1).replace(".", ",")} MB` });
         const state = await upload(settings, job, p.assetId, v);
         if (state === "lease_lost") return { ok: false, code: "lease_lost" };
         video = { state, assetId: state === "available" ? p.assetId : null, width: v.variant.w, height: v.variant.h };
@@ -292,6 +301,7 @@ export function createAnalysisCollect({
           .filter((v) => isInstagramCdn(v.url))
           .sort((a, b) => (a.w || 0) * (a.h || 0) - (b.w || 0) * (b.h || 0))[0];
         if (smallest && !job.cancelled) {
+          live({ phase: "transcribing", detail: page.durationS ? `vídeo de ${Math.round(page.durationS)} s` : null });
           const t = await transcribe({ code, pk: page.pk || p.mediaPk, mediaUrl: smallest.url, durationS: page.durationS ?? null, caption: page.caption?.text ?? null }).catch(() => null);
           transcript =
             t?.status === "done"
@@ -316,6 +326,7 @@ export function createAnalysisCollect({
         }
       }
       if (transcript) body.transcript = transcript;
+      live({ phase: "filing" });
       const filed = await fileEvidence(settings, job, body);
       return filed.ok ? { ok: true, result: { evidenceHash: filed.hash } } : { ok: false, code: filed.code };
     } finally {

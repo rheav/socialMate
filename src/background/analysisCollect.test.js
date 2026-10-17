@@ -185,6 +185,16 @@ describe("preparePost", () => {
     expect(state.nextAt - w.now()).toBeLessThanOrEqual(40_000);
   });
 
+  it("says what it is doing at each step (the panel's Agora)", async () => {
+    const w = world();
+    const phases = [];
+    await w.api.preparePost(job(), { live: (p) => phases.push(p.phase) });
+    expect(phases).toEqual(["opening", "comments", "video_download", "video_upload", "transcribing", "filing"]);
+    const later = [];
+    await w.api.preparePost(job({ assetId: "a2" }), { live: (p) => later.push(p.phase) });
+    expect(later[0]).toBe("waiting_gap");
+  });
+
   it("spaces two posts 20–40 s apart", async () => {
     const w = world();
     await w.api.preparePost(job());
