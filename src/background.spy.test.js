@@ -5,6 +5,7 @@ const alarms = {};
 let messageListener = null;
 let tabsUpdatedListener = null;
 let igResponseListener = null;
+const responseListeners = [];
 const tabListeners = [];
 
 function chromeStub() {
@@ -55,7 +56,10 @@ function chromeStub() {
     tabsUpdatedListener = (...args) => tabListeners.forEach((f) => f(...args));
   };
 
-  stub.webRequest.onCompleted.addListener = (fn) => { igResponseListener = fn; };
+  stub.webRequest.onCompleted.addListener = (fn) => {
+    responseListeners.push(fn);
+    igResponseListener = (...args) => responseListeners.forEach((f) => f(...args));
+  };
   return stub;
 }
 

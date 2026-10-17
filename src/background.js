@@ -56,7 +56,9 @@ import {
   emptySpyState,
   mergeList,
   queueOp,
+  isBlocked,
 } from "./lib/spyStore.js";
+import { TX_LANG_KEY } from "./lib/shared/txLang.js";
 
 import { createVoiceJobs } from "./lib/voiceJobs.js";
 import { parseProfileUrl, spyId } from "./lib/spyProfile.js";
@@ -66,6 +68,7 @@ import {
   measureFbProfile,
   mutateSpy,
   observeIgProfile,
+  pauseInstagram,
   receiveIgPosts,
   recoverSpySync,
   scheduleSpy,
@@ -75,6 +78,8 @@ import {
 } from "./background/spy.js";
 
 import { IG_EXPORT_ALARM, acceptIgCapture, createIgExport } from "./background/igExport.js";
+import { createAnalysisCollect } from "./background/analysisCollect.js";
+import { createAnalysisRelay } from "./background/analysisRelay.js";
 
 // Instagram Scraper destinations (outbox + presence beacon). Created and wired
 // at module scope so its listeners exist before any event wakes the worker.
@@ -86,6 +91,45 @@ const igExport = createIgExport({
   version: chrome.runtime.getManifest?.().version || "",
 });
 igExport.init();
+
+// Top-video analyses for the Hub: the relay takes the Hub's collection jobs, the
+// collector reads each post in a tab of its own. Instagram is shared with the
+// Spy: its pause stops the collector, a running batch makes it wait, and a wall
+// the collector meets pauses the Spy too.
+const analysisCollect = createAnalysisCollect({
+  chrome,
+  fetchImpl: (...args) => fetch(...args),
+  hub: async () => {
+    const s = await readSyncSettings();
+    return isSyncConfigured(s) ? s : null;
+  },
+  instagram: {
+    blocked: async () => {
+      const state = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY];
+      return isBlocked(state, "instagram") ? state.blockedReason?.instagram || "rate_limited" : null;
+    },
+    busy: async () => !!(await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY]?.igBatch,
+    pause: (code) => pauseInstagram(code),
+    serialize: (work) => serializeIg(work),
+  },
+  transcribe: (req) => transcribeForAnalysis(req),
+});
+const analysisRelay = createAnalysisRelay({
+  WebSocketImpl: globalThis.WebSocket,
+  settings: async () => {
+    const s = await readSyncSettings();
+    return isSyncReady(s) ? s : null;
+  },
+  storage: chrome.storage.local,
+  collect: analysisCollect,
+  version: chrome.runtime.getManifest?.().version || "",
+});
+analysisCollect.recover().catch(() => {});
+analysisRelay.ensure().catch(() => {});
+chrome.webRequest?.onCompleted?.addListener((details) => analysisCollect.onResponse(details), { urls: ["https://*.instagram.com/*"] });
+chrome.tabs?.onUpdated?.addListener((tabId, change) => {
+  if (change.url) analysisCollect.onNavigation(tabId, change.url);
+});
 
 // The spy area (background/spy.js) shares these two with the archive. Both
 // are function declarations, so they exist before this line runs.
@@ -175,6 +219,7 @@ chrome.alarms?.onAlarm?.addListener((alarm) => {
     flushSpy().catch(() => {});
   } else if (alarm.name === IG_EXPORT_ALARM) {
     igExport.tick().catch(() => {});
+    analysisRelay.ensure().catch(() => {});
   }
 });
 
@@ -320,6 +365,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     scheduleSpy().catch(() => {});
   }
   if (changes[SPY_QUEUE_KEY] || changes[SYNC_KEY]) recoverSpySync().catch(() => {});
+  if (changes[SYNC_KEY]) analysisRelay.ensure().catch(() => {});
 });
 
 // `fbw_saved` is the shared Library. It used to be written from TEN places (six
@@ -1281,6 +1327,29 @@ async function runTranscription(videoId, tabId, meta = {}) {
   } finally {
     whisperJobs.delete(id);
   }
+}
+
+// The analysis collector's transcript of a post: the Library's own when it has
+// one, else the usual queued Whisper job on the post's MP4 (which files it in the
+// Library and syncs it like any other).
+async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption }) {
+  const id = code || pk;
+  const done = (rec) =>
+    rec?.status === "done"
+      ? { status: "done", text: rec.text || "", chunks: rec.chunks || [], language: rec.language ?? null, source: rec.source || "whisper" }
+      : null;
+  const existing = done((await getTranscripts())[id]);
+  if (existing) return existing;
+  const language = (await chrome.storage.local.get(TX_LANG_KEY))[TX_LANG_KEY];
+  await runTranscription(id, null, {
+    platform: "instagram",
+    mediaUrl,
+    durationS,
+    caption,
+    language,
+    sourceUrl: code ? `https://www.instagram.com/p/${code}/` : undefined,
+  });
+  return done((await getTranscripts())[id]) || { status: "failed" };
 }
 
 // ---- where downloads land -------------------------------------------------

@@ -96,6 +96,12 @@
       fb_play_count: typeof m.fb_play_count === "number" ? m.fb_play_count : null,
       thumb: img ? img.url : null,
       video: vid ? vid.url : null,
+      // Every rendition with its size: the analysis tab picks one near 720p. The
+      // bridge keeps these out of the panel's list.
+      video_variants: Array.isArray(m.video_versions)
+        ? m.video_versions.filter((v) => v && v.url).slice(0, 8)
+          .map((v) => ({ w: v.width != null ? v.width : null, h: v.height != null ? v.height : null, url: v.url }))
+        : null,
       duration: videoDuration(m),
       media_type: mediaTypeName(m),
       image: bestImage(m),

@@ -313,4 +313,21 @@ describe("Instagram research export fields", () => {
     const sent = records().filter((r) => r.__kind === "ig_comment");
     expect(sent.map((c) => [c.digg_count, c.text])).toEqual([[1, "oi"], [4, "oi"], [4, "oi, editado"]]);
   });
+
+  it("lists every video rendition with its size, for the analysis tab", () => {
+    const { parse, records } = boot();
+    const post = media("x");
+    post.data.items[0].video_versions = [
+      { width: 1080, height: 1920, url: "https://x/1080.mp4" },
+      { width: 720, height: 1280, url: "https://x/720.mp4" },
+      { url: "" },
+    ];
+    parse(post);
+    const rec = records().find((r) => r.code === "CCC");
+    expect(rec.video).toBe("https://x/1080.mp4");
+    expect(rec.video_variants).toEqual([
+      { w: 1080, h: 1920, url: "https://x/1080.mp4" },
+      { w: 720, h: 1280, url: "https://x/720.mp4" },
+    ]);
+  });
 });

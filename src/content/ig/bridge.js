@@ -265,6 +265,8 @@ function openTxLangMenu(btn, onPick) {
     byId.clear();
     reels.clear();
     igComments.clear();
+    igVideoVariants.clear();
+    analysisCancelled = true;
     for (const k in igMedia) delete igMedia[k];
   };
   window.addEventListener("message", onTakeover);
@@ -309,6 +311,8 @@ function openTxLangMenu(btn, onPick) {
   // Research export: full captions live here, not in byId (the panel's list
   // carries the 500-character preview only), plus what awaits the next send.
   const igCaptionFull = new Map(); // code||pk -> caption up to 20,000
+  // Video renditions with sizes, for the analysis tab only (never in the list).
+  const igVideoVariants = new Map(); // code||pk -> [{ w, h, url }]
   let igExportPosts = new Map(); // code||pk -> record
   const igExportHeld = new Map(); // cid -> comment awaiting its post
   let igExportTimer = null;
@@ -609,6 +613,10 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   const igUsersByName = new Map();
   // Read once: opening the profile's Reels tab (in-page) drops the batch hash.
   const SPY_TAB_AT_LOAD = location.hash === "#socialmate-spy";
+  // The tab the worker opened to collect one top post for the Hub's analysis.
+  const ANALYSIS_TAB_AT_LOAD = location.hash === "#socialmate-analysis";
+  let analysisCancelled = false;
+  const analysisClicks = new WeakMap(); // button -> presses, so a sticky one is given up on
   let spyNames = new Set();
   const spyUserIds = new Map(); // key -> the network user id the hub knows
   const spyObservedAt = new Map();
@@ -746,6 +754,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       const id = r.code || r.pk;
       const captionFull = r.caption_full;
       delete r.caption_full;
+      const variants = r.video_variants;
+      delete r.video_variants;
       if (id) {
         // Coalesce: later payloads add fields (play_count, repost) or drop them
         // (null) — never let a null clobber a value we already captured.
@@ -761,6 +771,10 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         if (captionFull) {
           igCaptionFull.set(id, captionFull);
           while (igCaptionFull.size > 500) igCaptionFull.delete(igCaptionFull.keys().next().value);
+        }
+        if (variants && variants.length) {
+          igVideoVariants.set(id, variants);
+          while (igVideoVariants.size > 200) igVideoVariants.delete(igVideoVariants.keys().next().value);
         }
         igExportPosts.set(id, { ...prev, caption_full: igCaptionFull.get(id) || null });
         queueIgExport();
@@ -1005,6 +1019,32 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     if (msg?.type === "FBW_IG_SCROLL_STOP") { igScrollStop = true; sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_IG_TOP") { window.scrollTo({ top: 0, behavior: "smooth" }); sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true, spy: true }); } // liveness ack (clears the panel's reload hint)
+    // One top post for the Hub's analysis: only in the worker's own tab.
+    if (msg?.type === "FBW_ANALYSIS_COLLECT") {
+      if (!ANALYSIS_TAB_AT_LOAD && location.hash !== "#socialmate-analysis") { sendResponse({ ok: false, error: "not_analysis_tab" }); return; }
+      analysisCancelled = false;
+      igAnalysisCollect(msg, {
+        currentCode: () => (location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/) || [])[1] || null,
+        url: () => location.origin + location.pathname,
+        recordOf: (code) => byId.get(code) || igMedia[code] || null,
+        captionOf: (id) => igCaptionFull.get(id) || null,
+        variantsOf: (id) => igVideoVariants.get(id) || null,
+        commentsOf: (code) => Array.from(igComments.get(code)?.items.values() || []),
+        expand: expandComments,
+        findButton: () => igExpandButton(document.querySelector("main") || document.body, analysisClicks),
+        click: async (el) => {
+          analysisClicks.set(el, (analysisClicks.get(el) || 0) + 1);
+          el.scrollIntoView?.({ block: "center" });
+          el.click();
+        },
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: () => Date.now(),
+        cancelled: () => analysisCancelled || disabled,
+        requestReplay,
+      }).then(sendResponse, () => sendResponse({ ok: false, error: "collect_failed" }));
+      return true;
+    }
+    if (msg?.type === "FBW_ANALYSIS_CANCEL") { analysisCancelled = true; sendResponse?.({ ok: true }); return; }
   });
 
   // ============================================================
@@ -1083,6 +1123,132 @@ function igExportMessages(posts, held, media, now) {
   }
   return out;
 }
+
+// The Hub's analysis of a top post (T8): what this tab can say about the one post
+// its URL names — the full caption, the video renditions, and the comment thread
+// opened under a budget. Identity is exact: the URL's shortcode and, when the
+// record has one, the media pk the Hub asked for. Anything else is refused rather
+// than collected under the wrong post. The page-facing parts arrive in `env`.
+async function igAnalysisCollect(msg, env) {
+  const code = String(msg.code || "");
+  const pk = String(msg.mediaPk || "");
+  if (!code || env.currentCode() !== code) return { ok: false, error: "other_page" };
+  // The post's payloads land after the page loads; ask the MAIN world to replay.
+  const until = env.now() + (msg.waitMs ?? 20000);
+  let rec = null;
+  for (;;) {
+    if (env.cancelled()) return { ok: false, error: "cancelled" };
+    rec = env.recordOf(code);
+    if (rec || env.now() >= until) break;
+    env.requestReplay();
+    await env.sleep(500);
+  }
+  if (!rec) return { ok: false, error: "post_not_found" };
+  const recPk = String(rec.pk || "").split("_")[0];
+  if (rec.code !== code || (pk && recPk && recPk !== pk)) return { ok: false, error: "post_mismatch" };
+  const id = rec.code || rec.pk;
+  const full = env.captionOf(id);
+  // The record's own caption is a 500-character preview: whole only when shorter.
+  const caption = full ? { text: full, full: full.length < 20000 }
+    : rec.caption ? { text: rec.caption, full: rec.caption.length < 500 } : { text: null, full: false };
+  let comments = null;
+  if (msg.comments) {
+    const run = await env.expand({ count: () => env.commentsOf(code).length, findButton: env.findButton, click: env.click,
+      sleep: env.sleep, now: env.now, limits: msg.limits, cancelled: env.cancelled });
+    comments = { items: env.commentsOf(code), stopReason: run.stopReason, expansions: run.expansions, order: "page",
+      reportedTotal: rec.comment_count ?? null };
+  }
+  const authors = [...new Set([rec.username, ...(rec.coauthors || []).map((c) => c && c.username)].filter(Boolean))];
+  return { ok: true, code, pk: recPk || pk, url: env.url(), caption, variants: env.variantsOf(id) || [],
+    durationS: rec.duration ?? null, mediaType: rec.media_type || null, authors, comments };
+}
+
+// The next "View replies" / "Load more comments" control on the page, skipping
+// one pressed three times already (it keeps coming back without revealing more).
+function igExpandButton(root, clicks) {
+  for (const el of root.querySelectorAll('button, [role="button"]')) {
+    const svg = el.querySelector("svg[aria-label]");
+    const label = (el.getAttribute("aria-label") || (svg && svg.getAttribute("aria-label")) || el.textContent || "").trim();
+    if (!label || label.length > 60 || !isExpandLabel(label)) continue;
+    if ((clicks.get(el) || 0) >= 3) continue;
+    return el;
+  }
+  return null;
+}
+
+// <<< inline:src/lib/shared/igCommentExpand.js
+// GENERATED by scripts/gen-inline.mjs — do not edit here.
+// Edit src/lib/shared/igCommentExpand.js and run `npm run gen:inline`.
+// Opening an Instagram post's comment thread, under a budget. INLINED into the
+// Instagram bridge — see src/lib/shared/README.md before editing (no imports
+// allowed in this file).
+//
+// The analysis of a top video wants the comments' TEXT, not their count. A post
+// page shows the first ~15; the rest sit behind "Load more comments" and each
+// thread's "View replies (n)". This presses those, one at a time with a human
+// gap, and stops at the first limit hit — and says which one, so the report can
+// call a partial capture partial instead of pretending it read everything.
+//
+// The page-facing parts (counting what is on screen, finding a button, clicking,
+// sleeping, the clock) are injected, so the stop rules are tested without a DOM.
+
+/** Defaults from the design: 200 comments, 20 presses or 90 s per post. */
+const IG_COMMENT_EXPAND_LIMITS = { maxComments: 200, maxExpansions: 20, maxMs: 90_000, gapMs: [1200, 2600] };
+
+/** Presses in a row that revealed nothing before the page is taken as stuck. */
+const IG_EXPAND_STALL = 3;
+
+/**
+ * Press "more" buttons until a limit, the end of the thread, a stuck page or a
+ * cancel. Resolves to { stopReason, captured, expansions }, where stopReason is
+ * one of limit_comments | limit_expansions | limit_time | exhausted |
+ * no_progress | cancelled.
+ */
+async function expandComments({ count, findButton, click, sleep, now, limits = IG_COMMENT_EXPAND_LIMITS, random = Math.random, cancelled = () => false }) {
+  const { maxComments, maxExpansions, maxMs, gapMs } = { ...IG_COMMENT_EXPAND_LIMITS, ...limits };
+  const start = now();
+  let expansions = 0;
+  let stalled = 0;
+  const done = (stopReason) => ({ stopReason, captured: Math.min(count(), maxComments), expansions });
+  for (;;) {
+    if (cancelled()) return done("cancelled");
+    const before = count();
+    if (before >= maxComments) return done("limit_comments");
+    if (expansions >= maxExpansions) return done("limit_expansions");
+    const left = maxMs - (now() - start);
+    if (left <= 0) return done("limit_time");
+    const button = findButton();
+    if (!button) return done("exhausted");
+    await click(button);
+    expansions += 1;
+    const [lo, hi] = gapMs;
+    await sleep(Math.min(left, Math.round(lo + random() * Math.max(0, hi - lo))));
+    stalled = count() > before ? 0 : stalled + 1;
+    if (stalled >= IG_EXPAND_STALL) return done("no_progress");
+  }
+}
+
+/**
+ * Whether a button label opens more of the thread ("View replies (3)",
+ * "Ver todas as 4 respostas", "Load more comments"). Hiding, replying, liking
+ * and translating are never pressed.
+ */
+function isExpandLabel(label) {
+  const s = String(label ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/^[^a-z]+/, "")
+    .trim();
+  if (!s || /^(ocultar|hide)\b/.test(s)) return false;
+  return (
+    /^(ver|view)( todas as| all)?( \d+)?( mais| more)? (respostas?|repl(y|ies))\b/.test(s) ||
+    /^(carregar|ver) mais comentarios?\b/.test(s) ||
+    /^(load|view) more comments?\b/.test(s)
+  );
+}
+// >>> inline:end
 
 // <<< inline:src/lib/shared/filenames.js
 // GENERATED by scripts/gen-inline.mjs — do not edit here.

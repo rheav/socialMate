@@ -446,6 +446,15 @@ async function blockPlatform(platform, errorCode, profileId, reading = null) {
   });
 }
 
+/**
+ * The analysis collector's (background/analysisCollect.js) way to stop Instagram:
+ * a login wall or a rate limit on its tab is the same signal the batch reacts
+ * to, so it gets the same 12-hour pause and the same activity line.
+ */
+export function pauseInstagram(errorCode) {
+  return blockPlatform("instagram", errorCode, null);
+}
+
 async function recordProfileError(profileId, errorCode, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();

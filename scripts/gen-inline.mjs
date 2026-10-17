@@ -86,6 +86,8 @@ const TARGETS = {
     // The reach grade (views ÷ followers) is TikTok's code, reused as-is so the
     // two rails can never disagree on a tier or a number.
     "src/lib/shared/ttFormat.js",
+    // The analysis tab opens a post's comment thread under a budget.
+    "src/lib/shared/igCommentExpand.js",
   ],
   "src/content/ig/main-world.js": [
     "src/lib/shared/igCode.js",

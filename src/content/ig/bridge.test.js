@@ -172,3 +172,83 @@ describe("research export messages", () => {
     expect(msgs.map((m) => m.posts.length)).toEqual([500, 500, 200]);
   });
 });
+
+const collectSource = bridge.match(/^async function igAnalysisCollect\([^)]*\) \{[\s\S]*?\n\}/m)[0];
+const igAnalysisCollect = new Function(`${collectSource}; return igAnalysisCollect;`)();
+const buttonSource = bridge.match(/^function igExpandButton\([^)]*\) \{[\s\S]*?\n\}/m)[0];
+
+describe("analysis tab collection", () => {
+  const rec = { code: "CCC", pk: "3003", username: "nasa", caption: "curta", comment_count: 3, duration: 41, media_type: "video",
+    coauthors: [{ username: "nasa" }, { username: "partner" }] };
+  function env(over = {}) {
+    let clock = 0;
+    const comments = [{ cid: "1", text: "oi" }];
+    return {
+      currentCode: () => "CCC",
+      url: () => "https://www.instagram.com/p/CCC/",
+      recordOf: (code) => (code === "CCC" ? rec : null),
+      captionOf: () => "curta mas inteira",
+      variantsOf: () => [{ w: 720, h: 1280, url: "https://x/720.mp4" }],
+      commentsOf: () => comments,
+      expand: async ({ count }) => ({ stopReason: "exhausted", captured: count(), expansions: 0 }),
+      findButton: () => null,
+      click: async () => {},
+      sleep: async (ms) => { clock += ms; },
+      now: () => clock,
+      cancelled: () => false,
+      requestReplay: () => {},
+      ...over,
+    };
+  }
+
+  it("answers for the post the URL names, with its full caption, renditions and comments", async () => {
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003", comments: true }, env());
+    expect(out).toMatchObject({
+      ok: true, code: "CCC", pk: "3003", url: "https://www.instagram.com/p/CCC/",
+      caption: { text: "curta mas inteira", full: true },
+      variants: [{ w: 720, h: 1280 }], durationS: 41, authors: ["nasa", "partner"],
+      comments: { items: [{ cid: "1" }], stopReason: "exhausted", order: "page", reportedTotal: 3 },
+    });
+  });
+
+  it("refuses another page, another media under the same code, and a post that never shows", async () => {
+    expect(await igAnalysisCollect({ code: "DDD", mediaPk: "3003" }, env())).toEqual({ ok: false, error: "other_page" });
+    expect(await igAnalysisCollect({ code: "CCC", mediaPk: "9999" }, env())).toEqual({ ok: false, error: "post_mismatch" });
+    const late = env({ recordOf: () => null });
+    expect(await igAnalysisCollect({ code: "CCC", mediaPk: "3003", waitMs: 5000 }, late)).toEqual({ ok: false, error: "post_not_found" });
+  });
+
+  it("marks a caption known only by its 500-character preview as partial", async () => {
+    const long = { ...rec, caption: "x".repeat(500) };
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => long, captionOf: () => null }));
+    expect(out.caption).toEqual({ text: "x".repeat(500), full: false });
+    expect(out.comments).toBeNull();
+  });
+
+  it("stops when cancelled while waiting for the post", async () => {
+    let n = 0;
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => null, cancelled: () => ++n > 2 }));
+    expect(out).toEqual({ ok: false, error: "cancelled" });
+  });
+});
+
+describe("thread buttons the analysis tab presses", () => {
+  const igExpandButton = new Function("isExpandLabel", `${buttonSource}; return igExpandButton;`)(
+    (label) => /^(view replies|load more comments)/i.test(label.replace(/^[^a-z]+/i, "")),
+  );
+
+  it("finds reply and load-more buttons, never the hide or reply ones, and gives up on one that keeps coming back", () => {
+    document.body.innerHTML = `<main>
+      <button id="hide">Hide replies</button>
+      <div role="button" id="reply">Reply</div>
+      <button id="more"><div></div><span>—— View replies (3)</span></button>
+      <div role="button" id="plus"><svg aria-label="Load more comments"></svg></div>
+    </main>`;
+    const clicks = new Map();
+    expect(igExpandButton(document.body, clicks).id).toBe("more");
+    clicks.set(document.getElementById("more"), 3);
+    expect(igExpandButton(document.body, clicks).id).toBe("plus");
+    clicks.set(document.getElementById("plus"), 3);
+    expect(igExpandButton(document.body, clicks)).toBeNull();
+  });
+});
