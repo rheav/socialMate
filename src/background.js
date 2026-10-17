@@ -74,6 +74,19 @@ import {
   useSpyDeps,
 } from "./background/spy.js";
 
+import { IG_EXPORT_ALARM, createIgExport } from "./background/igExport.js";
+
+// Instagram Scraper destinations (outbox + presence beacon). Created and wired
+// at module scope so its listeners exist before any event wakes the worker.
+const igExport = createIgExport({
+  chrome,
+  // Absent only in unit tests that load this worker under plain Node.
+  WebSocketImpl: globalThis.WebSocket,
+  fetchImpl: (...args) => fetch(...args),
+  version: chrome.runtime.getManifest?.().version || "",
+});
+igExport.init();
+
 // The spy area (background/spy.js) shares these two with the archive. Both
 // are function declarations, so they exist before this line runs.
 useSpyDeps({ durableThumb, readSyncSettings });
@@ -160,6 +173,8 @@ chrome.alarms?.onAlarm?.addListener((alarm) => {
     spyTick().catch(() => {});
   } else if (alarm.name === "fbw-spy-sync") {
     flushSpy().catch(() => {});
+  } else if (alarm.name === IG_EXPORT_ALARM) {
+    igExport.tick().catch(() => {});
   }
 });
 
@@ -1750,6 +1765,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       flushSync({ manual: true })
         .then(sendResponse)
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
+    case "FBW_IG_EXPORT_STATUS": {
+      igExport.status().then(
+        (status) => sendResponse({ ok: true, status }),
+        (e) => sendResponse({ ok: false, error: String(e?.message || e) }),
+      );
+      return true;
+    }
+    case "FBW_IG_EXPORT_FLUSH": {
+      igExport.tick().then(
+        () => sendResponse({ ok: true }),
+        (e) => sendResponse({ ok: false, error: String(e?.message || e) }),
+      );
       return true;
     }
     case "FBW_SPY_OBSERVE": {
