@@ -481,3 +481,35 @@ Profile-grid responses omit `video_duration` but carry `video_dash_manifest`
 not use soundtrack duration or CDN preview hints. Duration participates in relay
 deduplication and survives sparse readings in the replay cache, so the batch tab
 can supply Hub durations with per-media enrichment still disabled.
+
+### Análises do Top and Instagram Scraper destinations (1.14.0)
+
+Two new jobs for the service worker, each in its own module, wired at module
+scope in `background.js`:
+
+- `background/analysisRelay.js` — WebSocket to `<acervo>/ws/socialmate-extension`
+  (sync token in the first `hello` frame, never the URL; only when sync is
+  ready). One job at a time; heartbeats every 20 s carry the collector's live
+  step for the Hub's "Agora" panel; a result is kept in `fbw_analysis_relay`
+  until acked and resent after a reconnect or a worker restart; a 1008 waits for
+  a new token.
+- `background/analysisCollect.js` — one post per job in its own background tab
+  (`#socialmate-analysis`): full caption and video renditions from the bridge
+  (`FBW_ANALYSIS_COLLECT`, exact shortcode/pk match), MP4 via
+  `lib/analysisMedia.js` (CDN hosts only, 100 MiB, sha256, one fresh look on an
+  expired link), `PUT /api/sync/analysis/assets/:id` under the lease, Whisper via
+  `runTranscription` when the Acervo has none, `POST /api/sync/analysis/evidence`.
+  Comments are not collected for the analysis (their count is a Hub number).
+  Shares Instagram with the Spy (`serializeIg`, the Spy's pause, waits for a
+  batch, `pauseInstagram` on 401/403/429 or a login wall), 20–40 s between
+  posts (`fbw_analysis_collect.nextAt`), closes only its own tab, and a restart
+  closes the tab a dead worker left. It also runs "Comentários de todos"
+  (`FBW_IG_COMMENT_SWEEP*`), which opens up to 15 listed posts and reads their
+  threads with `lib/shared/igCommentExpand.js` for the Instagram Scraper.
+- `background/igExport.js` + `lib/{igDestinations,igOutbox,igExportFormat,igPresence}.js`
+  — normalized posts, comments and finished transcripts to `/ingest/socialmate`
+  on up to two destinations (`fbw_ig_destinations`), each with its own outbox
+  and confirmations (`fbw_ig_outbox`), and a presence socket per destination.
+
+Storage added: `fbw_analysis_relay`, `fbw_analysis_collect`,
+`fbw_ig_destinations`, `fbw_ig_outbox`.

@@ -16,6 +16,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.14.0] — 2026-10-17
+
+### Added
+- **Análises do Top (Hub):** the extension takes the Hub's collection jobs over `/ws/socialmate-extension` (Acervo sync token in the first frame). Each job opens the post in a background tab of its own (`#socialmate-analysis`), reads the full caption and the video renditions, fetches a 720p MP4 (100 MiB / 10 min cap, one fresh look on an expired link), uploads it under the task's lease, runs the extension's Whisper job when the Acervo has no transcript, and files the evidence. Comments are not collected for the analysis: their count is a number the Hub already has. Each step is reported live to the Hub's "Agora" panel; unacknowledged results survive reconnects and worker restarts.
+- **Instagram Scraper destinations** (Opções → "Instagram Scraper"): local and production backends, each with its own outbox and confirmations, a presence socket and a connection test. Posts with the full caption (up to 20,000), comments and finished Instagram transcripts reach `/ingest/socialmate`.
+- Ordenar: **Transcrever todos** (one Whisper job at a time) and **Comentários de todos** (up to 15 listed posts, one at a time in a tab of its own, 20–40 s apart) for the Instagram Scraper destinations.
+- Comentários: **Abrir respostas** on the open post (200 comments, 20 presses or 90 s), saying where it stopped.
+
+### Changed
+- Instagram is shared with the Spy: the Spy's pause stops the collector, a running Spy batch makes it wait, and a login wall or rate limit seen by the collector pauses the Spy too. Collection never counts as a daily reading.
+
 ## [1.13.1] — 2026-10-15
 
 ### Fixed
