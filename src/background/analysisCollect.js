@@ -1,8 +1,10 @@
 // Preparing one top post for the Hub's analysis (T8): the extension is the only
 // part of the system with an Instagram session, so it opens the post in a tab of
-// its own, reads the full caption and the comment thread (under a budget),
-// fetches the video, has it transcribed when the Acervo has no transcript, and
-// files all of it with the Hub under the task's lease.
+// its own, reads the full caption, fetches the video, has it transcribed when
+// the Acervo has no transcript, and files all of it with the Hub under the
+// task's lease. Comments are not read for the analysis: their count is a number
+// the Hub already has. (The comment sweep below serves the Instagram Scraper
+// destinations, not the analysis.)
 //
 // Instagram is touched the way the Spy touches it: one background tab, one post
 // at a time, 20–40 s apart, never while a Spy batch is running, and a login wall
@@ -35,7 +37,6 @@ export const COLLECT_LIMITS = {
 
 const CODE_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const LOGIN_WALL = /instagram\.com\/(accounts\/login|challenge|checkpoint)/;
-const COMMENTS_MAX = 400;
 
 const idle = (nextAt = 0) => ({ taskId: null, tabId: null, code: null, startedAt: null, nextAt });
 
@@ -158,6 +159,7 @@ export function createAnalysisCollect({
     job.tabId = tab.id;
     await save({ taskId: job.taskId, tabId: tab.id, code: job.code, startedAt: now() });
     try {
+      // Only the comment sweep asks for the thread; the Hub's jobs never do.
       const page = await readPage(job, p, !!p.needs?.comments);
       if (job.cancelled || job.stop || !page) return { page };
       const video = p.needs?.video && p.assetId ? await fetchVideo(job, p, page) : null;
@@ -189,15 +191,6 @@ export function createAnalysisCollect({
     }
     return "missing";
   }
-
-  const commentOf = (c) => ({
-    id: String(c.cid ?? ""),
-    parentId: c.parent != null ? String(c.parent) : null,
-    author: c.username ?? null,
-    text: c.text ?? "",
-    likes: c.digg_count ?? null,
-    createdAt: c.create_time ?? null,
-  });
 
   async function fileEvidence(settings, job, body) {
     const url = `${settings.url.replace(/\/+$/, "")}/api/sync/analysis/evidence`;
@@ -265,7 +258,7 @@ export function createAnalysisCollect({
     jobs.add(job);
     let touchedInstagram = false;
     try {
-      const touchesInstagram = !!(p.needs?.comments || p.needs?.captionFull || (p.needs?.video && p.assetId));
+      const touchesInstagram = !!(p.needs?.captionFull || (p.needs?.video && p.assetId));
       let inTab = { page: null, video: null };
       if (touchesInstagram) {
         const blocked = await gate(job);
@@ -316,14 +309,6 @@ export function createAnalysisCollect({
       if (page) {
         body.caption = { text: page.caption?.text ?? null, full: !!page.caption?.full };
         body.authors = page.authors || [];
-        if (page.comments) {
-          body.comments = {
-            items: page.comments.items.slice(-COMMENTS_MAX).map(commentOf),
-            reportedTotal: page.comments.reportedTotal ?? p.reportedComments ?? null,
-            stopReason: page.comments.stopReason ?? null,
-            order: page.comments.order ?? null,
-          };
-        }
       }
       if (transcript) body.transcript = transcript;
       live({ phase: "filing" });

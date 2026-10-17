@@ -36,7 +36,7 @@ const job = (over = {}) => ({
     reportedComments: 3,
     assetId: "a1",
     reuseAssetId: null,
-    needs: { video: true, comments: true, captionFull: true, transcript: true },
+    needs: { video: true, captionFull: true, transcript: true },
     ...over,
   },
 });
@@ -152,7 +152,7 @@ function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), blocked
 }
 
 describe("preparePost", () => {
-  it("collects caption, comments, video and transcript and files them under the task's lease", async () => {
+  it("collects caption, video and transcript (no comments) and files them under the task's lease", async () => {
     const w = world();
     const out = await w.api.preparePost(job());
     expect(out).toEqual({ ok: true, result: { evidenceHash: "h1" } });
@@ -171,12 +171,9 @@ describe("preparePost", () => {
       authors: ["nasa", "partner"],
       video: { state: "available", assetId: "a1", width: 720, height: 1280 },
       transcript: { status: "done", text: "olá", language: "pt", source: "whisper" },
-      comments: { reportedTotal: 3, stopReason: "exhausted", order: "page" },
     });
-    expect(ev.body.comments.items).toEqual([
-      { id: "9001", parentId: null, author: "fa", text: "que bom", likes: 2, createdAt: 1 },
-      { id: "9002", parentId: "9001", author: "nasa", text: "obrigada", likes: 0, createdAt: 2 },
-    ]);
+    // Comments are a number the Hub has: never collected for the analysis.
+    expect(ev.body).not.toHaveProperty("comments");
     // The tab it opened is closed; the job is forgotten; the next post waits 20–40 s.
     expect(w.log.removed).toEqual([10]);
     const state = w.data[ANALYSIS_COLLECT_KEY];
@@ -189,7 +186,7 @@ describe("preparePost", () => {
     const w = world();
     const phases = [];
     await w.api.preparePost(job(), { live: (p) => phases.push(p.phase) });
-    expect(phases).toEqual(["opening", "comments", "video_download", "video_upload", "transcribing", "filing"]);
+    expect(phases).toEqual(["opening", "video_download", "video_upload", "transcribing", "filing"]);
     const later = [];
     await w.api.preparePost(job({ assetId: "a2" }), { live: (p) => later.push(p.phase) });
     expect(later[0]).toBe("waiting_gap");
@@ -205,7 +202,7 @@ describe("preparePost", () => {
 
   it("reuses a staged video and the Acervo's transcript: no download, no Whisper", async () => {
     const w = world();
-    await w.api.preparePost(job({ assetId: null, reuseAssetId: "a0", needs: { video: false, comments: true, captionFull: true, transcript: false } }));
+    await w.api.preparePost(job({ assetId: null, reuseAssetId: "a0", needs: { video: false, captionFull: true, transcript: false } }));
     expect(w.log.cdn).toEqual([]);
     expect(w.log.puts).toEqual([]);
     expect(w.log.transcribed).toEqual([]);
@@ -227,7 +224,7 @@ describe("preparePost", () => {
     expect(w.log.reloaded).toEqual([10]);
     expect(w.log.cdn).toHaveLength(2);
     expect(w.log.evidence[0].body.video).toMatchObject({ state: "expired", assetId: null });
-    expect(w.log.evidence[0].body.comments.items).toHaveLength(2);
+    expect(w.log.evidence[0].body.caption.text).toBe("legenda inteira");
   });
 
   it("a video over 100 MiB or 10 minutes is reported, not fetched whole", async () => {
