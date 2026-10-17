@@ -138,3 +138,16 @@ export function tidyTranscriptText(text) {
 export function txButtonState(status) {
   return isActiveTxStatus(status) ? "running" : status;
 }
+
+/**
+ * "Transcrever todos": the listed records worth a job — a video, and no
+ * transcript already finished or on its way. A failed one is retried.
+ * `txMap` is the panel's id → txButtonState map.
+ */
+export function bulkTranscribeTargets(records, txMap = {}) {
+  return (records || []).filter((rec) => {
+    if (!rec?.video) return false;
+    const state = txMap[rec.code || rec.pk];
+    return state !== "done" && state !== "running";
+  });
+}

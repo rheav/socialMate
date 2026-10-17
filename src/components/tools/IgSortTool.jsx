@@ -25,6 +25,7 @@ import {
   ChevronsDown,
   Sheet,
   Users,
+  Captions,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -46,7 +47,7 @@ import { IG_QUERY_FIELDS } from "@/lib/shared/igQuery";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
-import { tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
+import { bulkTranscribeTargets, tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
 import IconBtn from "@/components/ui/IconBtn";
 import { normalizeErWeights, ER_WEIGHTS, ER_WEIGHTS_KEY } from "@/lib/shared/igFilters.js";
 // Date window + scroll cadence are platform-neutral and now live apart from the
@@ -290,6 +291,24 @@ export default function IgSortTool() {
     setBulk((b) => (b ? { ...b, stopping: true } : b));
   }
 
+  // "Transcrever todos": queues every listed video without a transcript. The
+  // worker runs one Whisper job at a time and ignores a video already queued, so
+  // this only hands it the list; each finished transcript also reaches the
+  // Instagram Scraper destinations (the old bridge's batch transcription).
+  const [txBulk, setTxBulk] = useState(false);
+  async function transcribeAll() {
+    if (txBulk) return;
+    setTxBulk(true);
+    try {
+      for (const rec of bulkTranscribeTargets(sorted, txMap)) {
+        await transcribe(rec);
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    } finally {
+      setTxBulk(false);
+    }
+  }
+
   // Toggle: first tap saves to the shared Library, second removes. The write
   // itself belongs to the background, which serializes it — a read-modify-write
   // here would drop the page overlay's concurrent save. The background decides
@@ -530,6 +549,13 @@ export default function IgSortTool() {
               : "Rola a página em ritmo humano (3 s, depois 6 s, depois 10 s) para o Instagram carregar mais posts"
           }
           onClick={() => harvest(10)}
+        />
+        <ToolIconButton
+          icon={Captions}
+          label={txBulk ? "Enfileirando…" : "Transcrever todos"}
+          hint="Transcreve, um de cada vez, os vídeos listados que ainda não têm transcrição"
+          onClick={transcribeAll}
+          disabled={txBulk || !bulkTranscribeTargets(sorted, txMap).length}
         />
         <ToolIconButton
           icon={Sheet}

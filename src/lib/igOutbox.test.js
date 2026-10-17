@@ -214,13 +214,17 @@ describe("igOutbox", () => {
     expect(call.body.items.map((i) => i.eventId)).toEqual(["p", "c", "t"]);
   });
 
-  it("re-enqueueing a confirmed id sends it again only to the destinations asked", async () => {
+  it("a replay of an event a destination already confirmed is not queued again for it", async () => {
     const fetchImpl = fakeFetch({ "localhost:3001": acceptAll, "ig.example.com": acceptAll });
     const box = outboxWith(storage, fetchImpl);
     await box.enqueue([ev("e1")], ["local", "prod"]);
     await box.flush("local");
-    await box.enqueue([ev("e1")], ["local"]);
+    // The bridge replays everything after a reload: local already has e1.
+    const r = await box.enqueue([ev("e1"), ev("e2")], ["local", "prod"]);
+    expect(r.added).toBe(2); // e2 for both; e1 only stays owed to prod
     expect((await box.counts()).local.pending).toBe(1);
-    expect((await box.counts()).prod.pending).toBe(1);
+    expect((await box.counts()).prod.pending).toBe(2);
+    await box.flush("local");
+    expect(fetchImpl.calls.filter((c) => c.host === "localhost:3001").map((c) => c.body.items.map((i) => i.eventId))).toEqual([["e1"], ["e2"]]);
   });
 });

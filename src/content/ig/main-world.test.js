@@ -263,3 +263,54 @@ describe("a reading's Reels tab: views for the whole week", () => {
     expect(views).toEqual(expect.arrayContaining(PKS));
   });
 });
+
+describe("Instagram research export fields", () => {
+  function boot(pathname = "/nasa/") {
+    const delivered = [];
+    const page = {
+      location: { pathname, search: "", hash: "", origin: "https://www.instagram.com" },
+      document: { visibilityState: "visible", querySelectorAll: () => [], addEventListener: () => {} },
+      setInterval: () => 1, setTimeout: () => 1, XMLHttpRequest: function () {}, URL,
+    };
+    page.XMLHttpRequest.prototype.setRequestHeader = () => {};
+    page.window = page;
+    page.postMessage = (m) => delivered.push(m);
+    page.addEventListener = () => {};
+    const context = vm.createContext(page);
+    vm.runInContext(readFileSync(new URL("./main-world.js", import.meta.url), "utf8"), context);
+    const parse = (obj) => vm.runInContext(`JSON.parse(${JSON.stringify(JSON.stringify(obj))})`, context);
+    const records = () => delivered.flatMap((m) => m.records || []);
+    return { parse, records, delivered };
+  }
+  const media = (caption) => ({ data: { items: [{ code: "CCC", pk: "3003", media_type: 2, product_type: "clips",
+    video_versions: [{ url: "https://x/v.mp4" }], image_versions2: { candidates: [{ url: "https://x/i.jpg" }] },
+    caption: { text: caption }, like_count: 5, user: { pk: "123", username: "nasa" } }] } });
+
+  it("keeps a 500-character preview and the full caption beside it", () => {
+    const { parse, records } = boot();
+    parse(media("x".repeat(1200)));
+    const rec = records().find((r) => r.code === "CCC");
+    expect(rec.caption).toHaveLength(500);
+    expect(rec.caption_full).toHaveLength(1200);
+    expect(rec.product_type).toBe("clips");
+  });
+
+  it("resends a post whose caption changed, even with the same counts", () => {
+    const { parse, records } = boot();
+    parse(media("primeira"));
+    parse(media("primeira, editada"));
+    expect(records().filter((r) => r.code === "CCC").map((r) => r.caption_full)).toEqual(["primeira", "primeira, editada"]);
+  });
+
+  it("resends a comment whose likes or text changed", () => {
+    const { parse, records } = boot("/p/CCC/");
+    const thread = (likes, text) => ({ data: { xdt_api__v1__media__media_id__comments__connection: { edges: [
+      { node: { pk: "9001", text, comment_like_count: likes, created_at: 1, user: { username: "fa" } } }] } } });
+    parse(thread(1, "oi"));
+    parse(thread(1, "oi"));
+    parse(thread(4, "oi"));
+    parse(thread(4, "oi, editado"));
+    const sent = records().filter((r) => r.__kind === "ig_comment");
+    expect(sent.map((c) => [c.digg_count, c.text])).toEqual([[1, "oi"], [4, "oi"], [4, "oi, editado"]]);
+  });
+});

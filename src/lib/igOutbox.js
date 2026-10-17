@@ -9,7 +9,8 @@
 // other's debt.
 //
 // Storage (both persisted, because an MV3 worker dies at 30 s idle):
-//   fbw_ig_outbox          { v, events: {id: event}, dest: {destId: {id: {tries, code?}}} }
+//   fbw_ig_outbox          { v, events: {id: event}, dest: {destId: {id: {tries, code?}}},
+//                            recent: {destId: [confirmed ids, newest last]} }
 //   fbw_ig_delivery_state  { destId: {running, lastOkAt, lastSent, error, errorAt,
 //                            pending, rejected, full, fullAt, authFailed} }
 //
@@ -31,8 +32,12 @@ const MAX_BATCH_BYTES = 1_500_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const KIND_ORDER = { post: 0, comment: 1, transcript: 2 };
 
+// Ids each destination confirmed lately. The bridge replays every record it
+// holds after a reload; without this each replay would re-send them all.
+const RECENT_PER_DEST = 3000;
+
 function emptyOutbox() {
-  return { v: 1, events: {}, dest: {} };
+  return { v: 1, events: {}, dest: {}, recent: {} };
 }
 
 function sendable(entry) {
@@ -95,6 +100,7 @@ export function createIgOutbox({ storage, destination, fetchImpl = fetch, now = 
             owedSomewhere = true;
             continue;
           }
+          if ((box.recent?.[destId] || []).includes(event.eventId)) continue;
           if (countFor(map).pending >= IG_PENDING_LIMIT) {
             full.add(destId);
             continue;
@@ -141,11 +147,14 @@ export function createIgOutbox({ storage, destination, fetchImpl = fetch, now = 
       const map = (box.dest[destId] ||= {});
       const sent = new Set(sentIds);
       let confirmed = 0;
+      const recent = ((box.recent ||= {})[destId] ||= []);
       for (const id of result.acceptedIds || []) {
         if (!sent.has(id) || !map[id]) continue;
         delete map[id];
+        recent.push(id);
         confirmed += 1;
       }
+      if (recent.length > RECENT_PER_DEST) recent.splice(0, recent.length - RECENT_PER_DEST);
       for (const r of result.rejected || []) {
         if (!sent.has(r?.eventId) || !map[r.eventId]) continue;
         map[r.eventId] = { tries: (map[r.eventId].tries || 0) + 1, code: String(r.code || "rejected") };

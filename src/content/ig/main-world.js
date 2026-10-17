@@ -84,6 +84,10 @@
       full_name: u.full_name || null,
       verified: !!u.is_verified,
       caption: (m.caption && m.caption.text && m.caption.text.slice(0, 500)) || null,
+      // The whole caption (to 20,000) rides beside the preview for the research
+      // export; the bridge keeps it out of the panel's list.
+      caption_full: (m.caption && m.caption.text && m.caption.text.slice(0, 20000)) || null,
+      product_type: m.product_type || null,
       like_count: m.like_count != null ? m.like_count : null,
       comment_count: m.comment_count != null ? m.comment_count : null,
       play_count: igViewCount(m),
@@ -888,7 +892,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         if (r.duration == null) r.duration = all.get(key)?.duration ?? null;
         if (r.code) all.set(r.code, r);
         if (r.pk) all.set(r.pk, r);
-        const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}|${r.duration}`;
+        // The caption is part of the signature: an edited caption is news too.
+        const sig = `${r.like_count}|${r.comment_count}|${r.play_count}|${r.repost}|${!!r.video}|${r.media_type}|${r.duration}|${(r.caption_full || "").length}|${(r.caption_full || "").slice(-24)}`;
         if (sent.get(key) !== sig) { sent.set(key, sig); out.push(r); }
         queueEnrichment(r);
       }
@@ -915,7 +920,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
   // (src/lib/ttComments.js) serve both platforms unchanged.
   const COMMENT_ROOT = "xdt_api__v1__media__media_id__comments__";
   const COMMENT_RE = /^xdt_api__v1__media__media_id__comments__/;
-  const sentIgCom = new Set();
+  const sentIgCom = new Map(); // cid -> signature: a new like or an edit is resent
   const allIgCom = new Map(); // cid -> record, for replay
   const numOrNull = (v) => (typeof v === "number" && Number.isFinite(v) ? v : Number.isFinite(+v) && v !== null && v !== "" ? +v : null);
   function currentPostCode() {
@@ -929,7 +934,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       __kind: "ig_comment",
       cid: String(n.pk || n.id || ""),
       post,
-      text: (n.text || "").slice(0, 2000),
+      text: (n.text || "").slice(0, 2200),
       digg_count: numOrNull(n.comment_like_count),
       reply_count: numOrNull(n.child_comment_count),
       username: u.username || null,
@@ -940,6 +945,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       parent,
     };
   }
+  const comSig = (c) => `${c.digg_count}|${c.reply_count}|${c.text.length}|${c.text.slice(-24)}`;
   function scanComments(root) {
     const post = currentPostCode();
     if (!post) return;
@@ -961,20 +967,20 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
             if (!n || !n.pk) continue;
             const rec = liteIgComment(n, post, child);
             allIgCom.set(rec.cid, rec);
-            if (!sentIgCom.has(rec.cid)) { sentIgCom.add(rec.cid); out.push(rec); }
+            if (sentIgCom.get(rec.cid) !== comSig(rec)) { sentIgCom.set(rec.cid, comSig(rec)); out.push(rec); }
             // A reply preview some shapes embed under the parent.
             for (const pc of Array.isArray(n.preview_child_comments) ? n.preview_child_comments : []) {
               if (!pc || !pc.pk) continue;
               const rr = liteIgComment({ parent_comment_id: n.pk, ...pc }, post, true);
               allIgCom.set(rr.cid, rr);
-              if (!sentIgCom.has(rr.cid)) { sentIgCom.add(rr.cid); out.push(rr); }
+              if (sentIgCom.get(rr.cid) !== comSig(rr)) { sentIgCom.set(rr.cid, comSig(rr)); out.push(rr); }
             }
           }
         } else if (v && typeof v === "object") stack.push([v, d + 1]);
       }
     }
     while (allIgCom.size > 4000) allIgCom.delete(allIgCom.keys().next().value);
-    while (sentIgCom.size > 6000) sentIgCom.delete(sentIgCom.values().next().value);
+    while (sentIgCom.size > 6000) sentIgCom.delete(sentIgCom.keys().next().value);
     send(out);
   }
 

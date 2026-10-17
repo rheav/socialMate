@@ -11,9 +11,31 @@ import { IG_DESTINATIONS_KEY, enabledIgDestinations, igDestination } from "../li
 import { IG_DELIVERY_KEY, createIgOutbox } from "../lib/igOutbox.js";
 import { createIgPresence } from "../lib/igPresence.js";
 import { backoffDelay } from "../lib/syncClient.js";
+import { toIgExportEvents, transcriptEvent } from "../lib/igExportFormat.js";
 
 export const IG_EXPORT_ALARM = "fbw-ig-export";
 const FLUSH_DEBOUNCE_MS = 4000;
+const MAX_CAPTURE_ITEMS = 1000;
+const INSTAGRAM_PAGE = /^https:\/\/([a-z0-9-]+\.)*instagram\.com\//i;
+
+const isRecordList = (v) =>
+  Array.isArray(v) && v.length <= MAX_CAPTURE_ITEMS && v.every((x) => x && typeof x === "object" && !Array.isArray(x));
+
+/**
+ * FBW_IG_CAPTURE comes from the Instagram bridge. Only this extension's own
+ * content script, in an Instagram tab, may feed the research outbox; anything
+ * else (or a malformed payload) is ignored. Returns the capture or null.
+ */
+export function acceptIgCapture(msg, sender, runtimeId) {
+  if (!sender || sender.id !== runtimeId) return null;
+  if (!INSTAGRAM_PAGE.test(String(sender.tab?.url || ""))) return null;
+  const posts = msg?.posts ?? [];
+  const comments = msg?.comments ?? [];
+  const postsByCode = msg?.postsByCode ?? {};
+  if (!isRecordList(posts) || !isRecordList(comments)) return null;
+  if (!postsByCode || typeof postsByCode !== "object" || Array.isArray(postsByCode)) return null;
+  return { posts, comments, postsByCode };
+}
 
 /**
  * Factory so the wiring is testable with a chrome stub; background.js uses the
@@ -103,6 +125,18 @@ export function createIgExport({ chrome: c, WebSocketImpl, fetchImpl, version = 
     return { ...res, destinations: targets.map((t) => t.id) };
   }
 
+  /** A validated bridge capture → events → outbox. */
+  function enqueueCapture(capture, observedAt = Date.now()) {
+    const events = toIgExportEvents(capture, { observedAt, postsByCode: capture.postsByCode });
+    return enqueueIgEvents(events);
+  }
+
+  /** A finished Instagram transcript (fbw_transcripts record) → outbox. */
+  function enqueueTranscript(record) {
+    const ev = transcriptEvent(record);
+    return ev ? enqueueIgEvents([ev]) : Promise.resolve({ added: 0, full: [], destinations: [] });
+  }
+
   /** Alarm/wake path: beacon up, and every enabled destination drained. */
   async function tick() {
     await presence.ensure().catch(() => {});
@@ -145,6 +179,26 @@ export function createIgExport({ chrome: c, WebSocketImpl, fetchImpl, version = 
     tick().catch(() => {});
   }
 
+  /** "Testar conexão": an empty batch checks address, token and backend version without storing anything. */
+  async function testDestination(id) {
+    const dest = igDestination(await settings(), id);
+    if (!dest) return { ok: false, error: "endereço e token primeiro" };
+    let r;
+    try {
+      r = await fetchImpl(`${dest.url}/ingest/socialmate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${dest.token}` },
+        body: JSON.stringify({ schemaVersion: 1, batchId: `test-${Date.now()}`, items: [] }),
+      });
+    } catch {
+      return { ok: false, error: "sem conexão" };
+    }
+    if (r.status === 401 || r.status === 403) return { ok: false, error: "token recusado" };
+    if (r.status === 404) return { ok: false, error: "o backend não tem /ingest/socialmate (versão antiga)" };
+    if (!r.ok) return { ok: false, error: `HTTP ${r.status}` };
+    return { ok: true };
+  }
+
   async function status() {
     return {
       destinations: enabledIgDestinations(await settings()).map((t) => t.id),
@@ -158,9 +212,12 @@ export function createIgExport({ chrome: c, WebSocketImpl, fetchImpl, version = 
     init,
     tick,
     enqueueIgEvents,
+    enqueueCapture,
+    enqueueTranscript,
     flushIgDestination,
     ensureIgPresence: () => presence.ensure(),
     rejected: (id) => outbox.rejected(id),
+    testDestination,
     status,
     onConfigChanged,
   };

@@ -7,6 +7,7 @@ import useStoredFlag from "@/lib/useStoredFlag";
 import { useSpyPrefs } from "@/lib/useSpy";
 import { IG_SPY_LIMIT, IG_SPY_LIMIT_MAX } from "@/lib/spyStore";
 import { useSyncSettings } from "@/lib/useSyncSettings";
+import { useIgDestinations } from "@/lib/useIgDestinations";
 import {
   TRANSCRIPT_CAP_KEY,
   TRANSCRIPT_CAP_OPTIONS,
@@ -141,6 +142,8 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
           <ArchiveSection />
 
           <HubSection />
+
+          <IgDestinationsSection />
 
           <Section
             title="Transcrição"
@@ -431,6 +434,119 @@ function HubSection() {
           último envio: {new Date(state.lastOkAt).toLocaleString()} ({state.lastSent ?? 0} registros)
         </p>
       )}
+    </Section>
+  );
+}
+
+// ---- Instagram Scraper ----
+// The research backend the old "IG Market Research Bridge" extension fed. Each
+// destination is delivered on its own: one being down keeps its own pending
+// list and never costs the other one anything.
+const IG_DEST_LABEL = { local: "Local", prod: "Produção" };
+
+function IgDestinationsSection() {
+  const { settings, status, ready, save, ensureHost, test, flush } = useIgDestinations();
+  const [busy, setBusy] = useState(null);
+  const [result, setResult] = useState({});
+
+  if (!ready) return null;
+
+  const runTest = async (id) => {
+    setBusy(id);
+    setResult((r) => ({ ...r, [id]: null }));
+    try {
+      if (!(await ensureHost(settings[id].url))) {
+        setResult((r) => ({ ...r, [id]: { ok: false, error: "permissão negada para esse endereço" } }));
+        return;
+      }
+      const res = await test(id);
+      setResult((r) => ({ ...r, [id]: res?.ok ? { ok: true, note: "conexão e token ok" } : { ok: false, error: res?.error || "falhou" } }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggle = async (id, on) => {
+    // Turning a destination on is the click that may need its host permission.
+    if (on && !(await ensureHost(settings[id].url))) {
+      setResult((r) => ({ ...r, [id]: { ok: false, error: "permissão negada para esse endereço" } }));
+      return;
+    }
+    save(id, { enabled: on });
+  };
+
+  return (
+    <Section
+      title="Instagram Scraper"
+      hint="Posts, comentários e transcrições do Instagram que esta extensão captura vão também para o Instagram Scraper (o backend da antiga extensão IG Market Research Bridge). Cada destino recebe e confirma por conta própria."
+    >
+      {["local", "prod"].map((id) => {
+        const d = settings[id];
+        const st = status?.delivery?.[id] || {};
+        const counts = status?.counts?.[id] || {};
+        const presence = status?.presence?.find((p) => p.id === id);
+        const res = result[id];
+        return (
+          <div key={id} className="rounded-lg border border-border px-2 py-1.5">
+            <Row
+              id={`opt-ig-${id}`}
+              label={IG_DEST_LABEL[id]}
+              hint={presence ? (presence.connected ? "conectado" : presence.authFailed ? "token recusado" : "desconectado") : null}
+              checked={d.enabled}
+              onChange={(v) => toggle(id, v)}
+            />
+            <label className="block py-1">
+              <span className="text-[11px] text-muted-foreground">Endereço</span>
+              <input
+                value={d.url}
+                onChange={(e) => save(id, { url: e.target.value })}
+                placeholder={id === "local" ? "http://localhost:3001" : "https://…"}
+                spellCheck={false}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+              />
+            </label>
+            <label className="block py-1">
+              <span className="text-[11px] text-muted-foreground">Token</span>
+              <input
+                type="password"
+                value={d.token}
+                onChange={(e) => save(id, { token: e.target.value })}
+                placeholder="INGEST_TOKEN do servidor"
+                spellCheck={false}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2 py-1">
+              <button
+                onClick={() => runTest(id)}
+                disabled={busy != null || !d.url || !d.token}
+                className="sw-hoverable flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                <Cloud className="size-3" /> {busy === id ? "testando…" : "testar conexão"}
+              </button>
+              <span className="text-[11px] text-muted-foreground">
+                {counts.pending ?? 0} pendentes{counts.rejected ? ` · ${counts.rejected} recusados` : ""}
+              </span>
+            </div>
+            {res && <p className={res.ok ? "text-[11px] text-good" : "text-[11px] text-destructive"}>{res.ok ? res.note : res.error}</p>}
+            {!res && st.full && (
+              <p className="text-[11px] text-destructive">fila cheia: novas capturas não entram até este destino confirmar as pendentes</p>
+            )}
+            {!res && st.error && <p className="text-[11px] text-destructive">último envio: {st.error}</p>}
+            {!res && !st.error && st.lastOkAt && (
+              <p className="text-[11px] text-muted-foreground">
+                último envio: {new Date(st.lastOkAt).toLocaleString()} ({st.lastSent ?? 0} itens)
+              </p>
+            )}
+          </div>
+        );
+      })}
+      <button
+        onClick={() => flush()}
+        className="sw-hoverable rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        enviar pendentes agora
+      </button>
     </Section>
   );
 }

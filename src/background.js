@@ -74,7 +74,7 @@ import {
   useSpyDeps,
 } from "./background/spy.js";
 
-import { IG_EXPORT_ALARM, createIgExport } from "./background/igExport.js";
+import { IG_EXPORT_ALARM, acceptIgCapture, createIgExport } from "./background/igExport.js";
 
 // Instagram Scraper destinations (outbox + presence beacon). Created and wired
 // at module scope so its listeners exist before any event wakes the worker.
@@ -855,6 +855,9 @@ async function putTranscript(videoId, patch, opts = {}) {
     // The hub gets a copy. Fire-and-forget: a backend that is down or unset must
     // never make a local write look like it failed.
     queueForSync("transcripts", videoId).catch(() => {});
+    // So do the Instagram Scraper backends, for a finished Instagram transcript
+    // (the event is content-addressed: a metadata backfill re-enqueues nothing new).
+    if (all[videoId]?.status === "done") igExport.enqueueTranscript(all[videoId]).catch(() => {});
     return all[videoId];
   });
 }
@@ -1767,10 +1770,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
       return true;
     }
+    case "FBW_IG_CAPTURE": {
+      // Fire-and-forget from the Instagram bridge; nothing to answer.
+      const capture = acceptIgCapture(msg, sender, chrome.runtime.id);
+      if (capture) igExport.enqueueCapture(capture).catch(() => {});
+      return false;
+    }
     case "FBW_IG_EXPORT_STATUS": {
       igExport.status().then(
         (status) => sendResponse({ ok: true, status }),
         (e) => sendResponse({ ok: false, error: String(e?.message || e) }),
+      );
+      return true;
+    }
+    case "FBW_IG_EXPORT_TEST": {
+      igExport.testDestination(String(msg.id || "")).then(sendResponse, (e) =>
+        sendResponse({ ok: false, error: String(e?.message || e) }),
       );
       return true;
     }

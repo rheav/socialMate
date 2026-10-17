@@ -139,3 +139,36 @@ describe("the week's numbers for the top 3", () => {
     expect(spyGridPosts([reel({ duration: -2 })], "barbie.the.aries", OWNER, new Map(), pkSeconds)[0].durationS).toBeNull();
   });
 });
+
+const exportSource = bridge.match(/^function igExportMessages\([^)]*\) \{[\s\S]*?\n\}/m)[0];
+const igExportMessages = new Function(`${exportSource}; return igExportMessages;`)();
+
+describe("research export messages", () => {
+  const post = { code: "CCC", pk: "3003", username: "nasa" };
+
+  it("sends posts and the comments whose post is known, with that post's owner", () => {
+    const held = new Map([["9001", { cid: "9001", post: "CCC", text: "oi", __queuedAt: 0 }]]);
+    const [msg] = igExportMessages([post], held, { CCC: post }, 1000);
+    expect(msg).toEqual({
+      type: "FBW_IG_CAPTURE",
+      posts: [post],
+      comments: [{ cid: "9001", post: "CCC", text: "oi" }],
+      postsByCode: { CCC: { code: "CCC", pk: "3003", username: "nasa" } },
+    });
+    expect(held.size).toBe(0);
+  });
+
+  it("holds a comment until its post is known, then gives up after ten minutes", () => {
+    const held = new Map([["9001", { cid: "9001", post: "DDD", text: "oi", __queuedAt: 0 }]]);
+    expect(igExportMessages([], held, {}, 60_000)).toEqual([]);
+    expect(held.size).toBe(1);
+    expect(igExportMessages([], held, {}, 11 * 60_000)).toEqual([]);
+    expect(held.size).toBe(0);
+  });
+
+  it("splits large captures into messages of at most 500 records", () => {
+    const many = Array.from({ length: 1200 }, (_, i) => ({ ...post, code: `C${i}`, pk: String(4000 + i) }));
+    const msgs = igExportMessages(many, new Map(), {}, 0);
+    expect(msgs.map((m) => m.posts.length)).toEqual([500, 500, 200]);
+  });
+});

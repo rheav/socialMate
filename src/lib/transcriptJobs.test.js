@@ -131,3 +131,19 @@ describe("cleaning Whisper output", () => {
     expect(tidyTranscriptText(null)).toBe("");
   });
 });
+
+import { bulkTranscribeTargets } from "./transcriptJobs.js";
+
+describe("bulkTranscribeTargets", () => {
+  const recs = [
+    { code: "A", video: "https://v/a.mp4" },
+    { code: "B", video: "https://v/b.mp4" },
+    { code: "C", video: null },
+    { pk: "D1", video: "https://v/d.mp4" },
+    { code: "E", video: "https://v/e.mp4" },
+  ];
+  it("takes listed videos with no finished or running transcript, failures included", () => {
+    const txMap = { A: "done", B: "running", E: "error" };
+    expect(bulkTranscribeTargets(recs, txMap).map((r) => r.code || r.pk)).toEqual(["D1", "E"]);
+  });
+});

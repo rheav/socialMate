@@ -253,6 +253,7 @@ function openTxLangMenu(btn, onPick) {
     clearInterval(storyPathWatcher);
     window.removeEventListener("popstate", syncStoryTicker);
     clearTimeout(ovlTimer);
+    clearTimeout(igExportTimer);
     if (ovlRaf) cancelAnimationFrame(ovlRaf);
     igPageSorter?.destroy();
     ovlObserver.disconnect();
@@ -305,6 +306,24 @@ function openTxLangMenu(btn, onPick) {
   // the MAIN world's capture of the comment connections (see main-world.js);
   // answered to the panel's Comentários tool (FBW_IG_COMMENTS).
   const igComments = new Map();
+  // Research export: full captions live here, not in byId (the panel's list
+  // carries the 500-character preview only), plus what awaits the next send.
+  const igCaptionFull = new Map(); // code||pk -> caption up to 20,000
+  let igExportPosts = new Map(); // code||pk -> record
+  const igExportHeld = new Map(); // cid -> comment awaiting its post
+  let igExportTimer = null;
+  function queueIgExport() {
+    if (!igExportTimer) igExportTimer = setTimeout(flushIgExport, 1500);
+  }
+  function flushIgExport() {
+    igExportTimer = null;
+    if (disabled) return;
+    const posts = [...igExportPosts.values()];
+    igExportPosts = new Map();
+    for (const msg of igExportMessages(posts, igExportHeld, igMedia, Date.now())) {
+      try { chrome.runtime.sendMessage(msg, () => void chrome.runtime.lastError); } catch {}
+    }
+  }
   let igCommentsVer = 0;
   let lastCommentPost = null;
   function ingestIgComment(r) {
@@ -684,7 +703,12 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     for (const r of e.data.records || []) {
       // Stories/highlights route to their own store (no surface, no overlay).
       if (r.__kind === "reel" || r.__kind === "story") { ingestReel(r); continue; }
-      if (r.__kind === "ig_comment") { ingestIgComment(r); continue; }
+      if (r.__kind === "ig_comment") {
+        ingestIgComment(r);
+        igExportHeld.set(r.cid, { ...r, __queuedAt: Date.now() });
+        queueIgExport();
+        continue;
+      }
       if (r.__kind === "user") {
         const merged = { ...(igUsers.get(r.userid) || {}), ...r };
         igUsers.set(r.userid, merged);
@@ -720,6 +744,8 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       if (!r.username && r.surface.startsWith("profile:"))
         r.username = r.surface.slice("profile:".length);
       const id = r.code || r.pk;
+      const captionFull = r.caption_full;
+      delete r.caption_full;
       if (id) {
         // Coalesce: later payloads add fields (play_count, repost) or drop them
         // (null) — never let a null clobber a value we already captured.
@@ -732,6 +758,12 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         applyUserStats(prev);
         if (prev.code) igMedia[prev.code] = prev;
         if (prev.pk) igMedia[prev.pk] = prev;
+        if (captionFull) {
+          igCaptionFull.set(id, captionFull);
+          while (igCaptionFull.size > 500) igCaptionFull.delete(igCaptionFull.keys().next().value);
+        }
+        igExportPosts.set(id, { ...prev, caption_full: igCaptionFull.get(id) || null });
+        queueIgExport();
       }
     }
     // Cap memory across long SPA sessions: evict the oldest records (Map keeps
@@ -1024,6 +1056,30 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
       pinned: pinnedBy.length > 0 && (!owner || pinnedBy.includes(owner)),
       code: rec.code || null, views, likes, comments, durationS, observedAt: Date.now(), thumbUrl: rec.thumb || rec.image || null, sig,
     });
+  }
+  return out;
+}
+
+// Research export (Instagram Scraper backends): the posts the MAIN world reported,
+// plus the comments whose post this tab now knows, as FBW_IG_CAPTURE messages of
+// at most 500 records each. A comment whose post is still unknown waits in
+// `held` (ten minutes, 2000 at most) rather than being filed under a guessed owner.
+function igExportMessages(posts, held, media, now) {
+  const comments = [];
+  const postsByCode = {};
+  for (const [cid, c] of held) {
+    const p = media[c.post];
+    if (p && p.username && (p.pk || p.code)) {
+      const { __queuedAt, ...rest } = c;
+      comments.push(rest);
+      postsByCode[c.post] = { code: p.code || null, pk: p.pk || null, username: p.username };
+      held.delete(cid);
+    } else if (now - (c.__queuedAt || 0) > 600000) held.delete(cid);
+  }
+  while (held.size > 2000) held.delete(held.keys().next().value);
+  const out = [];
+  for (let i = 0; i < Math.max(posts.length, comments.length); i += 500) {
+    out.push({ type: "FBW_IG_CAPTURE", posts: posts.slice(i, i + 500), comments: comments.slice(i, i + 500), postsByCode });
   }
   return out;
 }

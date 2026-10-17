@@ -123,3 +123,66 @@ describe("igExport wiring", () => {
     expect(chrome.data[IG_OUTBOX_KEY].dest.local.e1).toBeDefined();
   });
 });
+
+import { acceptIgCapture } from "./igExport.js";
+
+describe("acceptIgCapture", () => {
+  const sender = { id: "ext-id", tab: { id: 4, url: "https://www.instagram.com/p/CCC/" } };
+  const msg = {
+    type: "FBW_IG_CAPTURE",
+    posts: [{ code: "CCC", pk: "3003", username: "nasa" }],
+    comments: [{ cid: "9001", post: "CCC", text: "oi" }],
+    postsByCode: { CCC: { code: "CCC", pk: "3003", username: "nasa" } },
+  };
+
+  it("accepts a capture from an Instagram tab of this extension", () => {
+    expect(acceptIgCapture(msg, sender, "ext-id")).toEqual({
+      posts: msg.posts,
+      comments: msg.comments,
+      postsByCode: msg.postsByCode,
+    });
+  });
+
+  it("refuses another extension, a non-Instagram tab or no tab", () => {
+    expect(acceptIgCapture(msg, { ...sender, id: "other" }, "ext-id")).toBeNull();
+    expect(acceptIgCapture(msg, { ...sender, tab: { url: "https://evil.example/instagram.com/" } }, "ext-id")).toBeNull();
+    expect(acceptIgCapture(msg, { ...sender, tab: { url: "https://instagram.com.evil.example/" } }, "ext-id")).toBeNull();
+    expect(acceptIgCapture(msg, { id: "ext-id" }, "ext-id")).toBeNull();
+  });
+
+  it("refuses malformed or oversized payloads", () => {
+    expect(acceptIgCapture({ ...msg, posts: "x" }, sender, "ext-id")).toBeNull();
+    expect(acceptIgCapture({ ...msg, posts: new Array(1001).fill({}) }, sender, "ext-id")).toBeNull();
+    expect(acceptIgCapture({ ...msg, comments: [null] }, sender, "ext-id")).toBeNull();
+  });
+});
+
+describe("testing a destination", () => {
+  const settings = { local: { enabled: false, url: "http://localhost:3001", token: "a" } };
+  function withFetch(impl) {
+    const chrome = chromeStub();
+    chrome.data[IG_DESTINATIONS_KEY] = settings;
+    return createIgExport({ chrome, WebSocketImpl: FakeSocket, fetchImpl: impl });
+  }
+
+  it("sends an empty batch, so a test stores nothing, and reads the answer", async () => {
+    const calls = [];
+    const ex = withFetch(async (url, init) => {
+      calls.push({ url, body: JSON.parse(init.body), auth: init.headers.Authorization });
+      return { ok: true, status: 200, json: async () => ({ acceptedIds: [], rejected: [] }) };
+    });
+    expect(await ex.testDestination("local")).toEqual({ ok: true });
+    expect(calls[0]).toMatchObject({ url: "http://localhost:3001/ingest/socialmate", auth: "Bearer a" });
+    expect(calls[0].body.items).toEqual([]);
+  });
+
+  it("names the failures a person can act on", async () => {
+    expect(await withFetch(async () => ({ ok: false, status: 401 })).testDestination("local")).toEqual({ ok: false, error: "token recusado" });
+    expect(await withFetch(async () => ({ ok: false, status: 404 })).testDestination("local")).toEqual({
+      ok: false,
+      error: "o backend não tem /ingest/socialmate (versão antiga)",
+    });
+    expect(await withFetch(async () => { throw new TypeError("x"); }).testDestination("local")).toEqual({ ok: false, error: "sem conexão" });
+    expect(await withFetch(async () => ({ ok: true })).testDestination("prod")).toEqual({ ok: false, error: "endereço e token primeiro" });
+  });
+});
