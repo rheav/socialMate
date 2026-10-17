@@ -1019,33 +1019,51 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
     if (msg?.type === "FBW_IG_SCROLL_STOP") { igScrollStop = true; sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_IG_TOP") { window.scrollTo({ top: 0, behavior: "smooth" }); sendResponse?.({ ok: true }); return; }
     if (msg?.type === "FBW_PING") { sendResponse?.({ ok: true, spy: true }); } // liveness ack (clears the panel's reload hint)
+    // "Abrir respostas" in the panel's Comentários: the post this tab shows,
+    // opened under the same budget as the analysis tab, on the user's command.
+    if (msg?.type === "FBW_IG_EXPAND_THREAD") {
+      const code = (location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/) || [])[1];
+      if (!code) { sendResponse({ ok: false, error: "not_a_post" }); return; }
+      analysisCancelled = false;
+      igAnalysisCollect({ code, comments: true, waitMs: 5000 }, threadEnv()).then(
+        (r) => sendResponse(r.ok ? { ok: true, stopReason: r.comments.stopReason, expansions: r.comments.expansions, captured: r.comments.items.length } : r),
+        () => sendResponse({ ok: false, error: "collect_failed" }),
+      );
+      return true;
+    }
     // One top post for the Hub's analysis: only in the worker's own tab.
     if (msg?.type === "FBW_ANALYSIS_COLLECT") {
       if (!ANALYSIS_TAB_AT_LOAD && location.hash !== "#socialmate-analysis") { sendResponse({ ok: false, error: "not_analysis_tab" }); return; }
       analysisCancelled = false;
-      igAnalysisCollect(msg, {
-        currentCode: () => (location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/) || [])[1] || null,
-        url: () => location.origin + location.pathname,
-        recordOf: (code) => byId.get(code) || igMedia[code] || null,
-        captionOf: (id) => igCaptionFull.get(id) || null,
-        variantsOf: (id) => igVideoVariants.get(id) || null,
-        commentsOf: (code) => Array.from(igComments.get(code)?.items.values() || []),
-        expand: expandComments,
-        findButton: () => igExpandButton(document.querySelector("main") || document.body, analysisClicks),
-        click: async (el) => {
-          analysisClicks.set(el, (analysisClicks.get(el) || 0) + 1);
-          el.scrollIntoView?.({ block: "center" });
-          el.click();
-        },
-        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-        now: () => Date.now(),
-        cancelled: () => analysisCancelled || disabled,
-        requestReplay,
-      }).then(sendResponse, () => sendResponse({ ok: false, error: "collect_failed" }));
+      igAnalysisCollect(msg, threadEnv()).then(sendResponse, () => sendResponse({ ok: false, error: "collect_failed" }));
       return true;
     }
     if (msg?.type === "FBW_ANALYSIS_CANCEL") { analysisCancelled = true; sendResponse?.({ ok: true }); return; }
   });
+
+  // What igAnalysisCollect may touch on this page: its own capture, the comment
+  // controls, the clock.
+  function threadEnv() {
+    return {
+      currentCode: () => (location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/) || [])[1] || null,
+      url: () => location.origin + location.pathname,
+      recordOf: (code) => byId.get(code) || igMedia[code] || null,
+      captionOf: (id) => igCaptionFull.get(id) || null,
+      variantsOf: (id) => igVideoVariants.get(id) || null,
+      commentsOf: (code) => Array.from(igComments.get(code)?.items.values() || []),
+      expand: expandComments,
+      findButton: () => igExpandButton(document.querySelector("main") || document.body, analysisClicks),
+      click: async (el) => {
+        analysisClicks.set(el, (analysisClicks.get(el) || 0) + 1);
+        el.scrollIntoView?.({ block: "center" });
+        el.click();
+      },
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: () => Date.now(),
+      cancelled: () => analysisCancelled || disabled,
+      requestReplay,
+    };
+  }
 
   // ============================================================
   // In-page stats overlay — annotate profile/grid tiles we have data for with

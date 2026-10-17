@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildIgExport, igExportFilename, threadComments } from "./igComments.js";
+import { commentSweepTargets } from "./igComments.js";
 
 const post = {
   code: "Ddtu14nxsa1",
@@ -30,5 +31,13 @@ describe("igExportFilename", () => {
 describe("threadComments (shared with TikTok)", () => {
   it("threads Instagram records unchanged", () => {
     expect(threadComments(post.comments).map((c) => c.cid)).toEqual(["1", "2"]);
+  });
+});
+
+describe("commentSweepTargets", () => {
+  it("keeps the listed order, only posts with comments, each once, capped", () => {
+    const recs = [{ code: "A", comment_count: 3 }, { code: "B", comment_count: 0 }, { code: "A", comment_count: 3 }, { code: null, comment_count: 9 }, { code: "C", comment_count: "12" }, { code: "D", comment_count: 1 }];
+    expect(commentSweepTargets(recs)).toEqual(["A", "C", "D"]);
+    expect(commentSweepTargets(recs, 2)).toEqual(["A", "C"]);
   });
 });

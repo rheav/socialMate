@@ -23,6 +23,7 @@ import {
   Trash2,
   Square,
   ChevronsDown,
+  MessagesSquare,
   Sheet,
   Users,
   Captions,
@@ -44,7 +45,8 @@ import QueryBuilder from "@/components/ui/QueryBuilder";
 import MetricLegend from "@/components/ui/MetricLegend";
 import { applyQuery, primarySort, withPrimarySort, isSortableField } from "@/lib/shared/feedQuery";
 import { IG_QUERY_FIELDS } from "@/lib/shared/igQuery";
-import { requireOk } from "@/lib/bg";
+import { requireOk, sendBg } from "@/lib/bg";
+import { commentSweepTargets } from "@/lib/igComments";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
 import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { bulkTranscribeTargets, tidyTranscriptText, txButtonState } from "@/lib/transcriptJobs.js";
@@ -309,6 +311,26 @@ export default function IgSortTool() {
     }
   }
 
+  // "Comentários de todos": the background opens each listed post (with
+  // comments, at most 15) in a tab of its own, 20–40 s apart, and reads its
+  // thread; the comments land in Comentários and go to the Instagram Scraper
+  // destinations like any capture. A tap while it runs stops it.
+  const [sweep, setSweep] = useState(null);
+  useEffect(() => {
+    if (!sweep?.running) return;
+    const timer = setInterval(async () => {
+      const res = await sendBg({ type: "FBW_IG_COMMENT_SWEEP_STATUS" });
+      if (res.ok) setSweep(res.status);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [sweep?.running]);
+  async function sweepComments() {
+    const res = sweep?.running
+      ? await sendBg({ type: "FBW_IG_COMMENT_SWEEP_STOP" })
+      : await sendBg({ type: "FBW_IG_COMMENT_SWEEP", codes: commentSweepTargets(sorted) });
+    if (res.ok || res.status) setSweep(res.status);
+  }
+
   // Toggle: first tap saves to the shared Library, second removes. The write
   // itself belongs to the background, which serializes it — a read-modify-write
   // here would drop the page overlay's concurrent save. The background decides
@@ -556,6 +578,17 @@ export default function IgSortTool() {
           hint="Transcreve, um de cada vez, os vídeos listados que ainda não têm transcrição"
           onClick={transcribeAll}
           disabled={txBulk || !bulkTranscribeTargets(sorted, txMap).length}
+        />
+        <ToolIconButton
+          icon={sweep?.running ? Square : MessagesSquare}
+          label={sweep?.running ? `Comentários ${sweep.done}/${sweep.total} — parar` : "Comentários de todos"}
+          hint={
+            sweep?.running
+              ? "Para a leitura dos comentários depois do post atual"
+              : "Abre, um por vez e em aba própria, até 15 posts listados com comentários e lê as respostas (20–40 s entre posts)"
+          }
+          onClick={sweepComments}
+          disabled={!sweep?.running && !commentSweepTargets(sorted).length}
         />
         <ToolIconButton
           icon={Sheet}

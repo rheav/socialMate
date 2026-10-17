@@ -11,6 +11,7 @@ import {
   CornerDownRight,
   RotateCw,
   Trash2,
+  ListTree,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
@@ -91,6 +92,29 @@ export default function IgCommentsTool() {
   }, [send]);
 
   const pickPost = (id) => { follow.current = false; setActiveId(id); };
+
+  // "Abrir respostas": the post open in the Instagram tab presses its own
+  // "ver respostas" / "mais comentários" under a budget (200 comments, 20
+  // presses or 90 s), and says where it stopped.
+  const [expanding, setExpanding] = useState(null);
+  const STOP_TEXT = {
+    exhausted: "tudo aberto",
+    limit_comments: "parou em 200 comentários",
+    limit_expansions: "parou em 20 cliques",
+    limit_time: "parou em 90 s",
+    no_progress: "o Instagram não carregou mais",
+    cancelled: "interrompido",
+  };
+  async function expandThread() {
+    setExpanding({ running: true });
+    const res = await send({ type: "FBW_IG_EXPAND_THREAD" }, { userAction: true, action: "abrir as respostas" });
+    setExpanding(
+      res?.ok
+        ? { text: `${res.captured} comentários · ${STOP_TEXT[res.stopReason] ?? "concluído"}` }
+        : { text: res?.error === "not_a_post" ? "abra um post no Instagram primeiro" : "não deu para abrir as respostas" },
+    );
+    pull();
+  }
 
   const refresh = useCallback(async () => {
     follow.current = true;
@@ -208,6 +232,13 @@ export default function IgCommentsTool() {
           })}
         />
         <ToolIconButton
+          icon={ListTree}
+          label={expanding?.running ? "Abrindo respostas…" : "Abrir respostas"}
+          hint="No post aberto no Instagram: clica em “ver respostas” e “mais comentários” até 200 comentários, 20 cliques ou 90 s"
+          onClick={expandThread}
+          disabled={!!expanding?.running}
+        />
+        <ToolIconButton
           ref={clearBtnRef}
           icon={clearArmed ? Trash2 : RotateCw}
           label={clearArmed ? "Confirmar limpeza" : "Atualizar"}
@@ -255,6 +286,7 @@ export default function IgCommentsTool() {
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
         <span className="min-w-0 break-words">
           {counts.total} comentários · {counts.topLevel} principais · {counts.replies} respostas
+          {expanding?.text && ` · ${expanding.text}`}
         </span>
         <div className="flex shrink-0 items-center gap-3">
           <button className="inline-flex items-center gap-1 underline" onClick={copyAll}>

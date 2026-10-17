@@ -36,3 +36,20 @@ export function igExportFilename(code, author) {
   const base = `ig-${code || "post"}-${stamp()}`;
   return downloadPath("comments", who ? `${who}-${base}.json` : `${base}.json`);
 }
+
+/**
+ * The posts a comment sweep opens: listed order, only those with comments and a
+ * shortcode, each once, at most `max` (the background caps it too).
+ */
+export function commentSweepTargets(records, max = 15) {
+  const seen = new Set();
+  const out = [];
+  for (const r of records || []) {
+    const code = r && r.code;
+    if (!code || seen.has(code) || !(Number(r.comment_count) > 0)) continue;
+    seen.add(code);
+    out.push(code);
+    if (out.length >= max) break;
+  }
+  return out;
+}

@@ -1858,6 +1858,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       return true;
     }
+    // Comentários de todos (Ordenar): one post after another, in a tab of our own.
+    case "FBW_IG_COMMENT_SWEEP": {
+      const codes = Array.isArray(msg.codes) ? msg.codes : [];
+      analysisCollect.sweepComments(codes).catch(() => {});
+      sendResponse({ ok: true, status: analysisCollect.sweepStatus() });
+      return false;
+    }
+    case "FBW_IG_COMMENT_SWEEP_STATUS": {
+      sendResponse({ ok: true, status: analysisCollect.sweepStatus() });
+      return false;
+    }
+    case "FBW_IG_COMMENT_SWEEP_STOP": {
+      sendResponse({ ok: analysisCollect.stopSweep(), status: analysisCollect.sweepStatus() });
+      return false;
+    }
     case "FBW_IG_EXPORT_FLUSH": {
       igExport.tick().then(
         () => sendResponse({ ok: true }),

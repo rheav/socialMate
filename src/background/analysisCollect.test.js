@@ -365,3 +365,64 @@ describe("cancelPrepare and recovery", () => {
     expect(w.log.removed).toEqual([7]); // the user's tab stays
   });
 });
+
+describe("sweepComments", () => {
+  it("reads each listed post's thread in a tab of its own, one at a time, 20–40 s apart, at most 15", async () => {
+    const asked = [];
+    const w = world({
+      page: (msg) => {
+        asked.push([msg.code, msg.comments]);
+        return pageAnswer({ code: msg.code });
+      },
+    });
+    const codes = Array.from({ length: 20 }, (_, i) => `C${i}`);
+    const before = w.log.slept;
+    const out = await w.api.sweepComments(["../bad", "C0", ...codes]);
+    expect(out).toEqual({ ok: true, done: 15, total: 15, stopReason: null });
+    expect(asked).toHaveLength(15);
+    expect(asked.every(([, comments]) => comments === true)).toBe(true);
+    expect(w.log.created[0]).toEqual({ url: `https://www.instagram.com/p/C0/${ANALYSIS_MARKER}`, active: false });
+    expect(w.log.removed).toHaveLength(15);
+    expect(w.log.slept - before).toBeGreaterThanOrEqual(14 * 20_000);
+    // Comments only: no video, no Hub, no transcription.
+    expect(w.log.cdn).toEqual([]);
+    expect(w.log.puts).toEqual([]);
+    expect(w.log.evidence).toEqual([]);
+    expect(w.log.transcribed).toEqual([]);
+    expect(w.api.sweepStatus()).toMatchObject({ running: false, done: 15, total: 15 });
+  });
+
+  it("a rate limit on its tab stops the sweep and pauses Instagram", async () => {
+    let n = 0;
+    const w = world({
+      page: (_msg, tabId, api) => {
+        if (++n === 2) api.onResponse({ tabId, statusCode: 429, url: "https://www.instagram.com/api/graphql" });
+        return pageAnswer();
+      },
+    });
+    expect(await w.api.sweepComments(["A1", "A2", "A3"])).toEqual({ ok: true, done: 1, total: 3, stopReason: "rate_limited" });
+    expect(w.log.paused).toEqual(["rate_limited"]);
+  });
+
+  it("can be stopped, and refuses a second sweep while one runs", async () => {
+    let api;
+    const w = world({
+      page: async (_msg, _tabId, a) => {
+        api = a;
+        expect(await a.sweepComments(["Z9"])).toEqual({ ok: false, code: "busy" });
+        a.stopSweep();
+        return pageAnswer();
+      },
+    });
+    const out = await w.api.sweepComments(["B1", "B2", "B3"]);
+    expect(out.stopReason).toBe("cancelled");
+    expect(out.done).toBeLessThan(3);
+    expect(api).toBeTruthy();
+  });
+
+  it("opens nothing while Instagram is paused", async () => {
+    const w = world({ blocked: "login_required" });
+    expect(await w.api.sweepComments(["A1"])).toEqual({ ok: true, done: 0, total: 1, stopReason: "instagram_paused" });
+    expect(w.log.created).toEqual([]);
+  });
+});

@@ -29,6 +29,8 @@ export const COLLECT_LIMITS = {
   busyPollMs: 15_000,
   readyMs: 20_000,
   downloadMs: 5 * 60_000,
+  /** Posts per comment sweep. */
+  sweepMax: 15,
 };
 
 const CODE_RE = /^[A-Za-z0-9_-]{1,40}$/;
@@ -57,7 +59,10 @@ export function createAnalysisCollect({
   limits = {},
 }) {
   const L = { ...COLLECT_LIMITS, ...limits };
-  let current = null; // { taskId, tabId, code, stop, cancelled, abort }
+  // Jobs in flight: a Hub job, or one post of a comment sweep. Their tab phases
+  // never overlap (instagram.serialize); a sweep also yields to Hub jobs.
+  const jobs = new Set(); // { taskId, tabId, code, stop, cancelled, sweep? }
+  let sweep = null; // { running, total, done, current, stopReason, cancel }
 
   async function load() {
     const r = await chrome.storage.local.get(ANALYSIS_COLLECT_KEY);
@@ -156,6 +161,7 @@ export function createAnalysisCollect({
       return { page, video };
     } finally {
       await closeOwnTab(job.tabId, job.code);
+      await save({ taskId: null, tabId: null, code: null, startedAt: null });
     }
   }
 
@@ -214,6 +220,29 @@ export function createAnalysisCollect({
   }
 
   /**
+   * Before opening Instagram: not while it is paused, not during a Spy batch
+   * (waits up to six minutes), and 20–40 s after the previous post. → null to
+   * go ahead, or why not.
+   */
+  async function gate(job) {
+    if (await instagram.blocked()) return "instagram_paused";
+    const waitUntil = now() + L.busyWaitMs;
+    while (await instagram.busy()) {
+      if (job.cancelled) return "cancelled";
+      if (now() >= waitUntil) return "instagram_busy";
+      await wait(L.busyPollMs, job);
+    }
+    const { nextAt } = await load();
+    if (nextAt > now()) await wait(nextAt - now(), job);
+    return job.cancelled ? "cancelled" : null;
+  }
+
+  async function spaceNext() {
+    const gap = L.gapMs[0] + Math.round(random() * (L.gapMs[1] - L.gapMs[0]));
+    await save({ nextAt: now() + gap });
+  }
+
+  /**
    * Prepare one post. → { ok: true, result: { evidenceHash } } or { ok: false, code }.
    * `progress(code)` reports a step to the Hub's log.
    */
@@ -225,22 +254,14 @@ export function createAnalysisCollect({
     if (!settings?.url || !settings?.token) return { ok: false, code: "hub_not_configured" };
 
     const job = { taskId: task.taskId, leaseToken: task.leaseToken, code, tabId: null, stop: null, cancelled: false };
-    current = job;
+    jobs.add(job);
     let touchedInstagram = false;
     try {
       const touchesInstagram = !!(p.needs?.comments || p.needs?.captionFull || (p.needs?.video && p.assetId));
       let inTab = { page: null, video: null };
       if (touchesInstagram) {
-        if (await instagram.blocked()) return { ok: false, code: "instagram_paused" };
-        const waitUntil = now() + L.busyWaitMs;
-        while (await instagram.busy()) {
-          if (job.cancelled) return { ok: false, code: "cancelled" };
-          if (now() >= waitUntil) return { ok: false, code: "instagram_busy" };
-          await wait(L.busyPollMs, job);
-        }
-        const { nextAt } = await load();
-        if (nextAt > now()) await wait(nextAt - now(), job);
-        if (job.cancelled) return { ok: false, code: "cancelled" };
+        const blocked = await gate(job);
+        if (blocked) return { ok: false, code: blocked };
         touchedInstagram = true;
         inTab = await instagram.serialize(() => collectInTab(job, p));
       }
@@ -298,16 +319,71 @@ export function createAnalysisCollect({
       const filed = await fileEvidence(settings, job, body);
       return filed.ok ? { ok: true, result: { evidenceHash: filed.hash } } : { ok: false, code: filed.code };
     } finally {
-      if (current === job) current = null;
-      const gap = L.gapMs[0] + Math.round(random() * (L.gapMs[1] - L.gapMs[0]));
-      await save({ ...idle(), ...(touchedInstagram ? { nextAt: now() + gap } : {}) });
+      jobs.delete(job);
+      if (touchedInstagram) await spaceNext();
     }
+  }
+
+  /**
+   * Open each listed post in a tab of our own and read its whole comment thread
+   * under the usual budget — the old bridge's "collect the profile's comments".
+   * The comments flow out the way every capture does (panel, Instagram Scraper
+   * destinations). One sweep at a time, at most `sweepMax` posts, 20–40 s
+   * apart, yielding to Hub jobs; a login wall or rate limit stops it and pauses
+   * Instagram for the Spy too. → { ok, done, total, stopReason }
+   */
+  async function sweepComments(codes) {
+    if (sweep?.running) return { ok: false, code: "busy" };
+    const list = [...new Set((Array.isArray(codes) ? codes : []).filter((c) => typeof c === "string" && CODE_RE.test(c)))].slice(0, L.sweepMax);
+    const run = { running: true, total: list.length, done: 0, current: null, stopReason: null, cancel: false };
+    sweep = run;
+    try {
+      for (const code of list) {
+        if (run.cancel) {
+          run.stopReason = "cancelled";
+          break;
+        }
+        // A Hub job comes first: wait for it between posts.
+        while ([...jobs].some((j) => !j.sweep)) await sleep(5_000);
+        const job = { taskId: `sweep:${code}`, code, tabId: null, stop: null, cancelled: false, sweep: true };
+        jobs.add(job);
+        run.current = code;
+        try {
+          const blocked = await gate(job);
+          if (blocked) {
+            run.stopReason = blocked;
+            break;
+          }
+          await instagram.serialize(() => collectInTab(job, { needs: { comments: true }, mediaPk: null }));
+          await spaceNext();
+        } finally {
+          jobs.delete(job);
+        }
+        if (job.stop) {
+          await instagram.pause(job.stop);
+          run.stopReason = job.stop;
+          break;
+        }
+        run.done += 1;
+      }
+      return { ok: true, done: run.done, total: run.total, stopReason: run.stopReason };
+    } finally {
+      run.running = false;
+      run.current = null;
+    }
+  }
+
+  function stopSweep() {
+    if (!sweep?.running) return false;
+    sweep.cancel = true;
+    for (const j of jobs) if (j.sweep) j.cancelled = true;
+    return true;
   }
 
   /** The Hub cancelled the task: stop it and close the tab it opened. */
   async function cancelPrepare(taskId) {
-    const job = current;
-    if (!job || job.taskId !== taskId) return false;
+    const job = [...jobs].find((j) => j.taskId === taskId && !j.sweep);
+    if (!job) return false;
     job.cancelled = true;
     if (job.tabId != null) {
       await ask(job.tabId, { type: "FBW_ANALYSIS_CANCEL" });
@@ -326,8 +402,8 @@ export function createAnalysisCollect({
 
   /** Responses on Instagram (webRequest): 401/403 → login, 429 → rate limit, on our tab only. */
   function onResponse({ tabId, statusCode, url }) {
-    const job = current;
-    if (!job || tabId !== job.tabId || ![401, 403, 429].includes(statusCode)) return;
+    const job = [...jobs].find((j) => j.tabId != null && j.tabId === tabId);
+    if (!job || ![401, 403, 429].includes(statusCode)) return;
     try {
       if (!/(^|\.)instagram\.com$/.test(new URL(url).hostname)) return;
     } catch {
@@ -338,9 +414,19 @@ export function createAnalysisCollect({
 
   /** Navigations of our tab: a login wall or a challenge stops the job. */
   function onNavigation(tabId, url) {
-    const job = current;
-    if (job && tabId === job.tabId && LOGIN_WALL.test(url || "")) job.stop = job.stop || "login_required";
+    const job = [...jobs].find((j) => j.tabId != null && j.tabId === tabId);
+    if (job && LOGIN_WALL.test(url || "")) job.stop = job.stop || "login_required";
   }
 
-  return { preparePost, cancelPrepare, recover, onResponse, onNavigation, status: () => (current ? { taskId: current.taskId } : null) };
+  return {
+    preparePost,
+    cancelPrepare,
+    recover,
+    onResponse,
+    onNavigation,
+    sweepComments,
+    stopSweep,
+    sweepStatus: () => (sweep ? { running: sweep.running, total: sweep.total, done: sweep.done, current: sweep.current, stopReason: sweep.stopReason } : null),
+    status: () => [...jobs].map((j) => ({ taskId: j.taskId })),
+  };
 }
