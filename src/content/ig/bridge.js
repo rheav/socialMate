@@ -1147,6 +1147,34 @@ function igExportMessages(posts, held, media, now) {
 // opened under a budget. Identity is exact: the URL's shortcode and, when the
 // record has one, the media pk the Hub asked for. Anything else is refused rather
 // than collected under the wrong post. The page-facing parts arrive in `env`.
+// What a transcript says about its post — author, picture, numbers, date —
+// read off the page's own record. One function for every Instagram path that
+// files a transcript (the overlay's Transcrever and the analysis' collection):
+// on 17/10 the collection filed four with none of it, because it built its own
+// request and left these out.
+function igTranscriptMeta(rec) {
+  return {
+    author: {
+      name: rec.username || rec.full_name || "desconhecido",
+      url: rec.username ? `/${rec.username}/` : null,
+    },
+    thumb: rec.thumb || rec.image || null,
+    counts: {
+      like: rec.like_count ?? null,
+      comment: rec.comment_count ?? null,
+      views: rec.play_count ?? null,
+      // Reposts are a share count by another name, and the Library card's strip
+      // already has a slot for it.
+      share: rec.repost ?? null,
+    },
+    // Everything the on-page rail already draws from this same record: no
+    // request, and it turns a Library card from "this did well" into "this did
+    // well, on this date, for an account this size".
+    takenAt: rec.taken_at ?? null,
+    followers: rec.user_follower_count ?? null,
+  };
+}
+
 async function igAnalysisCollect(msg, env) {
   const code = String(msg.code || "");
   const pk = String(msg.mediaPk || "");
@@ -1178,7 +1206,7 @@ async function igAnalysisCollect(msg, env) {
   }
   const authors = [...new Set([rec.username, ...(rec.coauthors || []).map((c) => c && c.username)].filter(Boolean))];
   return { ok: true, code, pk: recPk || pk, url: env.url(), caption, variants: env.variantsOf(id) || [],
-    durationS: rec.duration ?? null, mediaType: rec.media_type || null, authors, comments };
+    durationS: rec.duration ?? null, mediaType: rec.media_type || null, authors, comments, meta: igTranscriptMeta(rec) };
 }
 
 // The next "View replies" / "Load more comments" control on the page, skipping
@@ -2964,24 +2992,7 @@ function recordReachTier(rec) {
       platform: "instagram",
       language: language ? normTxLang(language) : await getTxLang(),
       caption: rec.caption || null,
-      author: {
-        name: rec.username || rec.full_name || "desconhecido",
-        url: rec.username ? `/${rec.username}/` : null,
-      },
-      thumb: rec.thumb || rec.image || null,
-      counts: {
-        like: rec.like_count ?? null,
-        comment: rec.comment_count ?? null,
-        views: rec.play_count ?? null,
-        // Reposts are a share count by another name, and the Library card's strip
-        // already has a slot for it — the record just never carried one from here.
-        share: rec.repost ?? null,
-      },
-      // Everything the on-page rail is ALREADY drawing from this same record. It
-      // costs no request and it is what turns a Library card from "this did well"
-      // into "this did well, on this date, for an account this size".
-      takenAt: rec.taken_at ?? null,
-      followers: rec.user_follower_count ?? null,
+      ...igTranscriptMeta(rec),
       durationS: rec.duration ?? null,
     });
     return true;

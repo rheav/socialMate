@@ -174,7 +174,8 @@ describe("research export messages", () => {
 });
 
 const collectSource = bridge.match(/^async function igAnalysisCollect\([^)]*\) \{[\s\S]*?\n\}/m)[0];
-const igAnalysisCollect = new Function(`${collectSource}; return igAnalysisCollect;`)();
+const metaSource = bridge.match(/^function igTranscriptMeta\([^)]*\) \{[\s\S]*?\n\}/m)[0];
+const igAnalysisCollect = new Function(`${metaSource}; ${collectSource}; return igAnalysisCollect;`)();
 const buttonSource = bridge.match(/^function igExpandButton\([^)]*\) \{[\s\S]*?\n\}/m)[0];
 
 describe("analysis tab collection", () => {
@@ -208,6 +209,18 @@ describe("analysis tab collection", () => {
       caption: { text: "curta mas inteira", full: true },
       variants: [{ w: 720, h: 1280 }], durationS: 41, authors: ["nasa", "partner"],
       comments: { items: [{ cid: "1" }], stopReason: "exhausted", order: "page", reportedTotal: 3 },
+    });
+  });
+
+  it("hands over the post's author, picture, numbers and date, as the overlay's Transcrever does", async () => {
+    const full = { ...rec, image: "https://cdn/thumb.jpg", like_count: 42, play_count: 1100, repost: 3, taken_at: 1792037451, user_follower_count: 9000 };
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => full }));
+    expect(out.meta).toEqual({
+      author: { name: "nasa", url: "/nasa/" },
+      thumb: "https://cdn/thumb.jpg",
+      counts: { like: 42, comment: 3, views: 1100, share: 3 },
+      takenAt: 1792037451,
+      followers: 9000,
     });
   });
 

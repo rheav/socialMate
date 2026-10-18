@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.14.1] — 2026-10-17
+
+### Fixed
+- **Transcripts filed by the Top analysis had no author, picture, numbers or date** (four Library/Acervo cards on 17/10 showed "desconhecido" and "sem prévia"). The analysis' collection built its own transcription request and left the post's metadata out. Both Instagram paths now take it from one function (`igTranscriptMeta` in the bridge), the collection hands it to the transcription, and a transcript it finds already done without author or picture is completed (never transcribed again).
+
 ## [1.14.0] — 2026-10-17
 
 ### Added

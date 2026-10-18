@@ -48,11 +48,11 @@ function chromeStub() {
   return stub;
 }
 
-let putTranscript, removeTranscripts, sweepOrphanedTranscripts;
+let putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ putTranscript, removeTranscripts, sweepOrphanedTranscripts } = await import("./background.js"));
+  ({ putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis } = await import("./background.js"));
 });
 beforeEach(() => {
   for (const k of Object.keys(data)) delete data[k];
@@ -149,5 +149,17 @@ describe("orphaned jobs after a worker restart", () => {
     expect(data.fbw_saved.A).toMatchObject({ status: "done", text: "final text", language: "en", caption: "post" });
     expect(data.fbw_saved.B.status).toBe("error");
     expect(data.fbw_saved.C.status).toBeUndefined();
+  });
+});
+
+describe("the analysis' transcription", () => {
+  // Before 1.14.1 the analysis' collection filed transcripts with no author,
+  // picture, numbers or date. One already done is completed, never redone.
+  it("completes a finished transcript that lacks its author and picture, without running Whisper again", async () => {
+    data.fbw_transcripts = { DegENSFMsUy: { videoId: "DegENSFMsUy", status: "done", text: "Keep your mouth shut.", chunks: [], author: { name: null, url: null }, thumb: null, updatedAt: 1 } };
+    const meta = { author: { name: "claire_mayaus", url: "/claire_mayaus/" }, counts: { like: 42238, comment: 14798, views: 1094798, share: null }, takenAt: 1792037451 };
+    const out = await transcribeForAnalysis({ code: "DegENSFMsUy", mediaUrl: "https://cdn/v.mp4", durationS: 91, caption: null, meta });
+    expect(out).toMatchObject({ status: "done", text: "Keep your mouth shut." });
+    expect(transcripts().DegENSFMsUy).toMatchObject({ status: "done", author: { name: "claire_mayaus", url: "/claire_mayaus/" }, counts: { like: 42238, views: 1094798 }, takenAt: 1792037451 });
   });
 });

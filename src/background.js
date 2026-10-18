@@ -990,7 +990,7 @@ function sweepOrphanedTranscripts() {
 // Top level, so it is queued ahead of whatever message woke the worker.
 sweepOrphanedTranscripts().catch((e) => console.warn("[fbw] varredura de transcrições órfãs:", e));
 
-export { putTranscript, removeTranscripts, sweepOrphanedTranscripts }; // test seam — see background.transcripts.test.js
+export { putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis }; // test seam — see background.transcripts.test.js
 
 // ---- offscreen document lifecycle ----
 let offscreenReady = false;
@@ -1332,16 +1332,24 @@ async function runTranscription(videoId, tabId, meta = {}) {
 // The analysis collector's transcript of a post: the Library's own when it has
 // one, else the usual queued Whisper job on the post's MP4 (which files it in the
 // Library and syncs it like any other).
-async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption }) {
+async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, meta }) {
   const id = code || pk;
   const done = (rec) =>
     rec?.status === "done"
       ? { status: "done", text: rec.text || "", chunks: rec.chunks || [], language: rec.language ?? null, source: rec.source || "whisper" }
       : null;
-  const existing = done((await getTranscripts())[id]);
-  if (existing) return existing;
+  const stored = (await getTranscripts())[id];
+  const existing = done(stored);
+  if (existing) {
+    // Filed before 1.14.1 without its author or picture: complete it, never redo it.
+    const bare = !stored.thumb || !stored.author?.name || stored.author.name === "desconhecido";
+    if (meta && bare) await putTranscript(id, transcriptMetaPatch(meta));
+    return existing;
+  }
   const language = (await chrome.storage.local.get(TX_LANG_KEY))[TX_LANG_KEY];
   await runTranscription(id, null, {
+    // The post's author, picture, numbers and date (see igTranscriptMeta in the bridge).
+    ...(meta || {}),
     platform: "instagram",
     mediaUrl,
     durationS,

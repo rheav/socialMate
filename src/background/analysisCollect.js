@@ -295,7 +295,8 @@ export function createAnalysisCollect({
           .sort((a, b) => (a.w || 0) * (a.h || 0) - (b.w || 0) * (b.h || 0))[0];
         if (smallest && !job.cancelled) {
           live({ phase: "transcribing", detail: page.durationS ? `vídeo de ${Math.round(page.durationS)} s` : null });
-          const t = await transcribe({ code, pk: page.pk || p.mediaPk, mediaUrl: smallest.url, durationS: page.durationS ?? null, caption: page.caption?.text ?? null }).catch(() => null);
+          // The post's author, picture and numbers ride along, so its Library card is complete.
+          const t = await transcribe({ code, pk: page.pk || p.mediaPk, mediaUrl: smallest.url, durationS: page.durationS ?? null, caption: page.caption?.text ?? null, meta: page.meta ?? null }).catch(() => null);
           transcript =
             t?.status === "done"
               ? { status: "done", text: t.text ?? "", chunks: t.chunks ?? [], language: t.language ?? null, source: t.source ?? "whisper" }

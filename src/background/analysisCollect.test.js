@@ -182,6 +182,14 @@ describe("preparePost", () => {
     expect(state.nextAt - w.now()).toBeLessThanOrEqual(40_000);
   });
 
+  it("hands the post's author, picture and numbers to the transcription", async () => {
+    const meta = { author: { name: "nasa", url: "/nasa/" }, thumb: "https://cdn/thumb.jpg", counts: { like: 42, comment: 3, views: 1100, share: null }, takenAt: 1792037451, followers: null };
+    const w = world({ page: () => pageAnswer({ meta }) });
+    await w.api.preparePost(job());
+    expect(w.log.transcribed).toHaveLength(1);
+    expect(w.log.transcribed[0].meta).toEqual(meta);
+  });
+
   it("says what it is doing at each step (the panel's Agora)", async () => {
     const w = world();
     const phases = [];
