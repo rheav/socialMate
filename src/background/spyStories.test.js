@@ -76,6 +76,8 @@ describe("runPass", () => {
     await pass.runPass({ source: "pass", slot: 0 });
     expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual(["https://www.instagram.com/stories/natgeo/"]);
     expect(deps.sendStory).toHaveBeenCalledTimes(2);
+    // The next step is also an alarm: a worker that stops between steps is woken for it.
+    expect(alarms[STORIES_ALARM]).toEqual({ when: deps.storage.data[SPY_STATE_KEY].stories.job.nextAt });
     await vi.advanceTimersByTimeAsync(29_000); // 20 s + 0.5 × 20 s = 30 s between profiles
     expect(fetchImpl.mock.calls.length).toBe(1);
     await vi.advanceTimersByTimeAsync(2_000);

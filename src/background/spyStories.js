@@ -152,6 +152,8 @@ export function createStoriesPass(deps) {
       stepTimer = null;
       step().catch(() => {});
     }, Math.max(0, at - now()));
+    // The timer dies with the worker; the alarm wakes it for the same step.
+    armAlarm(at);
   }
 
   const localDay = (ms) => {
