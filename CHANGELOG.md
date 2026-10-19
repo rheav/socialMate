@@ -16,6 +16,18 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.0] — 2026-10-19
+
+### Added
+- **Stories das contas trackeadas (Hub):** for every Instagram profile with "Trackear stories" on in the Hub, the worker reads `instagram.com/stories/<user>/` with the session — no tab, no click, so nothing is marked as seen — reduces each story (times, duration, link sticker unwrapped, music, mentions, AI label) and sends the Hub the metadata, a 144 px WebP poster and the whole video or photo, one story in memory at a time. `src/lib/spyStories.js` (parser, reducer, slots), `src/background/spyStories.js` (the pass).
+- **Passes by slot:** the local day split in `passesPerDay` slots (Hub setting, default 2), one pass per slot after a 10–90 min jitter; a slot whose window closed is never run late. One profile per 20–40 s step, the job persisted and resumed by the Spy's minute tick (alarm `fbw-spy-stories`). A 401/403/429 or a login wall pauses Instagram like the other readings.
+- **"Coletar stories" (Hub button):** the relay socket now takes `command` frames (`stories.collect`) and answers `command_progress` per profile and `command_result`; the hello advertises `capabilities.commands`. A pass already running answers `busy`.
+- **Leituras:** readings of kind `stories` (`pass` or `manual`), with the stories added; history lines in the Spy panel for the pass's start, each profile and the end.
+- `putStoryMedia` in `lib/syncClient.js` (raw `PUT` of a story's poster or media); `toThumbBlob` in `lib/thumbCache.js` (the thumbnail as a Blob, `toDurableThumb` now wraps it); medias that could not be sent wait in `pendingMedia` (3 tries, 30 h).
+
+### Changed
+- The Spy's queue has a `stories` kind; the Hub's `settings.stories` (passes per day, days kept) is kept in the Spy state after every list.
+
 ## [1.14.1] — 2026-10-17
 
 ### Fixed

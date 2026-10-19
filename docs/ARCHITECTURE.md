@@ -513,3 +513,22 @@ scope in `background.js`:
 
 Storage added: `fbw_analysis_relay`, `fbw_analysis_collect`,
 `fbw_ig_destinations`, `fbw_ig_outbox`.
+
+### Stories of the tracked profiles (1.15.0)
+
+The Hub's swipe file. `src/lib/spyStories.js` is pure: the stories page's reel
+(`parseStoriesHtml`, a `<script type="application/json">` blob under
+`xdt_api__v1__feed__reels_media`), the API fallback (`parseReelsMediaJson`),
+`reduceStory` (what the Hub stores, times in ms, `l.instagram.com` links
+unwrapped) and the slots (`storySlots`, `passDue`, a jitter per slot kept in
+the state). `src/background/spyStories.js` runs the pass: `tick()` from the
+Spy's minute tick and the alarm `fbw-spy-stories`; a persisted job
+(`SPY_STATE_KEY.stories.job`) stepped one profile per 20–40 s; per story the
+metadata in the Spy batch (`queue.stories`, flushed first so the row exists),
+then `PUT …/poster` (144 px WebP from `toThumbBlob`) and `PUT …/media` (the
+whole file as a Blob, never two at once); failures wait in `pendingMedia`.
+The fetch is `credentials: "include"` from the worker: no tab, no "Ver story",
+so the owner's name never appears among the viewers. The Hub's "Coletar
+stories" arrives as a relay `command` (analysisRelay.js → `commands`) and runs a
+manual pass that reports `command_progress` per profile. Design and what was
+measured: `~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md`.
