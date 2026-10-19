@@ -376,5 +376,23 @@ export function createStoriesPass(deps) {
     return { sent, dropped };
   }
 
-  return { readProfile, runPass, tick, step, sendStory, retryPending, status: () => ({ stepArmed: !!stepTimer }) };
+  /**
+   * The hub's "Coletar stories" (relay command `stories.collect`): a manual
+   * pass over the given profiles, reported profile by profile, then the result.
+   */
+  async function onCommand(msg, reply) {
+    const settings = await deps.readSyncSettings();
+    if (!isSyncConfigured(settings)) { reply.result(false, { error: "acervo não configurado" }); return; }
+    if (await deps.isBlockedNow(now())) { reply.result(false, { error: "rate_limited" }); return; }
+    const profileIds = Array.isArray(msg?.profileIds) && msg.profileIds.length ? msg.profileIds.map(String) : null;
+    const out = await runPass({
+      source: "manual",
+      profileIds,
+      report: (progress) => reply.progress(progress),
+      onDone: (done) => reply.result(done.ok, { added: done.added, failed: done.failed, ...(done.error ? { error: done.error } : {}) }),
+    });
+    if (!out.ok) reply.result(false, { error: out.error });
+  }
+
+  return { readProfile, runPass, tick, step, sendStory, retryPending, onCommand, status: () => ({ stepArmed: !!stepTimer }) };
 }

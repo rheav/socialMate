@@ -28,8 +28,11 @@ export function analysisWsUrl(httpUrl) {
  * @param {() => Promise<{url,token}|null>} deps.settings  the Acervo sync settings
  * @param {{get,set}} deps.storage  chrome.storage.local
  * @param {{ preparePost(job, {progress}), cancelPrepare(taskId) }} deps.collect
+ * @param {Record<string, (msg, reply: { progress(fields), result(ok, fields) }) => Promise>} [deps.commands]
+ *   Hub commands outside the analysis tasks (the Stories' "Coletar stories"): one
+ *   handler per name; what it reports goes back as command_progress / command_result.
  */
-export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect, version, random = Math.random }) {
+export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect, version, random = Math.random, commands = {} }) {
   if (!WebSocketImpl) return { ensure: async () => {}, close() {}, status: () => ({ connected: false }) };
   const OPEN = WebSocketImpl.OPEN ?? 1;
   const CONNECTING = WebSocketImpl.CONNECTING ?? 0;
@@ -116,6 +119,23 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
       );
   }
 
+  /** A hub command: its handler reports through `reply`; an unknown name is answered at once. */
+  function runCommand(msg) {
+    const requestId = String(msg.requestId || "");
+    const reply = {
+      progress: (fields = {}) => send({ type: "command_progress", requestId, ...fields }),
+      result: (ok, fields = {}) => send({ type: "command_result", requestId, ok: !!ok, ...fields }),
+    };
+    const handler = commands[msg.command];
+    if (typeof handler !== "function") {
+      reply.result(false, { error: "unknown_command" });
+      return;
+    }
+    Promise.resolve()
+      .then(() => handler(msg, reply))
+      .catch(() => reply.result(false, { error: "command_failed" }));
+  }
+
   async function onMessage(raw) {
     lastHeardAt = Date.now();
     let msg;
@@ -125,6 +145,8 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
       return;
     }
     switch (msg?.type) {
+      case "command":
+        return runCommand(msg);
       case "welcome": {
         welcomed = true;
         attempt = 0;
@@ -165,7 +187,9 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
     lastHeardAt = Date.now();
     sock.addEventListener("open", () => {
       lastHeardAt = Date.now();
-      sock.send(JSON.stringify({ type: "hello", role: "extension", token: next.token, instanceId: id, version, capabilities: { collect: true } }));
+      const names = Object.keys(commands);
+      const capabilities = { collect: true, ...(names.length ? { commands: names } : {}) };
+      sock.send(JSON.stringify({ type: "hello", role: "extension", token: next.token, instanceId: id, version, capabilities }));
       // The Hub pings every 20 s: a minute of silence means the line is gone.
       watch = setInterval(() => {
         if (Date.now() - lastHeardAt >= STALE_MS) {

@@ -127,6 +127,8 @@ const analysisRelay = createAnalysisRelay({
   storage: chrome.storage.local,
   collect: analysisCollect,
   version: chrome.runtime.getManifest?.().version || "",
+  // The hub's "Coletar stories": a stories pass now (storiesPass is created below; commands arrive later).
+  commands: { "stories.collect": (msg, reply) => storiesPass.onCommand(msg, reply) },
 });
 analysisCollect.recover().catch(() => {});
 analysisRelay.ensure().catch(() => {});

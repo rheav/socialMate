@@ -279,3 +279,30 @@ describe("readProfile", () => {
     expect((await createStoriesPass({ ...deps, fetchImpl: down }).readProfile(profile, settings)).error).toBe("network");
   });
 });
+
+describe("onCommand", () => {
+  const reply = () => ({ progress: vi.fn(), result: vi.fn() });
+  it("answers busy when a pass is running", async () => {
+    await seed(deps.storage, [tracked("natgeo")], { stories: { job: { source: "pass", profileIds: ["instagram:natgeo"], index: 0, added: 0, failed: 0, nextAt: Date.now() + 30_000, startedAt: Date.now() } } });
+    const fetchImpl = fetchStub([]);
+    const r = reply();
+    await createStoriesPass({ ...deps, fetchImpl }).onCommand({ requestId: "req-1", profileIds: ["instagram:natgeo"] }, r);
+    expect(r.result).toHaveBeenCalledWith(false, { error: "busy" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("runs a manual pass for the given profiles and reports each one", async () => {
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")]);
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
+    const r = reply();
+    await createStoriesPass({ ...deps, fetchImpl }).onCommand({ requestId: "req-1", profileIds: ["instagram:natgeo"] }, r);
+    expect(r.progress).toHaveBeenCalledWith({ done: 1, total: 1, added: 2, failed: 0, current: "natgeo" });
+    expect(r.result).toHaveBeenCalledWith(true, { added: 2, failed: 0 });
+    expect(deps.storage.data[SPY_STATE_KEY].stories.daily.passes).toEqual([]);
+  });
+  it("says why when nothing can run", async () => {
+    await seed(deps.storage, [tracked("natgeo", { trackStories: false })]);
+    const r = reply();
+    await createStoriesPass({ ...deps }).onCommand({ requestId: "req-1" }, r);
+    expect(r.result).toHaveBeenCalledWith(false, { error: "nothing_tracked" });
+  });
+});

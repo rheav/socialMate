@@ -220,3 +220,31 @@ describe("jobs", () => {
     expect(ws.sent.at(-1)).toEqual({ type: "error", taskId: "t2", leaseToken: "lease-2", code: "busy" });
   });
 });
+
+describe("commands over the relay", () => {
+  const base = () => ({ WebSocketImpl: FakeSocket, settings: async () => settings, storage, collect, version: "1.15.0", random: () => 0.5 });
+  it("routes a command to its handler and reports progress and the result", async () => {
+    const handler = vi.fn(async (msg, reply) => { reply.progress({ done: 1, total: 2 }); reply.result(true, { added: 3 }); });
+    relay = createAnalysisRelay({ ...base(), commands: { "stories.collect": handler } });
+    const sock = await connected();
+    sock.receive({ type: "command", command: "stories.collect", requestId: "req-1", profileIds: ["instagram:natgeo"] });
+    await flush();
+    expect(handler.mock.calls[0][0]).toMatchObject({ requestId: "req-1", profileIds: ["instagram:natgeo"] });
+    expect(sock.sent.filter((m) => m.type.startsWith("command_"))).toEqual([
+      { type: "command_progress", requestId: "req-1", done: 1, total: 2 },
+      { type: "command_result", requestId: "req-1", ok: true, added: 3 },
+    ]);
+  });
+  it("answers unknown_command for a command it does not know", async () => {
+    relay = createAnalysisRelay({ ...base(), commands: { "stories.collect": vi.fn() } });
+    const sock = await connected();
+    sock.receive({ type: "command", command: "x.y", requestId: "req-2" });
+    await flush();
+    expect(sock.sent.at(-1)).toEqual({ type: "command_result", requestId: "req-2", ok: false, error: "unknown_command" });
+  });
+  it("advertises the commands it knows in the hello", async () => {
+    relay = createAnalysisRelay({ ...base(), commands: { "stories.collect": vi.fn() } });
+    const sock = await connected();
+    expect(sock.sent[0].capabilities).toEqual({ collect: true, commands: ["stories.collect"] });
+  });
+});
