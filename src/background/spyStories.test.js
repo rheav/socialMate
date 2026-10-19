@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createStoriesPass, STORIES_ALARM } from "./spyStories.js";
-import { parseStoriesHtml } from "../lib/spyStories.js";
+import { parseStoriesHtml, reduceStory } from "../lib/spyStories.js";
 import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY } from "../lib/spyStore.js";
 
 // The stories pass, service-worker side: one profile at a time, the page first,
@@ -124,6 +124,78 @@ describe("runPass", () => {
     await seed(deps.storage, [tracked("natgeo")], { stories: { job: { source: "pass", profileIds: ["instagram:natgeo"], index: 0, added: 0, failed: 0, nextAt: Date.now() + 30_000, startedAt: Date.now() } } });
     const out = await createStoriesPass({ ...deps }).runPass({ source: "manual" });
     expect(out).toEqual({ ok: false, error: "busy" });
+  });
+});
+
+describe("sendStory", () => {
+  const reduced = () => reduceStory(parseStoriesHtml(fixture).items[0], "27143148638");
+  const okJson = (json) => ({ ok: true, status: 200, url: "", json: async () => json, text: async () => "" });
+  const bytes = (n, type) => ({ ok: true, status: 200, url: "", blob: async () => new Blob([new Uint8Array(n)], { type }), json: async () => ({}), text: async () => "" });
+
+  it("sends metadata first, then the poster, then the media, one fetch of the media at a time", async () => {
+    const calls = [];
+    const fetchImpl = vi.fn(async (url, init = {}) => {
+      calls.push(`${init.method || "GET"} ${String(url)}`);
+      if (String(url).includes("/api/sync/spy/stories/")) return okJson({ id: "4010802020595923127", bytes: 3, ready: String(url).endsWith("/media") });
+      if (String(url).includes("story-video-720.mp4")) return bytes(3, "video/mp4");
+      throw new Error("unexpected " + url);
+    });
+    const pass = createStoriesPass({ ...deps, fetchImpl, sendStory: undefined });
+    const flushed = [];
+    deps.flush.mockImplementation(async () => { flushed.push(structuredClone(deps.storage.data[SPY_QUEUE_KEY]?.stories)); return { ok: true }; });
+    const out = await pass.sendStory(reduced(), "instagram:natgeo", settings);
+    expect(out).toBe("sent");
+    // A string key: a numeric literal this big loses digits.
+    expect(flushed[0]).toEqual({ "4010802020595923127": expect.objectContaining({ profileId: "instagram:natgeo", id: "4010802020595923127", mediaType: 2 }) });
+    expect(deps.makePoster).toHaveBeenCalledWith(expect.stringContaining("story-cover-640.jpg"));
+    expect(calls).toEqual([
+      "PUT https://hub/api/sync/spy/stories/4010802020595923127/poster",
+      "GET https://scontent.example.net/o1/v/story-video-720.mp4",
+      "PUT https://hub/api/sync/spy/stories/4010802020595923127/media",
+    ]);
+    expect(fetchImpl.mock.calls[0][1].headers["Content-Type"]).toBe("image/webp");
+    expect(fetchImpl.mock.calls[2][1].headers["Content-Type"]).toBe("video/mp4");
+  });
+  it("a failed download goes to pendingMedia and the pass goes on", async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).includes("/poster")) return okJson({ ready: false });
+      if (String(url).includes("story-video")) return { ok: false, status: 403, url: "", blob: async () => new Blob([]), json: async () => ({}), text: async () => "" };
+      throw new Error("unexpected " + url);
+    });
+    const pass = createStoriesPass({ ...deps, fetchImpl, sendStory: undefined });
+    expect(await pass.sendStory(reduced(), "instagram:natgeo", settings)).toBe("pending");
+    const pending = deps.storage.data[SPY_STATE_KEY].stories.pendingMedia;
+    expect(pending).toEqual([expect.objectContaining({ id: "4010802020595923127", profileId: "instagram:natgeo", tries: 1, media: { url: expect.stringContaining("story-video-720"), mime: "video/mp4" } })]);
+  });
+  it("skips a media above 25 MB with a plain line", async () => {
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).includes("/poster")) return okJson({ ready: false });
+      if (String(url).includes("story-video")) return bytes(25 * 1024 * 1024 + 1, "video/mp4");
+      throw new Error("unexpected " + url);
+    });
+    const pass = createStoriesPass({ ...deps, fetchImpl, sendStory: undefined });
+    expect(await pass.sendStory(reduced(), "instagram:natgeo", settings)).toBe("skipped");
+    expect(history().some((t) => t.includes("25 MB"))).toBe(true);
+    expect(deps.storage.data[SPY_STATE_KEY]?.stories?.pendingMedia ?? []).toEqual([]);
+  });
+  it("retries a pending media up to 3 times within 30 h", async () => {
+    const now = Date.now();
+    const item = reduced();
+    const entry = (id, tries, firstAt) => ({ id, profileId: "instagram:natgeo", cover: item.cover, media: item.media, tries, firstAt });
+    await deps.storage.set({ [SPY_STATE_KEY]: { day: "", stories: { job: null, daily: { day: "", passes: [] }, jitter: {},
+      pendingMedia: [entry("1", 2, now - 3_600_000), entry("2", 3, now - 3_600_000), entry("3", 1, now - 31 * 3_600_000)] } } });
+    const fetchImpl = vi.fn(async (url) => {
+      if (String(url).includes("/api/sync/spy/stories/")) return okJson({ ready: true });
+      if (String(url).includes("story-video")) return bytes(3, "video/mp4");
+      throw new Error("unexpected " + url);
+    });
+    const pass = createStoriesPass({ ...deps, fetchImpl, sendStory: undefined });
+    const out = await pass.retryPending(settings);
+    expect(out).toEqual({ sent: 1, dropped: 2 });
+    expect(fetchImpl.mock.calls.map((c) => String(c[0]))).toEqual([
+      "https://hub/api/sync/spy/stories/1/poster", "https://scontent.example.net/o1/v/story-video-720.mp4", "https://hub/api/sync/spy/stories/1/media",
+    ]);
+    expect(deps.storage.data[SPY_STATE_KEY].stories.pendingMedia).toEqual([]);
   });
 });
 

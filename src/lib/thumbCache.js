@@ -93,6 +93,15 @@ function withTimeout(ms) {
  * canvas.
  */
 export async function toDurableThumb(url, opts = {}) {
+  if (!url) return null;
+  if (isDataThumb(url)) return url;
+  const out = await toThumbBlob(url, opts);
+  const bytes = new Uint8Array(await out.arrayBuffer());
+  return `data:${out.type || opts.type || THUMB_TYPE};base64,${bytesToBase64(bytes)}`;
+}
+
+/** The same small picture as a Blob (the stories' posters go to the hub as bytes, not as a data: URL). */
+export async function toThumbBlob(url, opts = {}) {
   const {
     fetchImpl = fetch,
     width = THUMB_WIDTH,
@@ -101,8 +110,7 @@ export async function toDurableThumb(url, opts = {}) {
     decode = (blob) => createImageBitmap(blob),
     canvas = (w, h) => new OffscreenCanvas(w, h),
   } = opts;
-  if (!url) return null;
-  if (isDataThumb(url)) return url;
+  if (!url) throw new Error("miniatura sem endereço");
 
   const { signal, done } = withTimeout(opts.timeoutMs ?? FETCH_TIMEOUT_MS);
   let blob;
@@ -123,7 +131,5 @@ export async function toDurableThumb(url, opts = {}) {
   const cv = canvas(w, h);
   cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
   bmp.close?.();
-  const out = await cv.convertToBlob({ type, quality });
-  const bytes = new Uint8Array(await out.arrayBuffer());
-  return `data:${out.type || type};base64,${bytesToBase64(bytes)}`;
+  return cv.convertToBlob({ type, quality });
 }

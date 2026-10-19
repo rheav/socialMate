@@ -8,9 +8,9 @@
 //
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
-import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDue, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
 import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, emptySpyQueue, queueReading } from "../lib/spyStore.js";
-import { isSyncConfigured } from "../lib/syncClient.js";
+import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
 
 export const IG_APP_ID = "936619743392459";
 /** The pass's own alarm: the next slot's start plus its jitter. */
@@ -23,6 +23,11 @@ const STEP_MIN_MS = 20_000;
 const STEP_SPREAD_MS = 20_001;
 const DEFAULT_SETTINGS = { passesPerDay: 2, keepDays: 7 };
 const DAY_MS = 86_400_000;
+// The hub refuses bigger files; a failed media is tried again on the next
+// passes, until the CDN link is surely gone (~1.5 days for a video).
+const MEDIA_MAX_BYTES = 25 * 1024 * 1024;
+const PENDING_MAX_TRIES = 3;
+const PENDING_MAX_AGE_MS = 30 * 3_600_000;
 
 const clock = (ms) => new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -191,6 +196,12 @@ export function createStoriesPass(deps) {
     await log("info", source === "manual"
       ? `Stories: coleta pedida pelo hub · ${plural(profiles.length, "conta", "contas")}`
       : `Stories: passada ${(slot ?? 0) + 1} de ${passes} · ${plural(profiles.length, "conta", "contas")}`);
+    // What the last passes could not send goes first; the CDN links are short-lived.
+    if ((state.stories.pendingMedia || []).length) {
+      const settings = await deps.readSyncSettings();
+      const retried = await retryPending(settings);
+      if (retried.sent) await log("ok", `Stories: ${plural(retried.sent, "mídia que faltava foi enviada", "mídias que faltavam foram enviadas")}`);
+    }
     await step();
     return { ok: true, started: true, total: profiles.length };
   }
@@ -293,10 +304,77 @@ export function createStoriesPass(deps) {
     return out.ok ? { ran: true } : { ran: false, reason: out.error };
   }
 
-  /** Task 4 fills this in: metadata, poster, media, one at a time. */
-  async function sendStory() {
+  // ---- one story: metadata, poster, media, one in memory at a time ----
+
+  const handleOf = (profileId) => `@${String(profileId).split(":")[1] || profileId}`;
+
+  /**
+   * The poster, then the media, for one story whose metadata the hub already
+   * has. "sent" | "skipped" (too big, or nothing to send) | "failed" (network,
+   * CDN gone, hub not ready: try again later).
+   */
+  async function uploadMedia(entry, settings) {
+    if (!entry.media) return "skipped";
+    try {
+      const poster = entry.cover ? await deps.makePoster(entry.cover) : null;
+      if (poster) {
+        const p = await putStoryMedia(settings, entry.id, "poster", poster, "image/webp", deps.fetchImpl);
+        if (!p.ok) throw new Error(`hub ${p.status}`);
+      }
+      const r = await deps.fetchImpl(entry.media.url, { credentials: "omit", signal: AbortSignal.timeout?.(PAGE_TIMEOUT_MS * 4) });
+      if (!r.ok) throw new Error(`cdn ${r.status}`);
+      const blob = await r.blob();
+      if (blob.size > MEDIA_MAX_BYTES) {
+        await log("warn", `Stories de ${handleOf(entry.profileId)}: um story acima de 25 MB foi pulado`);
+        return "skipped";
+      }
+      const m = await putStoryMedia(settings, entry.id, "media", blob, entry.media.mime, deps.fetchImpl);
+      if (!m.ok) throw new Error(`hub ${m.status}`);
+      return "sent";
+    } catch {
+      return "failed";
+    }
+  }
+
+  async function savePending(update) {
+    const { state } = await readAll();
+    await writeStories({ ...state.stories, pendingMedia: update(state.stories.pendingMedia || []) });
+  }
+
+  /**
+   * One new story: its metadata goes in the Spy's batch (and is flushed, so the
+   * hub has the row), then the poster and the media. A media that could not
+   * be sent waits in `pendingMedia` for the next pass.
+   */
+  async function sendStory(reduced, profileId, settings) {
+    const { input, cover, media } = reduced;
+    const r = await deps.storage.get(SPY_QUEUE_KEY);
+    await deps.storage.set({ [SPY_QUEUE_KEY]: queueStory(r[SPY_QUEUE_KEY] || emptySpyQueue(), profileId, input) });
+    await deps.flush();
+    const entry = { id: input.id, profileId, cover, media, tries: 0, firstAt: now() };
+    const out = await uploadMedia(entry, settings);
+    if (out !== "failed") return out;
+    await savePending((list) => [...list.filter((p) => p.id !== entry.id), { ...entry, tries: 1 }]);
     return "pending";
   }
 
-  return { readProfile, runPass, tick, step, status: () => ({ stepArmed: !!stepTimer }) };
+  /** The medias left behind: tried again up to 3 times within 30 h, then dropped (the hub prunes the row). */
+  async function retryPending(settings) {
+    const { state } = await readAll();
+    const at = now();
+    let sent = 0;
+    let dropped = 0;
+    const left = [];
+    for (const entry of state.stories.pendingMedia || []) {
+      if ((entry.tries || 0) >= PENDING_MAX_TRIES || at - (entry.firstAt || at) > PENDING_MAX_AGE_MS) { dropped += 1; continue; }
+      const out = await uploadMedia(entry, settings);
+      if (out === "sent") sent += 1;
+      else if (out === "skipped") dropped += 1;
+      else left.push({ ...entry, tries: (entry.tries || 0) + 1 });
+    }
+    await savePending(() => left);
+    return { sent, dropped };
+  }
+
+  return { readProfile, runPass, tick, step, sendStory, retryPending, status: () => ({ stepArmed: !!stepTimer }) };
 }

@@ -30,7 +30,7 @@ import {
 } from "./lib/transcriptJobs.js";
 import { idsOverCap, readTranscriptCap } from "./lib/transcriptCap.js";
 import { readStoredTxPenalty, txPenaltyValue } from "./lib/txPenalty.js";
-import { bytesToBase64, isDataThumb, toDurableThumb } from "./lib/thumbCache.js";
+import { bytesToBase64, isDataThumb, toDurableThumb, toThumbBlob } from "./lib/thumbCache.js";
 import { RECOVER_GAP_MS, recoverableRecords, resolveFreshThumb } from "./lib/thumbRecover.js";
 import {
   SYNC_KEY,
@@ -409,12 +409,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 //
 // Failure keeps the original URL: it may still render in a page context, and the
 // Arquivo's recovery pass can ask the platform for a fresh one later.
-// A story's poster for the hub (Task 4 of the stories plan turns this into a
-// 144 px WebP through lib/thumbCache; until then the cover's own bytes).
-async function storyPoster(url) {
-  const r = await fetch(url, { credentials: "omit" });
-  if (!r.ok) throw new Error(`poster HTTP ${r.status}`);
-  return r.blob();
+// A story's poster for the hub: the cover as a 144 px WebP (the hub's grid shows
+// posters only; the media itself plays in the viewer).
+function storyPoster(url) {
+  return toThumbBlob(url, { width: 144 });
 }
 
 async function durableThumb(url) {
