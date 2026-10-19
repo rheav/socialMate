@@ -132,6 +132,29 @@ export function getSpyProfiles(settings, fetchImpl = fetch) {
   return send(s.url, s.token, "/api/sync/spy/profiles", { method: "GET" }, fetchImpl);
 }
 
+/**
+ * A story's media or poster, raw bytes, after its metadata went in a batch. The
+ * hub answers `{ id, bytes, ready }`; 404 means the metadata is not there yet.
+ * Unlike the JSON helpers this never throws on an HTTP error: the caller sorts
+ * a 404 (retry later) from the rest.
+ */
+export async function putStoryMedia(settings, id, kind, body, mime, fetchImpl = fetch) {
+  const s = syncSettings(settings);
+  const r = await fetchImpl(`${s.url.replace(/\/+$/, "")}/api/sync/spy/stories/${encodeURIComponent(id)}/${kind}`, {
+    method: "PUT",
+    headers: { [SYNC_HEADER]: s.token, "Content-Type": mime },
+    body,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 4),
+  });
+  let json = null;
+  try {
+    json = await r.json();
+  } catch {
+    json = null;
+  }
+  return { ok: r.ok, status: r.status, json };
+}
+
 /** Push a batch of spy operations, metadata, snapshots, and errors. */
 export function postSpy(settings, body, fetchImpl = fetch) {
   const s = syncSettings(settings);
