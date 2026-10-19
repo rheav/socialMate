@@ -29,6 +29,7 @@ export function emptySpyQueue() {
     readings: {},    // "<profileId>|<at>|<kind>" -> collection attempt
     posts: {},       // "<profileId>|<postId>" -> Instagram post seen in the profile's grid
     thumbs: {},      // "<profileId>|<postId>" -> thumbnail of a top 3 post the hub asked for
+    stories: {},     // "<storyId>" -> a tracked profile's story (lib/spyStories.js)
   };
 }
 
