@@ -1278,3 +1278,22 @@ describe("the week's top 3: views kept current and thumbnails", () => {
     expect(await fetchWantedThumbs([{ id: "instagram:nasa", wantThumbs: ["3001"] }], async () => "data:image/webp;base64,BBBB")).toBe(0);
   });
 });
+
+describe("stories in the spy queue", () => {
+  beforeEach(() => {
+    data.fbw_sync = { url: "https://hub", token: "secret" };
+    data.fbw_spy = { fetchedAt: Date.now(), profiles: {} };
+    data.fbw_spy_state = { day: "2026-10-19", attempts: {}, blocked: {} };
+  });
+  it("sends the stories kind and keeps the hub's stories settings", async () => {
+    data.fbw_spy_queue = { stories: { 7: { profileId: "instagram:nasa", id: "7", mediaType: 1 } } };
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, results: { stories: { added: 1 } }, profiles: [],
+      settings: { stories: { passesPerDay: 3, keepDays: 14 } } }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await flushSpy();
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body.stories).toEqual([{ profileId: "instagram:nasa", id: "7", mediaType: 1 }]);
+    expect(data.fbw_spy_queue.stories).toEqual({});
+    expect(data.fbw_spy_state.storiesSettings).toEqual({ passesPerDay: 3, keepDays: 14 });
+  });
+});

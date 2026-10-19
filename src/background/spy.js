@@ -44,6 +44,8 @@ const deps = {
   durableThumb: async () => null,
   /** background.readSyncSettings: { enabled, url, token } from chrome.storage. */
   readSyncSettings: async () => ({ enabled: false, url: "", token: "" }),
+  /** background/spyStories.js tick: resumes or starts the stories pass after each spy tick. */
+  storiesTick: async () => null,
 };
 
 /** Wires in the two helpers background.js owns. */
@@ -72,7 +74,7 @@ export function mutateSpy(work) {
 // log line never waits on the spy state's critical section and can be written
 // from anywhere, inside a mutateSpy callback included.
 let activityWrite = Promise.resolve();
-function logSpy(platform, tone, text) {
+export function logSpy(platform, tone, text) {
   const entry = { at: Date.now(), platform, tone, text };
   activityWrite = activityWrite.then(async () => {
     const r = await chrome.storage.local.get(SPY_ACTIVITY_KEY);
@@ -131,8 +133,20 @@ async function recordHubResult(result) {
   }
 }
 
+// The hub's stories settings (passes per day, days kept) travel with every
+// profile list; the stories pass reads them from the spy state.
+async function rememberStoriesSettings(res) {
+  const stories = res?.settings?.stories;
+  if (!stories || typeof stories !== "object") return;
+  const r = await chrome.storage.local.get(SPY_STATE_KEY);
+  const state = r[SPY_STATE_KEY] || emptySpyState();
+  const next = { passesPerDay: Number(stories.passesPerDay) || 2, keepDays: Number(stories.keepDays) || 7 };
+  if (JSON.stringify(state.storiesSettings) === JSON.stringify(next)) return;
+  await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, storiesSettings: next } });
+}
+
 function spyQueuePending(queue) {
-  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings", "posts", "thumbs"]
+  return !!(queue?.ops?.length || ["profiles", "snapshots", "errors", "reels", "reelsStatus", "readings", "posts", "thumbs", "stories"]
     .some((kind) => Object.keys(queue?.[kind] || {}).length));
 }
 
@@ -247,8 +261,10 @@ export async function flushSpy({ attempt = 0 } = {}) {
     const readingsToSend = Object.values(queue.readings || {});
     const postsToSend = Object.values(queue.posts || {});
     const thumbsToSend = Object.values(queue.thumbs || {});
+    const storiesToSend = Object.values(queue.stories || {});
 
     if (
+      !storiesToSend.length &&
       !opsToSend.length &&
       !profilesToSend.length &&
       !snapshotsToSend.length &&
@@ -279,6 +295,8 @@ export async function flushSpy({ attempt = 0 } = {}) {
       ...postsToSend.map((r) => ["posts", r]),
       // Thumbnails are heavier: a few per request.
       ...thumbsToSend.map((r) => ["thumbs", r]),
+      // A story's metadata goes before its media (the PUTs wait for the row).
+      ...storiesToSend.map((r) => ["stories", r]),
     ];
     let lastRes = null;
     for (const batch of batchRecords(records, { maxItems: 500 })) {
@@ -351,6 +369,7 @@ export async function flushSpy({ attempt = 0 } = {}) {
         readings: unsent("readings"),
         posts: unsent("posts"),
         thumbs: unsent("thumbs"),
+        stories: unsent("stories"),
       };
 
       let nextSpy = freshSpy;
@@ -363,6 +382,7 @@ export async function flushSpy({ attempt = 0 } = {}) {
         [SPY_QUEUE_KEY]: nextQueue,
         [SPY_KEY]: nextSpy,
       });
+      await rememberStoriesSettings(lastRes);
       if (spyQueuePending(nextQueue)) scheduleFlushSpy();
       else {
         if (spyFlushTimer) clearTimeout(spyFlushTimer);
@@ -414,7 +434,7 @@ function recordAttempt(state, profileId, success, now = Date.now()) {
 
 // `reading` ({ kind, source }) also logs the failed attempt for the hub's
 // readings history.
-async function blockPlatform(platform, errorCode, profileId, reading = null) {
+export async function blockPlatform(platform, errorCode, profileId, reading = null) {
   return mutateSpy(async () => {
   const now = Date.now();
   const r = await chrome.storage.local.get([SPY_STATE_KEY, SPY_QUEUE_KEY, SPY_KEY]);
@@ -1378,6 +1398,7 @@ export async function spyTick({ manual = false } = {}) {
             const currentQueue = freshR[SPY_QUEUE_KEY] || emptySpyQueue();
             spy = mergeList(currentSpy, res.profiles, currentQueue.ops || []);
             await chrome.storage.local.set({ [SPY_KEY]: spy });
+            await rememberStoriesSettings(res);
           });
 
         }
@@ -1425,6 +1446,9 @@ export async function spyTick({ manual = false } = {}) {
 
     // 4. Flush spy queue
     await flushSpy();
+
+    // 4b. Stories: resume a pass in progress, or start the slot's pass when due.
+    await deps.storiesTick().catch(() => {});
 
     await mutateSpy(async () => {
       const latestState = await chrome.storage.local.get(SPY_STATE_KEY);

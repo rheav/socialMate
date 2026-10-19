@@ -75,7 +75,11 @@ import {
   serializeIg,
   spyTick,
   useSpyDeps,
+  blockPlatform,
+  logSpy,
 } from "./background/spy.js";
+import { createStoriesPass, STORIES_ALARM } from "./background/spyStories.js";
+import { SPY_STATE_KEY as SPY_STATE_KEY_FOR_STORIES, isBlocked as spyIsBlocked } from "./lib/spyStore.js";
 
 import { IG_EXPORT_ALARM, acceptIgCapture, createIgExport } from "./background/igExport.js";
 import { createAnalysisCollect } from "./background/analysisCollect.js";
@@ -133,7 +137,24 @@ chrome.tabs?.onUpdated?.addListener((tabId, change) => {
 
 // The spy area (background/spy.js) shares these two with the archive. Both
 // are function declarations, so they exist before this line runs.
-useSpyDeps({ durableThumb, readSyncSettings });
+// The stories pass (tracked profiles' stories for the hub's swipe file): the
+// Spy's storage, log, blocking and Instagram serialization, through `deps`.
+const storiesPass = createStoriesPass({
+  fetchImpl: (...args) => fetch(...args),
+  storage: chrome.storage.local,
+  alarms: chrome.alarms,
+  readSyncSettings,
+  logSpy,
+  blockPlatform,
+  isBlockedNow: async (now) => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY_FOR_STORIES);
+    return spyIsBlocked(r[SPY_STATE_KEY_FOR_STORIES], "instagram", now);
+  },
+  serialize: serializeIg,
+  flush: () => flushSpy(),
+  makePoster: (url) => storyPoster(url),
+});
+useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
 
 const SESSION_KEY = "fbw_session";
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
@@ -220,6 +241,8 @@ chrome.alarms?.onAlarm?.addListener((alarm) => {
   } else if (alarm.name === IG_EXPORT_ALARM) {
     igExport.tick().catch(() => {});
     analysisRelay.ensure().catch(() => {});
+  } else if (alarm.name === STORIES_ALARM) {
+    storiesPass.tick().catch(() => {});
   }
 });
 
@@ -386,6 +409,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 //
 // Failure keeps the original URL: it may still render in a page context, and the
 // Arquivo's recovery pass can ask the platform for a fresh one later.
+// A story's poster for the hub (Task 4 of the stories plan turns this into a
+// 144 px WebP through lib/thumbCache; until then the cover's own bytes).
+async function storyPoster(url) {
+  const r = await fetch(url, { credentials: "omit" });
+  if (!r.ok) throw new Error(`poster HTTP ${r.status}`);
+  return r.blob();
+}
+
 async function durableThumb(url) {
   if (!url || isDataThumb(url)) return url || null;
   try {

@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createStoriesPass } from "./spyStories.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createStoriesPass, STORIES_ALARM } from "./spyStories.js";
 import { parseStoriesHtml } from "../lib/spyStories.js";
+import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY } from "../lib/spyStore.js";
 
 // The stories pass, service-worker side: one profile at a time, the page first,
 // the API as a fallback, every network call through the injected fetch.
@@ -38,10 +39,13 @@ function storageStub() {
 }
 
 let deps;
+let alarms;
 beforeEach(() => {
+  alarms = {};
   deps = {
     fetchImpl: fetchStub([]),
     storage: storageStub(),
+    alarms: { create: (name, info) => { alarms[name] = info; }, clear: async (name) => { delete alarms[name]; } },
     readSyncSettings: async () => settings,
     logSpy: vi.fn(async () => {}),
     blockPlatform: vi.fn(async () => {}),
@@ -49,9 +53,110 @@ beforeEach(() => {
     serialize: (work) => work(),
     flush: vi.fn(async () => ({ ok: true })),
     makePoster: vi.fn(async () => new Blob(["p"], { type: "image/webp" })),
+    sendStory: vi.fn(async () => "sent"),
     random: () => 0,
     now: () => Date.now(),
   };
+});
+afterEach(() => { vi.useRealTimers(); });
+
+const tracked = (key, over = {}) => ({ id: `instagram:${key}`, platform: "instagram", key, userId: "7", removedAt: null, trackStories: true, storyPks: [], ...over });
+async function seed(storage, profiles, state = {}) {
+  await storage.set({ [SPY_KEY]: { profiles: Object.fromEntries(profiles.map((p) => [p.id, p])) }, [SPY_STATE_KEY]: { day: "", storiesSettings: { passesPerDay: 2, keepDays: 7 }, ...state } });
+}
+const history = () => deps.logSpy.mock.calls.map((c) => c[2]);
+const readings = (storage) => Object.values(storage.data[SPY_QUEUE_KEY]?.readings || {});
+
+describe("runPass", () => {
+  it("reads the tracked profiles one at a time, 20–40 s apart, and logs one reading each", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)], ["/stories/nasa/", html(fixture, "https://www.instagram.com/stories/nasa/?r=1")]]);
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")]);
+    const pass = createStoriesPass({ ...deps, fetchImpl, random: () => 0.5 });
+    await pass.runPass({ source: "pass", slot: 0 });
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual(["https://www.instagram.com/stories/natgeo/"]);
+    expect(deps.sendStory).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(29_000); // 20 s + 0.5 × 20 s = 30 s between profiles
+    expect(fetchImpl.mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual(["https://www.instagram.com/stories/natgeo/", "https://www.instagram.com/stories/nasa/"]);
+    expect(readings(deps.storage)).toEqual([
+      expect.objectContaining({ profileId: "instagram:natgeo", kind: "stories", source: "pass", ok: true, reelsAdded: 2 }),
+      expect.objectContaining({ profileId: "instagram:nasa", kind: "stories", source: "pass", ok: true, reelsAdded: 2 }),
+    ]);
+    expect(deps.flush).toHaveBeenCalled();
+    expect(history()[0]).toBe("Stories: passada 1 de 2 · 2 contas");
+    expect(history()).toContain("Stories de @natgeo: +2");
+    expect(history().at(-1)).toMatch(/^Stories: 2 contas, 4 novos, 0 falhas · próxima passada às \d\d:\d\d$/);
+    const state = deps.storage.data[SPY_STATE_KEY];
+    expect(state.stories.job).toBeNull();
+    expect(state.stories.daily.passes).toEqual([expect.objectContaining({ slot: 0, profiles: 2, added: 4, failed: 0 })]);
+  });
+  it("stops on a rate limit, blocks Instagram and says so", async () => {
+    const fetchImpl = fetchStub([["/stories/natgeo/", { ok: false, status: 429, url: "", text: async () => "", json: async () => ({}) }], ["/stories/nasa/", html(fixture)]]);
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")]);
+    await createStoriesPass({ ...deps, fetchImpl }).runPass({ source: "pass", slot: 0 });
+    expect(deps.blockPlatform).toHaveBeenCalledWith("instagram", "rate_limited", "instagram:natgeo", { kind: "stories", source: "pass" });
+    expect(fetchImpl.mock.calls.length).toBe(1);
+    expect(deps.storage.data[SPY_STATE_KEY].stories.job).toBeNull();
+    expect(history().at(-1)).toBe("Stories: parou, o Instagram limitou a leitura · tenta de novo na próxima passada");
+  });
+  it("reports a page without the reel as a failed reading and goes on", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(EMPTY_PAGE)], ["/api/v1/feed/reels_media/", { ok: true, status: 200, url: "", json: async () => ({}), text: async () => "" }], ["/stories/nasa/", html(fixture)]]);
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")]);
+    await createStoriesPass({ ...deps, fetchImpl }).runPass({ source: "pass", slot: 0 });
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(readings(deps.storage)[0]).toMatchObject({ profileId: "instagram:natgeo", ok: false, error: "no_reel" });
+    expect(history()).toContain("Stories de @natgeo: a página não trouxe os stories");
+    expect(fetchImpl.mock.calls.length).toBe(3);
+  });
+  it("records the slot only for an automatic pass", async () => {
+    await seed(deps.storage, [tracked("natgeo")]);
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
+    const report = vi.fn();
+    await createStoriesPass({ ...deps, fetchImpl }).runPass({ source: "manual", report });
+    expect(deps.storage.data[SPY_STATE_KEY].stories.daily.passes).toEqual([]);
+    expect(report).toHaveBeenCalledWith({ done: 1, total: 1, added: 2, failed: 0, current: "natgeo" });
+    expect(history()[0]).toBe("Stories: coleta pedida pelo hub · 1 conta");
+  });
+  it("answers busy while a pass is running", async () => {
+    await seed(deps.storage, [tracked("natgeo")], { stories: { job: { source: "pass", profileIds: ["instagram:natgeo"], index: 0, added: 0, failed: 0, nextAt: Date.now() + 30_000, startedAt: Date.now() } } });
+    const out = await createStoriesPass({ ...deps }).runPass({ source: "manual" });
+    expect(out).toEqual({ ok: false, error: "busy" });
+  });
+});
+
+describe("tick", () => {
+  const day = new Date(2026, 9, 19, 0, 0, 0).getTime();
+  it("runs a slot late only while its window is open", async () => {
+    await seed(deps.storage, [tracked("natgeo")]);
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
+    const late = createStoriesPass({ ...deps, fetchImpl, now: () => day + 11 * 3600_000 + 50 * 60_000 }); // 11:50, slot 0 never ran
+    expect((await late.tick()).ran).toBe(true);
+    await seed(deps.storage, [tracked("natgeo")]);
+    const closed = createStoriesPass({ ...deps, fetchImpl: fetchStub([]), now: () => day + 12 * 3600_000 + 5 * 60_000 }); // 12:05
+    expect(await closed.tick()).toEqual({ ran: false, reason: "not_due" });
+  });
+  it("re-arms the alarm for the next due time", async () => {
+    await seed(deps.storage, [tracked("natgeo")]);
+    const pass = createStoriesPass({ ...deps, now: () => day + 12 * 3600_000 + 5 * 60_000, random: () => 0 });
+    expect(await pass.tick()).toEqual({ ran: false, reason: "not_due" });
+    expect(alarms[STORIES_ALARM]).toEqual({ when: day + 12 * 3600_000 + 10 * 60_000 });
+  });
+  it("does nothing without a tracked profile", async () => {
+    await seed(deps.storage, [tracked("natgeo", { trackStories: false })]);
+    const fetchImpl = fetchStub([]);
+    expect(await createStoriesPass({ ...deps, fetchImpl }).tick()).toEqual({ ran: false, reason: "nothing_tracked" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+  it("resumes a persisted job whose step is due", async () => {
+    const fetchImpl = fetchStub([["/stories/nasa/", html(fixture)]]);
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")], { stories: { job: { source: "pass", slot: 0, profileIds: ["instagram:natgeo", "instagram:nasa"], index: 1, added: 2, failed: 0, nextAt: Date.now() - 1000, startedAt: Date.now() - 60_000 }, daily: { day: "", passes: [] }, pendingMedia: [], jitter: {} } });
+    expect((await createStoriesPass({ ...deps, fetchImpl }).tick()).ran).toBe(true);
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual(["https://www.instagram.com/stories/nasa/"]);
+    expect(deps.storage.data[SPY_STATE_KEY].stories.job).toBeNull();
+  });
 });
 
 describe("readProfile", () => {

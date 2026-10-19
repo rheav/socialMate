@@ -467,3 +467,12 @@ describe("top 3 numbers and thumbnails", () => {
     expect(q.thumbs).toEqual({ "instagram:nasa|3001": { profileId: "instagram:nasa", id: "3001", thumb: "data:image/webp;base64,AAAA" } });
   });
 });
+
+describe("mergeList and the stories fields", () => {
+  it("keeps trackStories, userId and storyPks from the hub's list", () => {
+    const cache = { profiles: { "instagram:nasa": { id: "instagram:nasa", platform: "instagram", key: "nasa", removedAt: null, listUpdatedAt: 1 } } };
+    const server = [{ id: "instagram:nasa", platform: "instagram", key: "nasa", removedAt: null, listUpdatedAt: 2, trackStories: true, userId: "528817151", storyPks: ["1", "2"] }];
+    const merged = mergeList(cache, server);
+    expect(merged.profiles["instagram:nasa"]).toMatchObject({ trackStories: true, userId: "528817151", storyPks: ["1", "2"] });
+  });
+});
