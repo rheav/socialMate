@@ -649,6 +649,7 @@ describe("first reading: more of a new Instagram profile's grid", () => {
     await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 2, done: true, reelsPages: 3 }, batchTab);
     vi.setSystemTime(now + 1000);
     await sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: current, ok: true, pages: 2, done: true, reelsPages: 0, reelsError: "no_reels" }, batchTab);
+    expect(data.fbw_spy_state.igViewsAt).toEqual({ [`instagram:${current}`]: now }); // the failed one is not fresh
     const reels = Object.values(data.fbw_spy_queue.readings).filter((r) => r.kind === "reels");
     expect(reels).toEqual([
       { profileId: `instagram:${current}`, at: now, kind: "reels", source: "manual", ok: true, pages: 3 },
@@ -1136,6 +1137,22 @@ describe("Medir agora measures every profile on demand", () => {
     vi.setSystemTime(now + 60000);
     await spyTick({ manual: true });
     expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa", "natgeo"]);
+  });
+
+  it("skips profiles whose views were read in the last 2 h", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    data.fbw_spy_state.igViewsAt = { "instagram:nasa": now - 3600000, "instagram:natgeo": now - 3 * 3600000 };
+    await spyTick({ manual: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo"]);
+    expect(log()).toContain("instagram|info|Lote manual com 1 perfil (1 com views lidas nas últimas 2 h fica de fora) · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s");
+  });
+
+  it("says so when every Instagram profile had its views read in the last 2 h", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000) } };
+    data.fbw_spy_state.igViewsAt = { "instagram:nasa": now - 60000 };
+    await spyTick({ manual: true });
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    expect(log()).toContain("instagram|info|Medir agora: todos os perfis do Instagram tiveram as views lidas nas últimas 2 h");
   });
 
   it("explains why a click did not open Instagram", async () => {

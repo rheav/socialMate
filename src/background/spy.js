@@ -738,6 +738,11 @@ export async function finishIgDeep(msg, sender) {
   const key = String(msg.key || "").toLowerCase();
   const id = spyId("instagram", key);
   let wasSeeded = false;
+  // A profile with no reels has no Reels tab: nothing to read there, not a failure.
+  const noReels = msg.reelsError === "no_reels_tab";
+  // The Reels tab carries the views: the hub ends its views per period at this
+  // reading, so it learns when one ran (a profile without reels read fine too).
+  const viewsOk = !!msg.ok && (!msg.reelsError || noReels);
   const batch = await mutateSpy(async () => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
     const state = r[SPY_STATE_KEY] || emptySpyState();
@@ -746,15 +751,11 @@ export async function finishIgDeep(msg, sender) {
     wasSeeded = !!state.igSeeded?.[id];
     const now = Date.now();
     const next = b.deep === key ? { ...b, deep: null, nextAt: Math.max(now + 4000, b.baseNextAt || 0) } : b;
-    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igSeeded: { ...(state.igSeeded || {}), [id]: now }, igBatch: next } });
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igSeeded: { ...(state.igSeeded || {}), [id]: now }, igBatch: next,
+      ...(viewsOk ? { igViewsAt: { ...(state.igViewsAt || {}), [id]: now } } : {}) } });
     return next;
   });
   if (!batch) return { ok: false, error: "unknown" };
-  // A profile with no reels has no Reels tab: nothing to read there, not a failure.
-  const noReels = msg.reelsError === "no_reels_tab";
-  // The Reels tab carries the views: the hub ends its views per period at this
-  // reading, so it learns when one ran (a profile without reels read fine too).
-  const viewsOk = !!msg.ok && (!msg.reelsError || noReels);
   await mutateSpy(async () => {
     const q = await chrome.storage.local.get(SPY_QUEUE_KEY);
     await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queueReading(q[SPY_QUEUE_KEY], {
@@ -786,6 +787,9 @@ function igStillPending(profile, batch) {
   if (!profile.lastMeasuredAt) return true;
   return batch.manualAt ? profile.lastMeasuredAt < batch.manualAt : dayKey(profile.lastMeasuredAt) !== dayKey();
 }
+// "Medir agora" skips a profile whose views were read this recently: the daily cap goes to the ones behind.
+const IG_VIEWS_FRESH_MS = 2 * 3600 * 1000;
+const igViewsFresh = (state, profile, now) => (state.igViewsAt?.[profile.id] || 0) > now - IG_VIEWS_FRESH_MS;
 function igDailyCount(state, now = Date.now()) {
   return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
 }
@@ -860,7 +864,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     // A click during a running batch widens it: every profile it has not read yet.
     const widened = { ...batch, manualAt: batch.manualAt || batch.startedAt };
     const extra = Object.values(profiles)
-      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened))
+      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened) && !igViewsFresh(state, p, now))
       .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0)).map((p) => p.key);
     batch = { ...widened, pending: [...batch.pending, ...extra],
       total: Math.max(batch.total || 0, batch.pending.length) + extra.length };
@@ -877,9 +881,9 @@ async function advanceIgBatch({ manual = false } = {}) {
     const limit = igLimit(r[SPY_PREFS_KEY]);
     const remaining = limit - igDailyCount(state, now);
     // "Medir agora" reads every Instagram profile; the daily pass only the due ones.
-    const candidates = manual
-      ? Object.values(profiles).filter((p) => p && p.removedAt == null)
-      : dueProfiles(profiles, state, now);
+    const saved = manual ? Object.values(profiles).filter((p) => p && p.removedAt == null) : [];
+    const fresh = saved.filter((p) => p.platform === "instagram" && igViewsFresh(state, p, now)).length;
+    const candidates = manual ? saved.filter((p) => !igViewsFresh(state, p, now)) : dueProfiles(profiles, state, now);
     const pending = candidates
       .filter((p) => p.platform === "instagram")
       .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0))
@@ -887,12 +891,15 @@ async function advanceIgBatch({ manual = false } = {}) {
     if (!pending.length) {
       if (manual && remaining <= 0) {
         await logSpy("instagram", "warn", `Limite de ${limit} leituras do Instagram hoje já atingido · Medir agora volta amanhã (o limite se ajusta em Opções)`);
+      } else if (manual && fresh) {
+        await logSpy("instagram", "info", "Medir agora: todos os perfis do Instagram tiveram as views lidas nas últimas 2 h");
       }
       return;
     }
     const cut = candidates.filter((p) => p.platform === "instagram").length - pending.length;
     await logSpy("instagram", "info", `Lote ${manual ? "manual" : "diário"} com ${pending.length} ${pending.length === 1 ? "perfil" : "perfis"}`
-      + `${manual && cut > 0 ? ` (${cut} ${cut === 1 ? "fica" : "ficam"} para amanhã: limite de ${limit} por dia, ajustável em Opções)` : ""} · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s`);
+      + `${manual && cut > 0 ? ` (${cut} ${cut === 1 ? "fica" : "ficam"} para amanhã: limite de ${limit} por dia, ajustável em Opções)` : ""}`
+      + `${fresh ? ` (${fresh} com views lidas nas últimas 2 h ${fresh === 1 ? "fica" : "ficam"} de fora)` : ""} · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s`);
     const tab = await chrome.tabs.create({ url: "https://www.instagram.com/" + IG_SPY_MARKER, active: false });
     igOwnedTab = tab.id;
     igStopReason = null;

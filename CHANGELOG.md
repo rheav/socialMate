@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.2] — 2026-10-19
+
+### Fixed
+- **Opções → Leituras do Instagram por dia:** the number was saved only on blur, so closing the modal with Escape or a click outside kept the old value (a cap changed to 100 stayed 50). It is now saved when the modal closes too.
+
+### Changed
+- The Instagram cap goes up to 200 (was 60). It is a safety ceiling; the real protection is the 12-hour pause on the first 429 or login wall.
+- **Medir agora** skips Instagram profiles whose views were read in the last 2 h (`fbw_spy_state.igViewsAt`), so the daily cap goes to the profiles behind instead of re-reading the same ones; the log says how many were left out, or that all were fresh. "Medir este perfil" is unchanged.
+
 ## [1.15.1] — 2026-10-19
 
 ### Fixed

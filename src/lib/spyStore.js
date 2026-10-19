@@ -12,7 +12,7 @@ export const IG_SPY_LIMIT = 20;
 // The cap is the owner's to set in Options (fbw_spy_prefs.igLimit). Each reading
 // is a full profile page load in a background tab; Instagram publishes no
 // threshold, so the range stays bounded.
-export const IG_SPY_LIMIT_MAX = 60;
+export const IG_SPY_LIMIT_MAX = 200;
 export function igLimit(prefs) {
   const n = Math.round(Number(prefs?.igLimit));
   return Number.isFinite(n) && n >= 1 ? Math.min(n, IG_SPY_LIMIT_MAX) : IG_SPY_LIMIT;

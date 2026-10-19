@@ -191,7 +191,7 @@ function Row({ id, label, hint, checked, onChange }) {
 
 // A whole number typed and saved on blur/Enter; the owner's value is clamped by
 // `save`'s caller and shown back as stored.
-function NumberRow({ id, label, hint, value, min, max, onSave }) {
+export function NumberRow({ id, label, hint, value, min, max, onSave }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => { setDraft(String(value)); }, [value]);
   const commit = () => {
@@ -200,6 +200,10 @@ function NumberRow({ id, label, hint, value, min, max, onSave }) {
     if (Math.min(n, max) !== value) onSave(Math.min(n, max));
     else setDraft(String(value));
   };
+  // Escape or a click outside closes the modal with no blur: keep what was typed.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => () => commitRef.current(), []);
   return (
     <div className="py-0.5">
       <div className="flex items-center justify-between gap-3">

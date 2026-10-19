@@ -395,7 +395,7 @@ describe("igLimit", () => {
     expect(igLimit({ daily: true })).toBe(20);
     expect(igLimit({ igLimit: 35 })).toBe(35);
     expect(igLimit({ igLimit: "40" })).toBe(40);
-    expect(igLimit({ igLimit: 500 })).toBe(60);
+    expect(igLimit({ igLimit: 500 })).toBe(200);
     expect(igLimit({ igLimit: 0 })).toBe(20);
     expect(igLimit({ igLimit: "abc" })).toBe(20);
   });
