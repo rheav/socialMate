@@ -226,7 +226,7 @@ describe("a reading's Reels tab: views for the whole week", () => {
         like_count: 10, image_versions2: { candidates: [{ url: "u" }] }, video_versions: [{ url: "v" }] } } })),
       page_info: { end_cursor: cursor, has_next_page: hasNext } } } } });
     page.fetch = async (url, init) => {
-      fetches.push(init);
+      fetches.push({ url, ...init });
       return { ok: true, status: 200, text: async () => reelsAnswer([PKS[2], PKS[3]], "RC2", true) };
     };
     const context = vm.createContext(page);
@@ -242,7 +242,7 @@ describe("a reading's Reels tab: views for the whole week", () => {
     const reelsVars = JSON.stringify({ data: { include_feed_video: true, page_size: 12, target_user_id: "27092017544" }, user_id: "27092017544", __relay_internal__pv__X: false });
     const link = { click: () => {
       location.pathname = "/barbie.the.aries/reels/"; location.hash = "";
-      vm.runInContext(`(() => { const x = new XMLHttpRequest(); x.open("POST", "/graphql/query"); x.setRequestHeader("X-FB-LSD", "L");
+      vm.runInContext(`(() => { const x = new XMLHttpRequest(); x.open("POST", "/api/graphql"); x.setRequestHeader("X-FB-LSD", "L");
         x.send(${JSON.stringify(new URLSearchParams({ doc_id: "R1", fb_api_req_friendly_name: "PolarisProfileReelsTabContentQuery", variables: reelsVars, lsd: "L" }).toString())}); })()`, context);
       vm.runInContext(`JSON.parse(${JSON.stringify(reelsAnswer([PKS[0], PKS[1]], "RC1", true))})`, context);
     } };
@@ -253,6 +253,7 @@ describe("a reading's Reels tab: views for the whole week", () => {
 
     expect(replaced).toEqual(["/barbie.the.aries/reels/#socialmate-spy"]);
     expect(fetches).toHaveLength(1); // page 2 reaches 30/09, past the oldest day wanted
+    expect(fetches[0].url).toBe("/api/graphql"); // the endpoint the page itself used (since 2026-10-16)
     const form = new URLSearchParams(fetches[0].body);
     expect(form.get("doc_id")).toBe("R2");
     expect(JSON.parse(form.get("variables"))).toEqual({ after: "RC1", first: 12, id: "27092017544",

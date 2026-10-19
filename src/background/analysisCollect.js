@@ -136,7 +136,7 @@ export function createAnalysisCollect({
   async function fetchVideo(job, p, page) {
     if (page.durationS != null && page.durationS > L.maxDurationS) return { state: "too_large" };
     let variant = pickVideoVariant(page.variants);
-    if (!variant) return { state: "unavailable" };
+    if (!variant) return { state: "unavailable", why: "no_link" };
     job.live?.({ phase: "video_download", detail: variant.w && variant.h ? `${variant.w}×${variant.h}` : null });
     let got = await downloadLimited(variant.url, { maxBytes: L.maxBytes, fetchImpl, timeoutMs: L.downloadMs });
     if (!got.ok && got.code === "url_expired" && !job.cancelled && !job.stop) {
@@ -150,7 +150,7 @@ export function createAnalysisCollect({
     if (got.code === "media_too_large") return { state: "too_large" };
     if (got.code === "url_expired") return { state: "expired" };
     if (got.code === "rate_limited") job.stop = job.stop || "rate_limited";
-    return { state: "unavailable" };
+    return { state: "unavailable", why: got.code || "download_failed" };
   }
 
   /** The Instagram part: own tab, page read, video bytes. Closed whatever happens. */
@@ -285,7 +285,10 @@ export function createAnalysisCollect({
         if (state === "lease_lost") return { ok: false, code: "lease_lost" };
         video = { state, assetId: state === "available" ? p.assetId : null, width: v.variant.w, height: v.variant.h };
         if (state === "available") progress("collect_video_uploaded");
-      } else if (inTab.video) video = { state: inTab.video.state, assetId: null, width: null, height: null };
+      } else if (inTab.video) {
+        video = { state: inTab.video.state, assetId: null, width: null, height: null };
+        progress("collect_video_missing", [inTab.video.state, inTab.video.why].filter(Boolean).join(": "));
+      }
 
       // Transcript: only when the Acervo has none, and only from this post's own video.
       let transcript;

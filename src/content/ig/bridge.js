@@ -1185,7 +1185,8 @@ async function igAnalysisCollect(msg, env) {
   for (;;) {
     if (env.cancelled()) return { ok: false, error: "cancelled" };
     rec = env.recordOf(code);
-    if (rec || env.now() >= until) break;
+    // A grid or "more posts" payload can name a reel before its own payload brings the video links.
+    if ((rec && (rec.media_type !== "video" || env.variantsOf(rec.code || rec.pk))) || env.now() >= until) break;
     env.requestReplay();
     await env.sleep(500);
   }

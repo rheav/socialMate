@@ -238,6 +238,14 @@ describe("analysis tab collection", () => {
     expect(out.comments).toBeNull();
   });
 
+  it("waits for a reel's video links when the post was first named without them", async () => {
+    let calls = 0;
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ variantsOf: () => (++calls > 3 ? [{ w: 720, h: 1280, url: "https://x/720.mp4" }] : null) }));
+    expect(out.variants).toEqual([{ w: 720, h: 1280, url: "https://x/720.mp4" }]);
+    const never = await igAnalysisCollect({ code: "CCC", mediaPk: "3003", waitMs: 5000 }, env({ variantsOf: () => null }));
+    expect(never).toMatchObject({ ok: true, variants: [] });
+  });
+
   it("stops when cancelled while waiting for the post", async () => {
     let n = 0;
     const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => null, cancelled: () => ++n > 2 }));

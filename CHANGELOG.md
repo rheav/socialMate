@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.1] — 2026-10-19
+
+### Fixed
+- **Views dos reels do Instagram:** since 2026-10-16 Instagram sends the profile tabs' queries to `/api/graphql` (the first load still uses `/graphql/query`). The week reading only noted requests to `/graphql/query`, so every Reels-tab reading ended in `no_reels` and no views per period reached the Hub for three days. Both endpoints are noted now, and the extra pages go to the endpoint the page itself used (`src/content/ig/main-world.js`).
+- **Vídeo das análises:** the analysis tab answered as soon as the post was named, even by a grid or "more posts" payload without the video links, and the video was then reported unavailable. A reel now waits (within the same 20 s) for its own payload's links (`src/content/ig/bridge.js`).
+
+### Changed
+- A video that could not be collected is reported to the Hub as `collect_video_missing` with why (`unavailable: no_link`, `unavailable: download_failed`, `expired`…), so the run's log and the Hub's collection health say which step broke.
+
 ## [1.15.0] — 2026-10-19
 
 ### Added

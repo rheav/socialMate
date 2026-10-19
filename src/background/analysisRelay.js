@@ -102,7 +102,7 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
     working = task;
     const beat = () => send({ type: "heartbeat", taskId: task.taskId, leaseToken: task.leaseToken, ...(task.live ? { live: task.live } : {}) });
     task.beat = setInterval(beat, HEARTBEAT_MS);
-    const progress = (code) => send({ type: "progress", taskId: task.taskId, leaseToken: task.leaseToken, code });
+    const progress = (code, detail) => send({ type: "progress", taskId: task.taskId, leaseToken: task.leaseToken, code, ...(detail ? { detail } : {}) });
     // What the collector is doing now: sent at once on a new phase, then with every heartbeat.
     const live = (patch) => {
       const fresh = !task.live || patch.phase !== task.live.phase;

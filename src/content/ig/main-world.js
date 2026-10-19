@@ -1083,18 +1083,19 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
         id: vars.user_id || vars.id || (vars.data && vars.data.target_user_id), ...provided }),
     },
   };
-  const pagerRequest = { grid: null, reels: null }; // { user, body, headers }
+  const pagerRequest = { grid: null, reels: null }; // { user, url, body, headers }
   const pagerPage = { grid: null, reels: null }; // { cursor, hasNext, oldest }
   let deepRunning = false;
   function noteGridRequest(url, body, headers) {
-    if (typeof body !== "string" || String(url).indexOf("/graphql/query") === -1) return;
+    // Instagram moved the profile tabs' queries to /api/graphql on 2026-10-16; the first load still uses /graphql/query.
+    if (typeof body !== "string" || !/\/(graphql\/query|api\/graphql)/.test(String(url))) return;
     if (body.indexOf("PolarisProfile") === -1) return;
     const form = new URLSearchParams(body);
     const name = form.get("fb_api_req_friendly_name") || "";
     for (const kind in PAGERS) {
       if (!PAGERS[kind].matches(name)) continue;
       const user = PAGERS[kind].user(JSON.parse(form.get("variables") || "{}"));
-      if (user) pagerRequest[kind] = { user: String(user).toLowerCase(), body, headers: headers || {} };
+      if (user) pagerRequest[kind] = { user: String(user).toLowerCase(), url: String(url), body, headers: headers || {} };
     }
   }
   function notePage(kind, conn, dateOf) {
@@ -1158,7 +1159,7 @@ const igSurface = makeSurfaceTracker(igSurfaceKey);
       form.set("doc_id", docId);
       form.set("fb_api_req_friendly_name", pager.pageQuery);
       form.set("variables", JSON.stringify(pager.variables(vars, pagerPage[kind].cursor, provided)));
-      const r = await origFetch("/graphql/query", { method: "POST", credentials: "include", headers, body: form.toString() });
+      const r = await origFetch(req.url, { method: "POST", credentials: "include", headers, body: form.toString() });
       if (!r.ok) return { ok: false, pages, error: r.status === 429 ? "rate_limited" : "http_" + r.status };
       const cursor = pagerPage[kind].cursor;
       JSON.parse(await r.text()); // the hook below captures the posts and moves the page
