@@ -24,6 +24,7 @@ import {
   emptySpyState,
   igLimit,
   isBlocked,
+  measuredAt,
   mergeList,
   queueError,
   queuePosts,
@@ -220,7 +221,7 @@ export async function scheduleSpy() {
       // not postpone its second attempt or a platform unblock until tomorrow.
       const at = now.getTime();
       for (const p of Object.values(spy.profiles || {})) {
-        if (!p || p.removedAt != null || (p.lastMeasuredAt && dayKey(p.lastMeasuredAt) === dayKey(at))) continue;
+        if (!p || p.removedAt != null || (measuredAt(state, p) && dayKey(measuredAt(state, p)) === dayKey(at))) continue;
         if (p.platform === "instagram" && igDailyCount(state, at) >= igLimit(prefs)) continue;
         const attempt = state.day === dayKey(at) ? state.attempts?.[p.id] : null;
         const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
@@ -782,14 +783,17 @@ const IG_DAILY_READING = { kind: "followers", source: "daily" };
 // A batch started or widened by "Medir agora" carries manualAt: it re-reads
 // profiles measured earlier today and logs its readings as manual.
 const igReading = (batch) => (batch?.manualAt ? { kind: "followers", source: "manual" } : IG_DAILY_READING);
-function igStillPending(profile, batch) {
+function igStillPending(profile, batch, state) {
   if (!profile || profile.removedAt != null) return false;
-  if (!profile.lastMeasuredAt) return true;
-  return batch.manualAt ? profile.lastMeasuredAt < batch.manualAt : dayKey(profile.lastMeasuredAt) !== dayKey();
+  const last = measuredAt(state, profile);
+  if (!last) return true;
+  return batch.manualAt ? last < batch.manualAt : dayKey(last) !== dayKey();
 }
 // "Medir agora" skips a profile whose views were read this recently: the daily cap goes to the ones behind.
 const IG_VIEWS_FRESH_MS = 2 * 3600 * 1000;
-const igViewsFresh = (state, profile, now) => (state.igViewsAt?.[profile.id] || 0) > now - IG_VIEWS_FRESH_MS;
+const igViewsFresh = (state, profile, now) => (measuredAt(state, profile) || 0) > now - IG_VIEWS_FRESH_MS;
+// Never-read views first, then the oldest: a cap cuts the ones read most recently.
+const byMeasured = (state) => (a, b) => (measuredAt(state, a) || 0) - (measuredAt(state, b) || 0) || (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0);
 function igDailyCount(state, now = Date.now()) {
   return state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
 }
@@ -864,8 +868,8 @@ async function advanceIgBatch({ manual = false } = {}) {
     // A click during a running batch widens it: every profile it has not read yet.
     const widened = { ...batch, manualAt: batch.manualAt || batch.startedAt };
     const extra = Object.values(profiles)
-      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened) && !igViewsFresh(state, p, now))
-      .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0)).map((p) => p.key);
+      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened, state) && !igViewsFresh(state, p, now))
+      .sort(byMeasured(state)).map((p) => p.key);
     batch = { ...widened, pending: [...batch.pending, ...extra],
       total: Math.max(batch.total || 0, batch.pending.length) + extra.length };
     await logSpy("instagram", "info", extra.length
@@ -886,7 +890,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     const candidates = manual ? saved.filter((p) => !igViewsFresh(state, p, now)) : dueProfiles(profiles, state, now);
     const pending = candidates
       .filter((p) => p.platform === "instagram")
-      .sort((a, b) => (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0))
+      .sort(byMeasured(state))
       .slice(0, Math.max(0, remaining)).map((p) => p.key);
     if (!pending.length) {
       if (manual && remaining <= 0) {
@@ -945,7 +949,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     const currentR = await chrome.storage.local.get([SPY_STATE_KEY, SPY_KEY, SPY_PREFS_KEY]);
     state = currentR[SPY_STATE_KEY] || state;
     const live = currentR[SPY_KEY]?.profiles || {};
-    batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch));
+    batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch, state));
     const stop = currentR[SPY_PREFS_KEY]?.daily === false && !batch.manualAt ? "medição desligada em Opções"
       : isBlocked(state, "instagram") ? "Instagram em pausa"
       : !batch.pending.length ? "nada mais a ler"

@@ -186,6 +186,18 @@ export function isBlocked(state, platform, now = Date.now()) {
   return now < until;
 }
 
+/**
+ * When a saved profile was last measured, for the batches and the panel. An
+ * Instagram profile is measured when its views (the Reels tab) were read, here
+ * (state.igViewsAt) or by any browser as the hub knows it (viewsReadAt): a visit
+ * to its page reads the followers only, and used to count as a measurement,
+ * which pushed a profile the user keeps open out of every batch.
+ */
+export function measuredAt(state, profile) {
+  if (profile?.platform !== "instagram") return profile?.lastMeasuredAt ?? null;
+  return Math.max(state?.igViewsAt?.[profile.id] || 0, profile.viewsReadAt || 0) || null;
+}
+
 export function dueProfiles(list, state, now = Date.now()) {
   const profiles = Array.isArray(list)
     ? list
@@ -201,8 +213,9 @@ export function dueProfiles(list, state, now = Date.now()) {
     if (!p) return false;
     if (p.removedAt != null) return false;
 
-    // 1. lastMeasuredAt does not fall on today
-    if (p.lastMeasuredAt != null && dayKey(p.lastMeasuredAt) === today) {
+    // 1. Not measured today (see measuredAt)
+    const last = measuredAt(state, p);
+    if (last != null && dayKey(last) === today) {
       return false;
     }
 

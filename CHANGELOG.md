@@ -16,6 +16,16 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.3] — 2026-10-19
+
+### Fixed
+- **A visit no longer counts as an Instagram measurement.** Opening a saved profile in a tab of your own reads its followers only, but it set `lastMeasuredAt`, which the batches used to decide what was measured. A profile you keep open therefore went last in "Medir agora" (and a cap cut it), was dropped from a running batch by a visit made meanwhile, and could be skipped by the daily pass — its views were never read (@agnestarot_, all of 2026-10-19). An Instagram profile is now measured when its views (Reels tab) were read: `measuredAt()` in `lib/spyStore.js`, from `fbw_spy_state.igViewsAt` (this browser) or the hub's `viewsReadAt` (any browser, hub 0.38.0). The daily pass, "Medir agora" (order: never-read views first), a running batch, the 2 h skip and the panel all use it.
+- **The 2 h skip works from the first click after an update:** it counts the hub's `viewsReadAt`, not only the readings this version made.
+
+### Changed
+- Panel: an Instagram profile with only its followers read says "só seguidores lidos · views na próxima medição", and "Hoje: x de y medidos" counts views read.
+- A profile whose views fail every day (a private one) is tried twice a day, like any failed reading, instead of once.
+
 ## [1.15.2] — 2026-10-19
 
 ### Fixed

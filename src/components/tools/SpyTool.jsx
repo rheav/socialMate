@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Activity, ChevronDown, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
 import { useSpy } from "@/lib/useSpy";
-import { dayKey } from "@/lib/spyStore";
+import { dayKey, measuredAt } from "@/lib/spyStore";
 import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
 import { clockText } from "@/lib/spyActivity";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
@@ -109,7 +109,7 @@ export default function SpyTool({ activeUrl = "" }) {
   };
   const removeProfile = (id) => run(id, () => remove(id));
   const measureOne = (id) => run(id, () => measureProfile(id));
-  const measured = profiles.filter((p) => p.lastMeasuredAt != null && dayKey(p.lastMeasuredAt) === dayKey(now)).length;
+  const measured = profiles.filter((p) => measuredAt(state, p) != null && dayKey(measuredAt(state, p)) === dayKey(now)).length;
   const igReads = state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
   const sync = syncStatus(queue, state, hub, now);
   const passRunning = !!(state.igBatch || state.fbManual?.length);

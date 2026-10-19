@@ -35,6 +35,12 @@ describe("profileStatus", () => {
     const queue = { snapshots: { [`${fb.id}|2026-10-03`]: {} } };
     expect(profileStatus(p, { state: day, queue, now }).text).toBe("medido há 2 min · aguardando envio");
   });
+  it("calls an Instagram profile measured by its views, not by a visit", () => {
+    const visited = { ...ig, lastMeasuredAt: now - 2 * 60000 };
+    expect(profileStatus(visited, { state: day, now })).toMatchObject({ kind: "pending", text: "só seguidores lidos · views na próxima medição" });
+    expect(profileStatus({ ...visited, viewsReadAt: now - 5 * 60000 }, { state: day, now }).text).toBe("medido há 5 min");
+    expect(profileStatus(visited, { state: { ...day, igViewsAt: { [ig.id]: now - 60000 } }, now }).text).toBe("medido há 1 min");
+  });
   it("ignores yesterday's attempts", () => {
     const old = { day: "2026-10-02", attempts: { [fb.id]: { n: 2, at: now - 20 * hour } } };
     expect(profileStatus(fb, { state: old, now })).toMatchObject({ kind: "pending", text: "aguardando medição" });

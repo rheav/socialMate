@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import { measuredAt,
   igLimit,
   queuePosts,
   queueThumb,
@@ -271,11 +271,25 @@ describe("spyStore", () => {
 
     it("excludes profiles already measured today", () => {
       const state = emptySpyState(now);
+      const morning = new Date(2026, 9, 2, 8, 0, 0).getTime();
       const list = [
-        { ...baseProfile, id: "p1", lastMeasuredAt: new Date(2026, 9, 2, 8, 0, 0).getTime() },
+        { ...baseProfile, id: "p1", viewsReadAt: morning },
+        { ...baseProfile, id: "facebook:p2", platform: "facebook", lastMeasuredAt: morning },
       ];
 
       expect(dueProfiles(list, state, now)).toHaveLength(0);
+    });
+
+    it("counts an Instagram profile as measured only once its views were read, here or as the hub knows", () => {
+      const morning = new Date(2026, 9, 2, 8, 0, 0).getTime();
+      // A visit read the followers only: the views are still due.
+      const visited = { ...baseProfile, id: "instagram:visited", lastMeasuredAt: morning };
+      const readHere = { ...baseProfile, id: "instagram:here", lastMeasuredAt: morning };
+      const readElsewhere = { ...baseProfile, id: "instagram:hub", lastMeasuredAt: morning, viewsReadAt: morning };
+      const state = { ...emptySpyState(now), igViewsAt: { "instagram:here": morning } };
+      expect(dueProfiles([visited, readHere, readElsewhere], state, now).map((p) => p.id)).toEqual(["instagram:visited"]);
+      expect(measuredAt(state, visited)).toBeNull();
+      expect(measuredAt(state, readHere)).toBe(morning);
     });
 
     it("excludes removed profiles", () => {

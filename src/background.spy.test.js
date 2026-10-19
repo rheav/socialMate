@@ -145,6 +145,7 @@ describe("background spy area (phase E2/E3)", () => {
             key: "nasa",
             removedAt: null,
             lastMeasuredAt: Date.now(),
+            viewsReadAt: Date.now(),
           },
         },
       };
@@ -1073,7 +1074,7 @@ describe("Medir agora measures every profile on demand", () => {
 
   it("widens a running daily batch instead of ignoring the click", async () => {
     data.fbw_spy = { fetchedAt: now, profiles: {
-      "instagram:nasa": ig("nasa", null), "instagram:natgeo": ig("natgeo", now - 3600000) } };
+      "instagram:nasa": ig("nasa", null), "instagram:natgeo": { ...ig("natgeo", now - 3600000), viewsReadAt: now - 3 * 3600000 } } };
     await spyTick();
     expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa"]);
     await spyTick({ manual: true });
@@ -1139,12 +1140,31 @@ describe("Medir agora measures every profile on demand", () => {
     expect(data.fbw_spy_state.igBatch.pending).toEqual(["nasa", "natgeo"]);
   });
 
-  it("skips profiles whose views were read in the last 2 h", async () => {
-    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
+  it("skips profiles whose views were read in the last 2 h, here or by another browser", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000),
+      // Read in another browser: the hub's list says when.
+      "instagram:spacex": { ...ig("spacex", now - 3600000), viewsReadAt: now - 1800000 } } };
     data.fbw_spy_state.igViewsAt = { "instagram:nasa": now - 3600000, "instagram:natgeo": now - 3 * 3600000 };
     await spyTick({ manual: true });
     expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo"]);
-    expect(log()).toContain("instagram|info|Lote manual com 1 perfil (1 com views lidas nas últimas 2 h fica de fora) · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s");
+    expect(log()).toContain("instagram|info|Lote manual com 1 perfil (2 com views lidas nas últimas 2 h ficam de fora) · abrindo aba do Instagram em segundo plano, 1 perfil a cada 20–40 s");
+  });
+
+  it("puts never-read views first and keeps a profile the user visits while the batch runs", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: {
+      "instagram:nasa": { ...ig("nasa", now - 3 * 3600000), viewsReadAt: now - 3 * 3600000 },
+      // Visited a minute ago, views never read: it used to go last, and a cap cut it.
+      "instagram:natgeo": ig("natgeo", now - 60000) } };
+    await spyTick({ manual: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo", "nasa"]);
+    // The user opens @nasa in a tab of their own: its followers are read, not its views.
+    vi.setSystemTime(now + 5000);
+    expect(await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: "nasa", data: { username: "nasa", follower_count: 42 } },
+      { tab: { id: 5 }, url: "https://www.instagram.com/nasa/", frameId: 0 })).toMatchObject({ ok: true });
+    expect(await observe("natgeo")).toMatchObject({ ok: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
   });
 
   it("says so when every Instagram profile had its views read in the last 2 h", async () => {

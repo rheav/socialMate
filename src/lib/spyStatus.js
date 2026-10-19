@@ -1,7 +1,7 @@
 // What the Spy panel says about each profile and about the upload queue. Pure:
 // everything comes from the stored list, state and queue, so the panel reads the
 // same thing the background acts on.
-import { IG_SPY_LIMIT, SPY_RETRY_MS, dayKey } from "./spyStore.js";
+import { IG_SPY_LIMIT, SPY_RETRY_MS, dayKey, measuredAt } from "./spyStore.js";
 import { clockText, errorText, profileName } from "./spyActivity.js";
 
 export function ago(at, now) {
@@ -21,9 +21,10 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   if (savePending) return { kind: "local", text: "salvo localmente · aguardando envio ao hub" };
 
   const today = dayKey(now);
-  if (profile.lastMeasuredAt != null && dayKey(profile.lastMeasuredAt) === today) {
+  const last = measuredAt(state, profile);
+  if (last != null && dayKey(last) === today) {
     const uploading = Object.keys(queue.snapshots || {}).some((key) => key.startsWith(`${profile.id}|`));
-    return { kind: "measured", text: `medido ${ago(profile.lastMeasuredAt, now)}${uploading ? " · aguardando envio" : ""}` };
+    return { kind: "measured", text: `medido ${ago(last, now)}${uploading ? " · aguardando envio" : ""}` };
   }
   const blockedUntil = state.blocked?.[profile.platform] || 0;
   if (blockedUntil > now) return { kind: "paused", text: `em pausa até ${clock(blockedUntil)}` };
@@ -37,8 +38,8 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   if (count === 1 && attempt?.at && attempt.at + SPY_RETRY_MS > now) {
     return { kind: "waiting", text: `nova tentativa às ${clock(attempt.at + SPY_RETRY_MS)}` };
   }
-  if (profile.lastMeasuredAt != null) return { kind: "measured", text: `medido ${ago(profile.lastMeasuredAt, now)}` };
-  return { kind: "pending", text: "aguardando medição" };
+  if (last != null) return { kind: "measured", text: `medido ${ago(last, now)}` };
+  return { kind: "pending", text: profile.lastMeasuredAt != null ? "só seguidores lidos · views na próxima medição" : "aguardando medição" };
 }
 
 const QUEUE_KINDS = ["profiles", "snapshots", "errors", "readings", "reels", "reelsStatus", "posts", "thumbs"];
