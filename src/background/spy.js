@@ -718,7 +718,7 @@ async function holdIgBatchForDeep(key) {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
     const state = r[SPY_STATE_KEY] || emptySpyState();
     const b = state.igBatch;
-    if (!b || b.current !== key) return null;
+    if (!b || (b.current !== key && b.opened !== key)) return null;
     const next = { ...b, deep: key, deepAsked: [...(b.deepAsked || []), key], baseNextAt: b.nextAt,
       nextAt: Math.max(b.nextAt || 0, Date.now() + IG_DEEP_HOLD_MS) };
     await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igBatch: next } });
@@ -961,7 +961,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     }
     const key = batch.pending[0];
     const at = Date.now();
-    batch = { ...batch, current: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
+    batch = { ...batch, current: key, opened: key, nextAt: at + 20000 + Math.floor(Math.random() * 20001) };
     state = recordAttempt(state, spyId("instagram", key), false, at);
     state = {
       ...state,
@@ -1083,9 +1083,11 @@ export async function observeIgProfile(msg, sender) {
   await logSpy("instagram", "ok", `@${key}: ${countText(parsed.followers)} seguidores · ${daily
     ? (batch?.manualAt ? "Medir agora" : "passada diária") : "lido pela sua visita ao perfil"}`);
   if (daily) {
-    // A first reading still paging through the grid keeps the tab open.
-    if (!state.igBatch?.pending.length && !state.igBatch?.deep) await closeIgBatch();
-    else armIgStep(state.igBatch.nextAt);
+    // A first reading still paging through the grid keeps the tab open, and so
+    // does a page whose Reels tab is not asked for yet: "complete" comes later.
+    const b = state.igBatch;
+    if (!b || (!b.pending.length && !b.deep && (b.deepAsked || []).includes(key))) await closeIgBatch();
+    else armIgStep(b.nextAt);
   }
   scheduleFlushSpy();
   return { ok: true };
@@ -1325,11 +1327,13 @@ chrome.tabs?.onUpdated?.addListener((tabId, change, tab) => {
     if (/instagram\.com\/(accounts\/login|challenge|checkpoint)/.test(url)) {
       await blockPlatform("instagram", "login_required", batch.current ? spyId("instagram", batch.current) : null, igReading(batch));
       await closeIgBatch();
-    } else if (change.status === "complete" && batch.current && onProfilePage(url, batch.current)) {
+    } else if (change.status === "complete" && (batch.current || batch.opened) && onProfilePage(url, batch.current || batch.opened)) {
       // A profile never read in depth gets its first reading: up to 15 days of
       // grid, a few pages, read by the page itself (the tab is hidden and never
-      // scrolls). The batch waits for it.
-      const current = batch.current;
+      // scrolls). The batch waits for it. The followers often arrive before
+      // "complete" and clear current; the page being opened still gets its
+      // Reels tab (12 of 18 skipped on the night of 2026-10-20, 1.15.3).
+      const current = batch.current || batch.opened;
       let deep = null;
       if (!(batch.deepAsked || []).includes(current)) {
         const nowS = Math.floor(Date.now() / 1000);

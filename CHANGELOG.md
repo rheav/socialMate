@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.4] — 2026-10-20
+
+### Fixed
+- **The Reels tab is read even when the profile's numbers arrive first.** A batch asked a profile's page for its Reels tab (the views) only when the page fired "complete" while the profile was still the batch's current one; the followers often arrive in the page's first second and clear it, and the Reels tab was skipped. Measured in Edge: 12 of 18 profiles on the night of 2026-10-20, and 2 of 18 in a "Medir agora" at 19:39 the same day — followers read, no views. The batch now keeps the profile it opened (`igBatch.opened`) and asks its Reels tab on "complete" either way; after the last profile's followers the tab stays open for that reading, or until the next step.
+
+### Known
+- Not reproduced, not fixed: on the same night 6 profile pages opened with nothing on them (no posts, no Reels tab, no numbers).
+
 ## [1.15.3] — 2026-10-19
 
 ### Fixed

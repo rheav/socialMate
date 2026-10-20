@@ -388,8 +388,12 @@ describe("Instagram path B", () => {
     expect(data.fbw_spy_queue.snapshots["instagram:nasa|2026-10-03"].source).toBe("daily");
     expect(Object.values(data.fbw_spy_queue.readings)).toEqual([expect.objectContaining({
       profileId: "instagram:nasa", kind: "followers", source: "daily", ok: true, followers: 42 })]);
-    expect(data.fbw_spy_state.igBatch).toBeNull();
     expect(data.fbw_spy_state.igDaily.count).toBe(1);
+    // The page never completed, so its Reels tab was never asked for: the tab waits for the next step.
+    expect(chrome.tabs.remove).not.toHaveBeenCalled();
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
+    expect(data.fbw_spy_state.igBatch).toBeNull();
     expect(chrome.tabs.remove).toHaveBeenCalledWith(90);
   });
 
@@ -619,6 +623,35 @@ describe("first reading: more of a new Instagram profile's grid", () => {
     const sent = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).filter((m) => m.type === "FBW_SPY_IG_BATCH");
     expect(sent).toHaveLength(1);
     expect(sent[0].deep?.reels).toBeTruthy();
+  });
+
+  // Seen live on 1.15.3 (20/10): the numbers come in the page's first second, before
+  // "complete", which cleared the profile and skipped its Reels tab (12 of 18 at night).
+  it("still reads the Reels tab when the followers arrive before the page completes", async () => {
+    data.fbw_spy_state.igSeeded = { "instagram:nasa": 1, "instagram:natgeo": 1 };
+    await spyTick({ manual: true });
+    const current = data.fbw_spy_state.igBatch.current;
+    const page = { ...batchTab, url: `https://www.instagram.com/${current}/#socialmate-spy` };
+    await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: current,
+      data: { username: current, follower_count: 42 } }, page);
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: page.url });
+    await spyTick();
+    const deep = chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).find((m) => m.type === "FBW_SPY_IG_BATCH" && m.deep);
+    expect(deep).toMatchObject({ usernames: [current], deep: { reels: { maxPages: 8 } } });
+    expect(data.fbw_spy_state.igBatch.deep).toBe(current);
+  });
+
+  it("keeps the tab open for the last profile's Reels tab when its followers come first", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": profile("nasa") } };
+    data.fbw_spy_state.igSeeded = { "instagram:nasa": 1 };
+    await spyTick({ manual: true });
+    const page = { ...batchTab, url: "https://www.instagram.com/nasa/#socialmate-spy" };
+    await sendMessage({ type: "FBW_SPY_OBSERVE", platform: "instagram", key: "nasa",
+      data: { username: "nasa", follower_count: 42 } }, page);
+    expect(chrome.tabs.remove).not.toHaveBeenCalled();
+    tabsUpdatedListener(90, { status: "complete" }, { id: 90, url: page.url });
+    await spyTick();
+    expect(chrome.tabs.sendMessage.mock.calls.map((c) => c[1]).some((m) => m.type === "FBW_SPY_IG_BATCH" && m.deep?.reels)).toBe(true);
   });
 
   it("reads back 7 days on the grid of a profile already read in depth", async () => {
@@ -1069,6 +1102,8 @@ describe("Medir agora measures every profile on demand", () => {
     await spyTick();
     expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
     expect(await observe("nasa")).toMatchObject({ ok: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
     expect(data.fbw_spy_state.igBatch).toBeNull();
   });
 
@@ -1102,6 +1137,8 @@ describe("Medir agora measures every profile on demand", () => {
       "facebook:a": { ...fb("a", now - 3600000), name: "Página A" } } };
     await spyTick({ manual: true });
     await observe("nasa");
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick(); // the page never completed: the next step closes the batch
     vi.clearAllTimers();
     expect(log()).toEqual([
       "null|info|Medir agora: pedido recebido",
@@ -1122,6 +1159,8 @@ describe("Medir agora measures every profile on demand", () => {
     await spyTick();
     expect(data.fbw_spy_state.igBatch.failed).toBe(1);
     await observe("nasa");
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    await spyTick();
     expect(log()).toContain("instagram|warn|@natgeo: a página abriu mas não trouxe os números");
     expect(log().at(-1)).toBe("instagram|warn|Lote concluído · 2 de 2 perfis (1 lido, 1 com falha) · aba fechada");
   });
@@ -1225,6 +1264,7 @@ describe("Medir agora measures every profile on demand", () => {
     expect(fbRequests).toHaveLength(2);
     expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
     expect(await observe("nasa")).toMatchObject({ ok: true });
+    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
     await spyTick();
     expect(fbRequests).toHaveLength(2);
     expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
