@@ -134,7 +134,9 @@ describe("background spy area (phase E2/E3)", () => {
       } finally { chrome.alarms.get = get; }
     });
 
-    it("schedules next day random delay when no profiles are due", async () => {
+    it("schedules the next daily pass between 23:00 and 23:29 when no profiles are due", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 9, 20, 12, 0));
       data.fbw_sync = { enabled: true, url: "https://hub", token: "secret" };
       data.fbw_spy_prefs = { daily: true };
       data.fbw_spy = {
@@ -150,9 +152,11 @@ describe("background spy area (phase E2/E3)", () => {
         },
       };
 
-      await scheduleSpy();
-      expect(alarms["fbw-spy-tick"]).toBeDefined();
-      expect(alarms["fbw-spy-tick"].when).toBeGreaterThan(Date.now());
+      try {
+        await scheduleSpy();
+        expect(alarms["fbw-spy-tick"].when).toBeGreaterThanOrEqual(new Date(2026, 9, 20, 23, 0).getTime());
+        expect(alarms["fbw-spy-tick"].when).toBeLessThan(new Date(2026, 9, 20, 23, 30).getTime());
+      } finally { vi.useRealTimers(); }
     });
   });
 

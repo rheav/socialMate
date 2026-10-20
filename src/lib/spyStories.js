@@ -12,6 +12,8 @@
 //
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md
 
+import { MEASURE_SHIFT_MS } from "./spyStore.js";
+
 const REELS_KEY = "xdt_api__v1__feed__reels_media";
 const SCRIPT_RE = /<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/g;
 
@@ -153,18 +155,21 @@ const localMidnight = (ms) => {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 };
 
-/** The local day split in `passesPerDay` equal slots: the one `now` falls in. */
+/** The passes' day, which starts at 23:00 like the measurement's (spyStore.js measureDayKey). */
+export const passDayKey = (ms) => localDayKey(ms + MEASURE_SHIFT_MS);
+
+/** The passes' day (from 23:00) split in `passesPerDay` equal slots: the one `now` falls in. */
 export function storySlots(passesPerDay, now) {
   const n = Math.max(1, Math.min(4, Math.round(passesPerDay) || 1));
-  const start = localMidnight(now);
+  const start = localMidnight(now + MEASURE_SHIFT_MS) - MEASURE_SHIFT_MS;
   const length = DAY_MS / n;
   const index = Math.min(n - 1, Math.floor((now - start) / length));
   return { index, startsAt: start + index * length, endsAt: start + (index + 1) * length };
 }
 
-/** 10–90 min, like the daily measurement's spread. */
+/** 0–29 min, like the daily measurement's spread (23:00–23:29). */
 export function slotJitterMs(random = Math.random) {
-  return (10 + Math.floor(random() * 80)) * 60_000;
+  return Math.floor(random() * 30) * 60_000;
 }
 
 export function emptyStoriesState() {
@@ -178,7 +183,7 @@ export function emptyStoriesState() {
  */
 export function passDue(state, passesPerDay, now, random = Math.random) {
   const slot = storySlots(passesPerDay, now);
-  const day = localDayKey(now);
+  const day = passDayKey(now);
   const key = `${day}:${slot.index}`;
   if (!state.jitter || typeof state.jitter !== "object") state.jitter = {};
   if (!Number.isFinite(state.jitter[key])) {

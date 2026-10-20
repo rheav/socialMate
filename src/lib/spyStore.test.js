@@ -6,6 +6,7 @@ import { measuredAt,
   rememberThumbUrls,
   thumbsToFetch,
   dayKey,
+  measureDayKey,
   dueProfiles,
   emptySpyQueue,
   queueReels,
@@ -244,6 +245,22 @@ describe("spyStore", () => {
       expect(isBlocked(state, "facebook", now)).toBe(false);
       expect(isBlocked(state, "tiktok", now)).toBe(false);
       expect(isBlocked(null, "instagram", now)).toBe(false);
+    });
+  });
+
+  // 2026-10-20: the Mac is off at night, so the daily pass runs at 23:00 and its day starts there.
+  describe("the measurement's day starts at 23:00", () => {
+    const at = (h, m = 0, d = 20) => new Date(2026, 9, d, h, m).getTime();
+    const ig = (last) => ({ id: "instagram:nasa", platform: "instagram", key: "nasa", removedAt: null, viewsReadAt: last });
+    it("files 23:00 onward under the next day", () => {
+      expect(measureDayKey(at(22, 59))).toBe("2026-10-20");
+      expect(measureDayKey(at(23, 0))).toBe("2026-10-21");
+    });
+    it("a profile read at 23:10 is not due again until 23:00 the next day", () => {
+      const state = emptySpyState(at(23, 10));
+      expect(dueProfiles([ig(at(23, 10))], state, at(10, 0, 21))).toEqual([]);
+      expect(dueProfiles([ig(at(23, 10))], state, at(23, 0, 21))).toHaveLength(1);
+      expect(dueProfiles([ig(at(22, 50))], state, at(23, 5))).toHaveLength(1);
     });
   });
 

@@ -21,6 +21,7 @@ import {
   dayKey,
   dueProfiles,
   emptySpyQueue,
+  measureDayKey,
   emptySpyState,
   igLimit,
   isBlocked,
@@ -213,17 +214,19 @@ export async function scheduleSpy() {
     if (dues.length > 0 || hasIgBatch || reelsPending || state.fbManual?.length) {
       await armSpyTickSoon();
     } else {
+      // The next daily pass: 23:00–23:29, where the measurement's day starts (measureDayKey).
       const now = new Date();
-      const nextDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-      const randomDelayMs = (10 + Math.floor(Math.random() * 80)) * 60 * 1000;
-      let when = nextDay.getTime() + randomDelayMs;
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 0, 0, 0);
+      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+      const randomDelayMs = Math.floor(Math.random() * 30) * 60 * 1000;
+      let when = next.getTime() + randomDelayMs;
       // A temporarily ineligible profile can become due before midnight. Do
       // not postpone its second attempt or a platform unblock until tomorrow.
       const at = now.getTime();
       for (const p of Object.values(spy.profiles || {})) {
-        if (!p || p.removedAt != null || (measuredAt(state, p) && dayKey(measuredAt(state, p)) === dayKey(at))) continue;
+        if (!p || p.removedAt != null || (measuredAt(state, p) && measureDayKey(measuredAt(state, p)) === measureDayKey(at))) continue;
         if (p.platform === "instagram" && igDailyCount(state, at) >= igLimit(prefs)) continue;
-        const attempt = state.day === dayKey(at) ? state.attempts?.[p.id] : null;
+        const attempt = state.day === measureDayKey(at) ? state.attempts?.[p.id] : null;
         const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
         if (count >= 2) continue;
         const retryAt = count > 0 && attempt?.at ? attempt.at + SPY_RETRY_MS : at;
@@ -419,7 +422,7 @@ export async function flushSpy({ attempt = 0 } = {}) {
 }
 
 function recordAttempt(state, profileId, success, now = Date.now()) {
-  const today = dayKey(now);
+  const today = measureDayKey(now);
   const attempts = state.day === today ? { ...(state.attempts || {}) } : {};
   const prev = attempts[profileId] || { n: 0, at: 0 };
   attempts[profileId] = {
@@ -518,7 +521,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
     const r = await chrome.storage.local.get(SPY_STATE_KEY);
     const state = r[SPY_STATE_KEY] || emptySpyState(startAt);
     if (isBlocked(state, "facebook", startAt)) return false;
-    const attempt = state.day === dayKey(startAt) ? state.attempts?.[profile.id] : null;
+    const attempt = state.day === measureDayKey(startAt) ? state.attempts?.[profile.id] : null;
     const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
     // An explicit user request skips the automatic retry budget; blocks still apply.
     if (!force && (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < SPY_RETRY_MS))) return false;
@@ -787,7 +790,7 @@ function igStillPending(profile, batch, state) {
   if (!profile || profile.removedAt != null) return false;
   const last = measuredAt(state, profile);
   if (!last) return true;
-  return batch.manualAt ? last < batch.manualAt : dayKey(last) !== dayKey();
+  return batch.manualAt ? last < batch.manualAt : measureDayKey(last) !== measureDayKey();
 }
 // "Medir agora" skips a profile whose views were read this recently: the daily cap goes to the ones behind.
 const IG_VIEWS_FRESH_MS = 2 * 3600 * 1000;
@@ -1373,7 +1376,7 @@ export async function spyTick({ manual = false } = {}) {
     }
 
     const now = Date.now();
-    const today = dayKey(now);
+    const today = measureDayKey(now);
 
     const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY]);
     let spy = r[SPY_KEY] || { profiles: {} };

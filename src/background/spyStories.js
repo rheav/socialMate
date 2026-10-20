@@ -8,7 +8,7 @@
 //
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
-import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
 import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, emptySpyQueue, queueReading } from "../lib/spyStore.js";
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
 
@@ -156,10 +156,8 @@ export function createStoriesPass(deps) {
     armAlarm(at);
   }
 
-  const localDay = (ms) => {
-    const d = new Date(ms);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
+  // The passes' day starts at 23:00 (lib/spyStories.js passDayKey).
+  const localDay = passDayKey;
 
   /**
    * When the next automatic pass is due: this slot's moment when it is still

@@ -206,17 +206,17 @@ describe("tick", () => {
   it("runs a slot late only while its window is open", async () => {
     await seed(deps.storage, [tracked("natgeo")]);
     const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
-    const late = createStoriesPass({ ...deps, fetchImpl, now: () => day + 11 * 3600_000 + 50 * 60_000 }); // 11:50, slot 0 never ran
+    const late = createStoriesPass({ ...deps, fetchImpl, now: () => day + 10 * 3600_000 + 50 * 60_000 }); // 10:50, slot 0 (from 23:00) never ran
     expect((await late.tick()).ran).toBe(true);
     await seed(deps.storage, [tracked("natgeo")]);
-    const closed = createStoriesPass({ ...deps, fetchImpl: fetchStub([]), now: () => day + 12 * 3600_000 + 5 * 60_000 }); // 12:05
+    const closed = createStoriesPass({ ...deps, fetchImpl: fetchStub([]), now: () => day + 11 * 3600_000 + 5 * 60_000, random: () => 0.5 }); // 11:05
     expect(await closed.tick()).toEqual({ ran: false, reason: "not_due" });
   });
   it("re-arms the alarm for the next due time", async () => {
     await seed(deps.storage, [tracked("natgeo")]);
-    const pass = createStoriesPass({ ...deps, now: () => day + 12 * 3600_000 + 5 * 60_000, random: () => 0 });
+    const pass = createStoriesPass({ ...deps, now: () => day + 11 * 3600_000 + 5 * 60_000, random: () => 0.5 });
     expect(await pass.tick()).toEqual({ ran: false, reason: "not_due" });
-    expect(alarms[STORIES_ALARM]).toEqual({ when: day + 12 * 3600_000 + 10 * 60_000 });
+    expect(alarms[STORIES_ALARM]).toEqual({ when: day + 11 * 3600_000 + 15 * 60_000 });
   });
   it("does nothing without a tracked profile", async () => {
     await seed(deps.storage, [tracked("natgeo", { trackStories: false })]);

@@ -1,7 +1,7 @@
 // What the Spy panel says about each profile and about the upload queue. Pure:
 // everything comes from the stored list, state and queue, so the panel reads the
 // same thing the background acts on.
-import { IG_SPY_LIMIT, SPY_RETRY_MS, dayKey, measuredAt } from "./spyStore.js";
+import { IG_SPY_LIMIT, SPY_RETRY_MS, dayKey, measureDayKey, measuredAt } from "./spyStore.js";
 import { clockText, errorText, profileName } from "./spyActivity.js";
 
 export function ago(at, now) {
@@ -21,15 +21,16 @@ export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(
   if (savePending) return { kind: "local", text: "salvo localmente · aguardando envio ao hub" };
 
   const today = dayKey(now);
+  const measureDay = measureDayKey(now);
   const last = measuredAt(state, profile);
-  if (last != null && dayKey(last) === today) {
+  if (last != null && measureDayKey(last) === measureDay) {
     const uploading = Object.keys(queue.snapshots || {}).some((key) => key.startsWith(`${profile.id}|`));
     return { kind: "measured", text: `medido ${ago(last, now)}${uploading ? " · aguardando envio" : ""}` };
   }
   const blockedUntil = state.blocked?.[profile.platform] || 0;
   if (blockedUntil > now) return { kind: "paused", text: `em pausa até ${clock(blockedUntil)}` };
 
-  const attempt = state.day === today ? state.attempts?.[profile.id] : null;
+  const attempt = state.day === measureDay ? state.attempts?.[profile.id] : null;
   const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
   if (count >= 2) return { kind: "failed", text: "falhou hoje · tenta amanhã" };
   if (profile.platform === "instagram" && state.igDaily?.day === today && (state.igDaily.count || 0) >= igLimit) {

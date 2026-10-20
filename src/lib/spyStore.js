@@ -41,9 +41,20 @@ export function dayKey(ts = Date.now()) {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * The measurement's day starts at 23:00, not midnight: the owner turns the Mac off
+ * at night, so the daily pass runs at 23:00–23:29 (2026-10-20). What is due, the
+ * attempts and the stories passes' slots follow it; the days readings are filed
+ * under (snapshots, the daily caps) stay the calendar's.
+ */
+export const MEASURE_SHIFT_MS = 3_600_000;
+export function measureDayKey(ts = Date.now()) {
+  return dayKey(ts + MEASURE_SHIFT_MS);
+}
+
 export function emptySpyState(now = Date.now()) {
   return {
-    day: dayKey(now),
+    day: measureDayKey(now),
     attempts: {},
     blocked: {},
     igBatch: null,
@@ -205,7 +216,7 @@ export function dueProfiles(list, state, now = Date.now()) {
       ? Object.values(list.profiles)
       : Object.values(list || {});
 
-  const today = dayKey(now);
+  const today = measureDayKey(now);
   const stateDay = state?.day;
   const isSameDay = stateDay === today;
 
@@ -213,9 +224,9 @@ export function dueProfiles(list, state, now = Date.now()) {
     if (!p) return false;
     if (p.removedAt != null) return false;
 
-    // 1. Not measured today (see measuredAt)
+    // 1. Not measured in this measurement's day (see measuredAt, measureDayKey)
     const last = measuredAt(state, p);
-    if (last != null && dayKey(last) === today) {
+    if (last != null && measureDayKey(last) === today) {
       return false;
     }
 

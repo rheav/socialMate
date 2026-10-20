@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.15.5] — 2026-10-20
+
+### Changed
+- **The daily measurement runs at 23:00–23:29, not after midnight.** The owner turns the Mac off at night; the pass ran at 00:10–01:29 and, with the Mac off, only when the browser came back, near or after the 07:00 analysis. The measurement's day now starts at 23:00 (`MEASURE_SHIFT_MS`, `measureDayKey` in `lib/spyStore.js`): what is due, the attempts and the panel's "medidos" follow it; the days readings are filed under and the daily caps stay the calendar's. A pass missed at 23:00 still runs when the browser is back.
+- **The stories passes' slots start at 23:00 too, with the same 0–29 min spread** (was midnight plus 10–89 min): with 2 passes a day, 23:00 and 11:00.
+
 ## [1.15.4] — 2026-10-20
 
 ### Fixed

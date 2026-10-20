@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
-  emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDue, queueStory, reduceStory, storySlots, unwrapInstagramLink,
+  emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDue, queueStory, reduceStory, slotJitterMs, storySlots, unwrapInstagramLink,
 } from "./spyStories.js";
 import { emptySpyQueue } from "./spyStore.js";
 
@@ -69,23 +69,26 @@ describe("unwrapInstagramLink", () => {
 
 describe("slots", () => {
   const day = new Date(2026, 9, 19, 0, 0, 0).getTime(); // local midnight
-  it("splits the day by passesPerDay", () => {
-    expect(storySlots(2, day + 13 * 3600_000)).toEqual({ index: 1, startsAt: day + 12 * 3600_000, endsAt: day + 24 * 3600_000 });
-    expect(storySlots(1, day + 13 * 3600_000)).toEqual({ index: 0, startsAt: day, endsAt: day + 24 * 3600_000 });
+  const start = day - 3600_000; // the passes' day starts at 23:00 the evening before (2026-10-20: the Mac is off at night)
+  it("splits the day by passesPerDay, from 23:00", () => {
+    expect(storySlots(2, day + 13 * 3600_000)).toEqual({ index: 1, startsAt: start + 12 * 3600_000, endsAt: start + 24 * 3600_000 });
+    expect(storySlots(1, day + 13 * 3600_000)).toEqual({ index: 0, startsAt: start, endsAt: start + 24 * 3600_000 });
+    expect(storySlots(2, day - 30 * 60_000)).toEqual({ index: 0, startsAt: start, endsAt: start + 12 * 3600_000 });
   });
   it("is due once per slot, after the jitter, and never twice", () => {
     const state = emptyStoriesState();
-    expect(passDue(state, 2, day + 5 * 60_000, () => 0)).toBeNull(); // before the 10 min jitter
-    expect(passDue(state, 2, day + 11 * 60_000, () => 0)).toEqual({ index: 0, at: day + 10 * 60_000 });
-    state.daily = { day: "2026-10-19", passes: [{ slot: 0, at: day + 11 * 60_000 }] };
-    expect(passDue(state, 2, day + 3 * 3600_000, () => 0)).toBeNull();
-    expect(passDue(state, 2, day + 12 * 3600_000 + 11 * 60_000, () => 0)).toEqual({ index: 1, at: day + 12 * 3600_000 + 10 * 60_000 });
+    expect(passDue(state, 2, start + 5 * 60_000, () => 0.5)).toBeNull(); // 23:05, before the 15 min jitter
+    expect(passDue(state, 2, start + 16 * 60_000, () => 0)).toEqual({ index: 0, at: start + 15 * 60_000 });
+    state.daily = { day: "2026-10-19", passes: [{ slot: 0, at: start + 16 * 60_000 }] };
+    expect(passDue(state, 2, start + 3 * 3600_000, () => 0)).toBeNull();
+    expect(passDue(state, 2, start + 12 * 3600_000 + 16 * 60_000, () => 0.5)).toEqual({ index: 1, at: start + 12 * 3600_000 + 15 * 60_000 });
   });
-  it("keeps the jitter it drew for a slot", () => {
+  it("keeps the jitter it drew for a slot, 0 to 29 min like the daily measurement", () => {
     const state = emptyStoriesState();
-    expect(passDue(state, 2, day, () => 0.5)).toBeNull(); // jitter 50 min, drawn now
-    expect(passDue(state, 2, day + 49 * 60_000, () => 0)).toBeNull();
-    expect(passDue(state, 2, day + 51 * 60_000, () => 0)).toEqual({ index: 0, at: day + 50 * 60_000 });
+    expect(passDue(state, 2, start, () => 0.9)).toBeNull(); // jitter 27 min, drawn now
+    expect(passDue(state, 2, start + 26 * 60_000, () => 0)).toBeNull();
+    expect(passDue(state, 2, start + 28 * 60_000, () => 0)).toEqual({ index: 0, at: start + 27 * 60_000 });
+    expect(slotJitterMs(() => 0.999)).toBe(29 * 60_000);
   });
 });
 
