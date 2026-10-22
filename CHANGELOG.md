@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.17.0] — 2026-10-22
+
+### Added
+- **Comentários (Instagram) → "Coletar todos".** On the post open in the Instagram tab, the page reads the whole thread through Instagram's own REST endpoints — top-level pages, then the replies of every comment whose preview is short — one request every 4–8 s, with likes, reply counts, dates and who each reply answers. A 429, Instagram's wait message or a login wall stops it and keeps what came in; "Parar" stops it at once and a second press carries on from the same cursor. Measured live 2026-10-22: 15 comments a page, `next_min_id` paged by `has_more_headload_comments`, replies paged head-first by `next_min_child_cursor` (`src/lib/shared/igCommentPages.js`, `collectThread` in `src/content/ig/main-world.js`). On a 60-comment post it read 40 comments and 6 replies (every reply the comments announced) in 6 requests; Instagram's count includes comments it does not serve.
+- **CSV and XLSX exports** next to JSON: one row per comment, replies under their comment, with "Responde a", the parent's id and the profile link (`igCommentRows`, `toCsv` in `src/lib/igComments.js`).
+
+### Changed
+- A post's comment store holds up to 10,000 comments (was 3,000), so a full collection is not cut.
+
 ## [1.16.0] — 2026-10-22
 
 ### Added

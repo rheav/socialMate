@@ -98,6 +98,8 @@ const TARGETS = {
     "src/lib/shared/surfaceTracker.js",
     "src/lib/shared/igSurface.js",
     "src/lib/shared/igPlayerHost.js",
+    // "Coletar todos": a whole comment thread through the REST endpoints.
+    "src/lib/shared/igCommentPages.js",
   ],
   // The MAIN-world TikTok capture maps payloads; the isolated bridge maps the SSR
   // blob AND draws the overlays, so it needs the formatting half as well.

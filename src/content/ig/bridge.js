@@ -343,7 +343,7 @@ function openTxLangMenu(btn, onPick) {
     const prev = T.items.get(r.cid) || {};
     for (const k in r) if (r[k] != null || !(k in prev)) prev[k] = r[k];
     T.items.set(r.cid, prev);
-    while (T.items.size > 3000) T.items.delete(T.items.keys().next().value);
+    while (T.items.size > 10000) T.items.delete(T.items.keys().next().value);
     lastCommentPost = r.post;
     igCommentsVer++;
   }
@@ -1002,6 +1002,15 @@ function flashHubButtonTip(btn, text) {
     try { chrome.runtime.sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: username, ...result }, () => void chrome.runtime.lastError); } catch {}
   });
 
+  // "Coletar todos": the MAIN world reads a whole thread and reports its progress
+  // here; the panel reads it with FBW_IG_COMMENTS.
+  let igCollect = null;
+  window.addEventListener("message", (e) => {
+    if (e.source !== window || !e.data || !e.data.__fbwIgCollect || disabled) return;
+    igCollect = e.data.__fbwIgCollect;
+  });
+  window.postMessage({ __fbwIgCollectAsk: true }, location.origin);
+
   // MAIN-world capture starts at document_start (before this listener exists) → ask it
   // to replay its buffer, on init and whenever we're missing the current record.
   let lastReplayReq = 0;
@@ -1151,7 +1160,7 @@ function flashHubButtonTip(btn, text) {
       const m = location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/);
       const current = (m && m[1]) || lastCommentPost;
       if (msg.since === igCommentsVer) {
-        sendResponse({ unchanged: true, version: igCommentsVer, current });
+        sendResponse({ unchanged: true, version: igCommentsVer, current, collect: igCollect });
         return;
       }
       const posts = [];
@@ -1169,7 +1178,19 @@ function flashHubButtonTip(btn, text) {
           comments: Array.from(T.items.values()),
         });
       }
-      sendResponse({ posts, current, version: igCommentsVer });
+      sendResponse({ posts, current, version: igCommentsVer, collect: igCollect });
+      return;
+    }
+    if (msg?.type === "FBW_IG_COMMENTS_COLLECT") {
+      const code = (location.pathname.match(/\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)/) || [])[1];
+      if (!code) { sendResponse({ ok: false, error: "not_a_post" }); return; }
+      window.postMessage({ __fbwIgCollectStart: code }, location.origin);
+      sendResponse({ ok: true, code });
+      return;
+    }
+    if (msg?.type === "FBW_IG_COMMENTS_COLLECT_STOP") {
+      window.postMessage({ __fbwIgCollectStop: true }, location.origin);
+      sendResponse({ ok: true });
       return;
     }
     if (msg?.type === "FBW_IG_REELS") {

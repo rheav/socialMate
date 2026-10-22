@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildIgExport, igExportFilename, threadComments } from "./igComments.js";
+import { buildIgExport, igExportFilename, threadComments, igCommentRows, toCsv, IG_COMMENT_COLS } from "./igComments.js";
 import { commentSweepTargets } from "./igComments.js";
 
 const post = {
@@ -25,6 +25,32 @@ describe("buildIgExport", () => {
 describe("igExportFilename", () => {
   it("leads with the author and names the platform", () => {
     expect(igExportFilename("abc", "ivy.moon")).toMatch(/ivy\.moon-ig-abc-.*\.json$/);
+  });
+});
+
+describe("igCommentRows + toCsv", () => {
+  const thread = {
+    code: "Ddtu14nxsa1",
+    comments: [
+      { cid: "2", is_reply: true, parent: "1", text: "eu \"também\", sim", username: "b", digg_count: 2, create_time: 1791296790 },
+      { cid: "1", is_reply: false, parent: null, text: "linha 1\nlinha 2", username: "a", digg_count: 1082, reply_count: 10, verified: true, create_time: 1791296790 },
+    ],
+  };
+  it("lists each reply under its comment and names who it answers", () => {
+    const rows = igCommentRows(thread);
+    expect(rows.map((r) => r.id)).toEqual(["1", "2"]);
+    expect(rows[0]).toMatchObject({ username: "a", likes: 1082, replies: 10, verified: "sim", reply_to: null, profile: "https://www.instagram.com/a/" });
+    expect(rows[1]).toMatchObject({ reply_to: "a", parent_id: "1", replies: null });
+    expect(rows[0].date).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  });
+  it("quotes commas, quotes and line breaks", () => {
+    const csv = toCsv(IG_COMMENT_COLS, igCommentRows(thread));
+    expect(csv.startsWith("\uFEFFUsuário,Comentário,")).toBe(true);
+    expect(csv).toContain('"linha 1\nlinha 2"');
+    expect(csv).toContain('"eu ""também"", sim"');
+  });
+  it("names the file by its format", () => {
+    expect(igExportFilename("abc", "ivy.moon", "csv")).toMatch(/ivy\.moon-ig-abc-.*\.csv$/);
   });
 });
 

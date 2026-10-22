@@ -66,7 +66,7 @@ story opened; TT collections need the playlist opened; etc.).
 |---|---|
 | FB photos | `FBW_FBPHOTOS_CONTEXT` (5 s), `_STATE` (1 s), `_SCRAPE`, `_STOP`, `_CLEAR` |
 | FB reels | `FBW_FB_REELS_LIST` (3 s), `FBW_FB_REELS_HARVEST` |
-| IG | `FBW_IG_LIST` (2.5 s), `FBW_IG_REELS`, `FBW_IG_COMMENTS` (2.5 s, `since`/`unchanged` like TT), `FBW_IG_CLEAR` (also empties the comment store) |
+| IG | `FBW_IG_LIST` (2.5 s), `FBW_IG_REELS`, `FBW_IG_COMMENTS` (2.5 s, `since`/`unchanged` like TT; carries `collect`, the "Coletar todos" job), `FBW_IG_COMMENTS_COLLECT` / `FBW_IG_COMMENTS_COLLECT_STOP` (the post open in the tab; the bridge relays `__fbwIgCollectStart` / `Stop` to the MAIN world, which reads the thread through the REST endpoints in `lib/shared/igCommentPages.js` and reports `__fbwIgCollect`), `FBW_IG_CLEAR` (also empties the comment store) |
 | TT | `FBW_TT_LIST` (2.5 s), `FBW_TT_COMMENTS`, `FBW_TT_STORIES`, `FBW_TT_LISTS`, `FBW_TT_CLEAR` |
 | Pin | `FBW_PIN_CONTEXT` (5 s), `FBW_PIN_STATE` (1 s), `FBW_PIN_HARVEST`, `FBW_PIN_CLEAR`, `FBW_PIN_RESOLVE` |
 | any | `FBW_PING` (liveness) |

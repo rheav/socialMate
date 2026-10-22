@@ -12,6 +12,8 @@ import {
   RotateCw,
   Trash2,
   ListTree,
+  CloudDownload,
+  Square,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ToolBar, ToolIconButton, ToolSelect } from "@/components/ui/ToolBar";
@@ -27,7 +29,11 @@ import {
   commentCounts,
   buildIgExport,
   igExportFilename,
+  igCommentRows,
+  toCsv,
+  IG_COMMENT_COLS,
 } from "@/lib/igComments";
+import { buildXlsx } from "@/lib/xlsx.js";
 
 // `short` is the word the sort trigger falls back to once the row is too narrow
 // for the full label. Values are unchanged.
@@ -40,7 +46,8 @@ const SORT_OPTS = [
 // Instagram Comments. Captured passively from the comment pages Instagram itself
 // loads when you OPEN a post (/p/, /reel/, /reels/) — the first page is
 // server-rendered, more arrive as you scroll the thread or tap "ver respostas".
-// Nothing is fetched in the background. Same layout as the TikTok tool; the
+// "Coletar todos" is the one active path: on the user's command the page reads
+// the open post's whole thread (main-world.js, collectThread), paced. Same layout as the TikTok tool; the
 // records share its field names, so the thread/sort/filter helpers are shared.
 export default function IgCommentsTool() {
   const [posts, setPosts] = useState([]);
@@ -50,6 +57,8 @@ export default function IgCommentsTool() {
   const [sortDir, setSortDir] = useState("desc");
   const [copied, setCopied] = useState(false);
   const [exportErr, setExportErr] = useState(false);
+  // The page's "Coletar todos" job: { code, state, top, replies, total, error }.
+  const [collect, setCollect] = useState(null);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("instagram");
   // The bridge answers {unchanged:true} when its store hasn't moved since the
   // version we last saw, which makes an idle poll near-free — it otherwise
@@ -66,6 +75,7 @@ export default function IgCommentsTool() {
   const pull = useCallback(async () => {
     const res = await send({ type: "FBW_IG_COMMENTS", since: sinceRef.current });
     if (!res) return;
+    setCollect(res.collect || null);
     // `current` (the post being viewed) changes without new comments and drives
     // the auto-follow, so it is honoured even when the store hasn't moved. The
     // guard still has to be "does this post actually have comments", which the
@@ -115,6 +125,44 @@ export default function IgCommentsTool() {
     );
     pull();
   }
+
+  // "Coletar todos": start (or carry on after a stop) on the post open in the tab,
+  // or stop the job running.
+  const collecting = collect?.state === "running";
+  const [collectErr, setCollectErr] = useState(null);
+  async function toggleCollect() {
+    if (collecting) {
+      await send({ type: "FBW_IG_COMMENTS_COLLECT_STOP" }, { userAction: true, action: "parar a coleta" });
+      return;
+    }
+    const res = await send({ type: "FBW_IG_COMMENTS_COLLECT" }, { userAction: true, action: "coletar os comentários" });
+    setCollectErr(res?.ok ? null : res?.error === "not_a_post" ? "abra um post no Instagram primeiro" : "não deu para começar a coleta");
+    if (res?.ok) { follow.current = true; setActiveId(res.code); }
+    setTimeout(pull, 600);
+  }
+  const COLLECT_TEXT = {
+    done: "coleta completa",
+    stopped: "coleta parada · clique de novo para continuar",
+    rate_limited: "o Instagram limitou · tente mais tarde",
+    login: "o Instagram pediu login",
+  };
+  function collectText(c) {
+    if (collectErr) return collectErr;
+    if (!c || c.code !== activeId) return null;
+    const got = (c.top || 0) + (c.replies || 0);
+    if (c.state === "running") return `coletando… ${got}${c.total ? ` de ~${c.total}` : ""}`;
+    if (c.state === "blocked") return COLLECT_TEXT[c.error] || "o Instagram recusou";
+    if (c.state === "error") return "a coleta falhou";
+    return COLLECT_TEXT[c.state] || null;
+  }
+  const collectButton = (
+    <ToolIconButton
+      icon={collecting ? Square : CloudDownload}
+      label={collecting ? "Parar coleta" : "Coletar todos"}
+      hint="No post aberto no Instagram: busca todos os comentários e respostas, um pedido a cada 4–8 s. Para sozinho se o Instagram limitar ou pedir login."
+      onClick={toggleCollect}
+    />
+  );
 
   const refresh = useCallback(async () => {
     follow.current = true;
@@ -173,6 +221,27 @@ export default function IgCommentsTool() {
     }
   }
 
+  // CSV and XLSX: one row per comment, replies under their comment.
+  function exportSheet(kind) {
+    if (!active) return;
+    const rows = igCommentRows(active);
+    const blob = kind === "csv"
+      ? new Blob([toCsv(IG_COMMENT_COLS, rows)], { type: "text/csv;charset=utf-8" })
+      : new Blob([buildXlsx(IG_COMMENT_COLS, rows, "Comentários")], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download(
+      { url, filename: igExportFilename(active.code, active.meta?.username, kind), saveAs: false, conflictAction: "uniquify" },
+      () => {
+        const failed = !!chrome.runtime.lastError;
+        setExportErr(failed);
+        if (failed) setTimeout(() => setExportErr(false), 2500);
+      },
+    );
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   async function exportJson() {
     if (!active) return;
     const res = await sendBg({
@@ -208,6 +277,10 @@ export default function IgCommentsTool() {
         <p className="text-sm text-muted-foreground py-8 text-center">
           Abra um post do Instagram e role os comentários para capturar a conversa aqui.
         </p>
+        <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground">
+          {collectButton}
+          <span>{collectText(collect) || "ou colete todos os comentários do post aberto"}</span>
+        </div>
       </div>
     );
 
@@ -238,6 +311,7 @@ export default function IgCommentsTool() {
           onClick={expandThread}
           disabled={!!expanding?.running}
         />
+        {collectButton}
         <ToolIconButton
           ref={clearBtnRef}
           icon={clearArmed ? Trash2 : RotateCw}
@@ -287,6 +361,7 @@ export default function IgCommentsTool() {
         <span className="min-w-0 break-words">
           {counts.total} comentários · {counts.topLevel} principais · {counts.replies} respostas
           {expanding?.text && ` · ${expanding.text}`}
+          {collectText(collect) && ` · ${collectText(collect)}`}
         </span>
         <div className="flex shrink-0 items-center gap-3">
           <button className="inline-flex items-center gap-1 underline" onClick={copyAll}>
@@ -299,6 +374,8 @@ export default function IgCommentsTool() {
           >
             <Download className="size-3" /> {exportErr ? "Erro" : "JSON"}
           </button>
+          <button className="underline" onClick={() => exportSheet("csv")}>CSV</button>
+          <button className="underline" onClick={() => exportSheet("xlsx")}>XLSX</button>
         </div>
       </div>
 

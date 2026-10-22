@@ -31,10 +31,62 @@ function stamp(d = new Date()) {
 }
 
 // `author` leads the name when known — see fbComments.filenameFor.
-export function igExportFilename(code, author) {
+export function igExportFilename(code, author, ext = "json") {
   const who = sanitizeFilenamePart(author);
   const base = `ig-${code || "post"}-${stamp()}`;
-  return downloadPath("comments", who ? `${who}-${base}.json` : `${base}.json`);
+  return downloadPath("comments", who ? `${who}-${base}.${ext}` : `${base}.${ext}`);
+}
+
+/** The sheet columns of a comment export (CSV and XLSX share them). */
+export const IG_COMMENT_COLS = [
+  { key: "username", label: "Usuário" },
+  { key: "text", label: "Comentário" },
+  { key: "likes", label: "Curtidas" },
+  { key: "replies", label: "Respostas" },
+  { key: "date", label: "Data" },
+  { key: "reply_to", label: "Responde a" },
+  { key: "verified", label: "Verificado" },
+  { key: "id", label: "ID" },
+  { key: "parent_id", label: "ID do comentário pai" },
+  { key: "profile", label: "Perfil" },
+];
+
+const pad2 = (n) => String(n).padStart(2, "0");
+/** Local "YYYY-MM-DD HH:mm" for a unix time in seconds; null when missing. */
+export function commentDate(sec) {
+  if (!Number.isFinite(Number(sec)) || !sec) return null;
+  const d = new Date(Number(sec) * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** One row per comment, in thread order (each reply under its comment). */
+export function igCommentRows(post) {
+  const list = threadComments(post?.comments || []);
+  const byId = new Map(list.map((c) => [c.cid, c]));
+  return list.map((c) => ({
+    username: c.username || null,
+    text: c.text || "",
+    likes: c.digg_count ?? null,
+    replies: c.is_reply ? null : (c.reply_count ?? null),
+    date: commentDate(c.create_time),
+    reply_to: c.is_reply ? (byId.get(c.parent)?.username || null) : null,
+    verified: c.verified ? "sim" : "",
+    id: c.cid || null,
+    parent_id: c.is_reply ? (c.parent || null) : null,
+    profile: c.username ? `https://www.instagram.com/${c.username}/` : null,
+  }));
+}
+
+/** RFC 4180 CSV with a header row; a leading BOM so Excel reads it as UTF-8. */
+export function toCsv(cols, rows) {
+  const cell = (v) => {
+    if (v == null) return "";
+    const t = String(v);
+    return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const lines = [cols.map((c) => cell(c.label)).join(",")];
+  for (const r of rows) lines.push(cols.map((c) => cell(r[c.key])).join(","));
+  return "\uFEFF" + lines.join("\r\n") + "\r\n";
 }
 
 /**
