@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.17.1] — 2026-10-22
+
+### Fixed
+- **Vídeo das análises: a post whose page hands no video link no longer ends in `collect_video_missing` (`unavailable: no_link`) when its public embed page has one.** The collector reads `/p/<code>/embed/captioned/` once per job, logged out (`credentials: "omit"`), and takes the video only when the embed names the same post. It also serves the transcription and a link that is still expired after the page's fresh look. Measured live 2026-10-22: the embed carries the post as a JSON string (`contextJSON` → `gql_data.shortcode_media`) whose `video_url` is a progressive MP4 on the CDN; the real collector, with a page stand-in that gave no link, downloaded it (9.3 MB, `ftyp`, 720×1280) and handed the same link to Whisper. `igEmbedVideo` / `fetchEmbedVideo` in `src/lib/analysisMedia.js`, `embedOnce` in `src/background/analysisCollect.js`. The panel's "Agora" says "· embed" next to the size when it is used.
+
 ## [1.17.0] — 2026-10-22
 
 ### Added

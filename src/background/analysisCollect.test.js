@@ -24,6 +24,10 @@ function stream(chunks, { status = 200, length = null } = {}) {
   };
 }
 const json = (status, body) => ({ ok: status >= 200 && status < 300, status, headers: { get: () => null }, json: async () => body });
+const html = (status, text) => ({ ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: async () => text });
+/** The post's embed page, shaped as measured on 2026-10-22 (the post is a JSON string in a script). */
+const embedPage = (media) =>
+  `<script>{"contextJSON":${JSON.stringify(JSON.stringify({ context: { shortcode: media.shortcode }, gql_data: { shortcode_media: media } }).replace(/\//g, "\\/"))}}</script>`;
 
 const job = (over = {}) => ({
   taskId: "t1",
@@ -68,10 +72,10 @@ const pageAnswer = (over = {}) => ({
  * Chrome, the page, the CDN and the Hub, all in memory. `page(msg, tabId)`
  * answers FBW_ANALYSIS_COLLECT; tabs keep the URL they were opened with.
  */
-function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), blocked = null, busy = () => false, transcribe, uploads } = {}) {
+function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), embed = () => html(404, ""), blocked = null, busy = () => false, transcribe, uploads } = {}) {
   const data = {};
   const tabs = new Map();
-  const log = { created: [], removed: [], reloaded: [], puts: [], evidence: [], cdn: [], paused: [], sent: [], transcribed: [], slept: 0 };
+  const log = { created: [], removed: [], reloaded: [], puts: [], evidence: [], cdn: [], embeds: [], paused: [], sent: [], transcribed: [], slept: 0 };
   let nextTab = 10;
   let clock = 1_000_000;
   const chrome = {
@@ -108,6 +112,10 @@ function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), blocked
   };
   let uploadCalls = 0;
   const fetchImpl = async (url, init = {}) => {
+    if (url.includes("/embed/captioned/")) {
+      log.embeds.push({ url, credentials: init.credentials });
+      return embed(url);
+    }
     if (url.startsWith("https://scontent")) {
       log.cdn.push(url);
       return cdn(url, log.cdn.length);
@@ -233,6 +241,36 @@ describe("preparePost", () => {
     expect(w.log.cdn).toHaveLength(2);
     expect(w.log.evidence[0].body.video).toMatchObject({ state: "expired", assetId: null });
     expect(w.log.evidence[0].body.caption.text).toBe("legenda inteira");
+  });
+
+  it("a page without a video link falls back to the post's public embed page", async () => {
+    const media = { shortcode: "CCC", dimensions: { width: 720, height: 1280 }, video_duration: 41, video_url: CDN("embed") };
+    const w = world({ page: () => pageAnswer({ variants: [] }), embed: () => html(200, embedPage(media)) });
+    const phases = [];
+    await w.api.preparePost(job(), { live: (p) => phases.push(p) });
+    expect(w.log.embeds).toEqual([{ url: "https://www.instagram.com/p/CCC/embed/captioned/", credentials: "omit" }]); // read once, logged out
+    expect(w.log.cdn).toEqual([CDN("embed")]);
+    expect(w.log.evidence[0].body.video).toMatchObject({ state: "available", assetId: "a1", width: 720, height: 1280 });
+    expect(w.log.transcribed[0].mediaUrl).toBe(CDN("embed"));
+    expect(phases.find((p) => p.phase === "video_download").detail).toBe("720×1280 · embed");
+  });
+
+  it("no link on the page nor the embed stays unavailable: no_link", async () => {
+    const w = world({ page: () => pageAnswer({ variants: [] }) });
+    const steps = [];
+    await w.api.preparePost(job(), { progress: (code, detail) => steps.push([code, detail]) });
+    expect(w.log.embeds).toHaveLength(1);
+    expect(w.log.cdn).toEqual([]);
+    expect(w.log.evidence[0].body.video.state).toBe("unavailable");
+    expect(steps).toContainEqual(["collect_video_missing", "unavailable: no_link"]);
+  });
+
+  it("an embed video over 10 minutes is reported, not fetched", async () => {
+    const media = { shortcode: "CCC", dimensions: { width: 720, height: 1280 }, video_duration: 700, video_url: CDN("embed") };
+    const w = world({ page: () => pageAnswer({ variants: [], durationS: null }), embed: () => html(200, embedPage(media)) });
+    await w.api.preparePost(job());
+    expect(w.log.cdn).toEqual([]);
+    expect(w.log.evidence[0].body.video.state).toBe("too_large");
   });
 
   it("a video over 100 MiB or 10 minutes is reported, not fetched whole", async () => {

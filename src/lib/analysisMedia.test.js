@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { downloadLimited, isInstagramCdn, pickVideoVariant, sha256Hex } from "./analysisMedia.js";
+import { downloadLimited, isInstagramCdn, pickVideoVariant, sha256Hex, igEmbedVideo } from "./analysisMedia.js";
 
 describe("pickVideoVariant", () => {
   const v = (w, h) => ({ w, h, url: `https://scontent.cdninstagram.com/v/${w}x${h}.mp4?oe=1` });
@@ -64,5 +64,32 @@ describe("downloadLimited", () => {
     expect(await downloadLimited("https://scontent.cdninstagram.com/v.mp4", { maxBytes: 10, fetchImpl: async () => streamResponse([], { status: 403 }) })).toEqual({ ok: false, code: "url_expired" });
     expect(await downloadLimited("https://scontent.cdninstagram.com/v.mp4", { maxBytes: 10, fetchImpl: async () => streamResponse([], { status: 429 }) })).toEqual({ ok: false, code: "rate_limited" });
     expect(await downloadLimited("https://evil.example/v.mp4", { maxBytes: 10, fetchImpl: async () => streamResponse([]) })).toEqual({ ok: false, code: "bad_host" });
+  });
+});
+
+describe("igEmbedVideo", () => {
+  // The embed page's script as measured on 2026-10-22: the post is a JSON string
+  // (slashes escaped inside it) inside the page's own JSON.
+  const media = {
+    __typename: "GraphVideo",
+    shortcode: "Derfz6wtPtt",
+    dimensions: { height: 1280, width: 720 },
+    video_duration: 62.6,
+    video_url: "https://scontent-gru1-2.cdninstagram.com/o1/v/t2/f2/m86/AQP.mp4?_nc_cat=108&_nc_sid=5e9851",
+  };
+  const page = (m) =>
+    `<script>requireLazy(["x"],function(){{"isProfileEmbed":false,"contextJSON":${JSON.stringify(
+      JSON.stringify({ context: { type: "GraphVideo", shortcode: m.shortcode }, gql_data: { shortcode_media: m } }).replace(/\//g, "\\/"),
+    )},"other":1}});</script>`;
+
+  it("reads the video, its size and duration from the page's JSON string", () => {
+    expect(igEmbedVideo(page(media), "Derfz6wtPtt")).toEqual({ url: media.video_url, w: 720, h: 1280, durationS: 62.6 });
+  });
+
+  it("refuses another post's media, a non-CDN link and a page without the JSON", () => {
+    expect(igEmbedVideo(page(media), "OTHER")).toBeNull();
+    expect(igEmbedVideo(page({ ...media, video_url: "https://evil.example/a.mp4" }), "Derfz6wtPtt")).toBeNull();
+    expect(igEmbedVideo(page({ ...media, video_url: undefined }), "Derfz6wtPtt")).toBeNull();
+    expect(igEmbedVideo("<html>O link desta foto ou vídeo pode estar quebrado</html>", "Derfz6wtPtt")).toBeNull();
   });
 });

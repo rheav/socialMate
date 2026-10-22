@@ -16,7 +16,7 @@
 // look, a video past the limits is reported too large. The job's state is
 // persisted so a worker restart closes the tab it left behind.
 
-import { downloadLimited, isInstagramCdn, pickVideoVariant } from "../lib/analysisMedia.js";
+import { downloadLimited, fetchEmbedVideo, isInstagramCdn, pickVideoVariant } from "../lib/analysisMedia.js";
 import { igCodeFromPk } from "../lib/shared/igCode.js";
 import { IG_COMMENT_EXPAND_LIMITS } from "../lib/shared/igCommentExpand.js";
 
@@ -133,17 +133,30 @@ export function createAnalysisCollect({
     return res?.ok ? res : null;
   }
 
+  // The post's public embed page, read once per job: the fallback when the post's
+  // own page handed no usable video link (see igEmbedVideo).
+  async function embedOnce(job) {
+    if (job.embed === undefined) job.embed = await fetchEmbedVideo(job.code, fetchImpl);
+    return job.embed;
+  }
+
   async function fetchVideo(job, p, page) {
     if (page.durationS != null && page.durationS > L.maxDurationS) return { state: "too_large" };
     let variant = pickVideoVariant(page.variants);
+    if (!variant) {
+      const embed = await embedOnce(job);
+      if (embed?.durationS != null && embed.durationS > L.maxDurationS) return { state: "too_large" };
+      variant = embed;
+    }
     if (!variant) return { state: "unavailable", why: "no_link" };
-    job.live?.({ phase: "video_download", detail: variant.w && variant.h ? `${variant.w}×${variant.h}` : null });
+    const size = variant.w && variant.h ? `${variant.w}×${variant.h}` : null;
+    job.live?.({ phase: "video_download", detail: variant === job.embed ? [size, "embed"].filter(Boolean).join(" · ") : size });
     let got = await downloadLimited(variant.url, { maxBytes: L.maxBytes, fetchImpl, timeoutMs: L.downloadMs });
     if (!got.ok && got.code === "url_expired" && !job.cancelled && !job.stop) {
       // One fresh look: the page hands out newly signed links.
       await chrome.tabs.reload(job.tabId);
       const again = await readPage(job, p, false);
-      variant = again ? pickVideoVariant(again.variants) : null;
+      variant = (again ? pickVideoVariant(again.variants) : null) || (variant === job.embed ? null : await embedOnce(job));
       got = variant ? await downloadLimited(variant.url, { maxBytes: L.maxBytes, fetchImpl, timeoutMs: L.downloadMs }) : got;
     }
     if (got.ok) return { state: "available", variant, data: got.data, sha256: got.sha256 };
@@ -293,9 +306,11 @@ export function createAnalysisCollect({
       // Transcript: only when the Acervo has none, and only from this post's own video.
       let transcript;
       if (p.needs?.transcript && page) {
-        const smallest = [...(page.variants || [])]
-          .filter((v) => isInstagramCdn(v.url))
-          .sort((a, b) => (a.w || 0) * (a.h || 0) - (b.w || 0) * (b.h || 0))[0];
+        const smallest =
+          [...(page.variants || [])]
+            .filter((v) => isInstagramCdn(v.url))
+            .sort((a, b) => (a.w || 0) * (a.h || 0) - (b.w || 0) * (b.h || 0))[0] ||
+          (await embedOnce(job));
         if (smallest && !job.cancelled) {
           live({ phase: "transcribing", detail: page.durationS ? `vídeo de ${Math.round(page.durationS)} s` : null });
           // The post's author, picture and numbers ride along, so its Library card is complete.

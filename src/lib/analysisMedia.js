@@ -91,3 +91,44 @@ export async function downloadLimited(url, { maxBytes, fetchImpl = fetch, timeou
     signal?.removeEventListener?.("abort", onAbort);
   }
 }
+
+/** A post's public embed page; it answers logged out (measured 2026-10-22). */
+export const igEmbedPageUrl = (code) => `https://www.instagram.com/p/${code}/embed/captioned/`;
+
+/**
+ * The video on a post's embed page: { url, w, h, durationS }, or null.
+ *
+ * Measured 2026-10-22 on /p/Derfz6wtPtt/embed/captioned/, logged out: the page
+ * carries the post as a JSON string inside a script, `"contextJSON":"{\"context\":…,
+ * \"gql_data\":{\"shortcode_media\":{…}}}"`, whose `video_url` is a progressive MP4
+ * on the CDN (206, video/mp4, ftyp, 9.3 MB). It is the fallback when the post's
+ * own page handed no video link. A media of another post is never returned.
+ */
+export function igEmbedVideo(html, code) {
+  const s = String(html || "");
+  const at = s.indexOf('"contextJSON":"');
+  if (at < 0) return null;
+  const start = at + '"contextJSON":'.length;
+  let end = start + 1;
+  while (end < s.length && s[end] !== '"') end += s[end] === "\\" ? 2 : 1;
+  let media;
+  try {
+    media = JSON.parse(JSON.parse(s.slice(start, end + 1)))?.gql_data?.shortcode_media;
+  } catch {
+    return null;
+  }
+  if (!media || (code && media.shortcode !== code) || !isInstagramCdn(media.video_url)) return null;
+  const d = media.dimensions || {};
+  return { url: media.video_url, w: Number(d.width) || null, h: Number(d.height) || null, durationS: Number(media.video_duration) || null };
+}
+
+/** igEmbedVideo over the network; null on any failure. */
+export async function fetchEmbedVideo(code, fetchImpl = fetch) {
+  try {
+    const res = await fetchImpl(igEmbedPageUrl(code), { credentials: "omit", cache: "no-store" });
+    if (!res.ok) return null;
+    return igEmbedVideo(await res.text(), code);
+  } catch {
+    return null;
+  }
+}
