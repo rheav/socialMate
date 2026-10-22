@@ -85,7 +85,8 @@ Thumbnail repair: `FBW_THUMB_RECOVER` (`{brokenIds}`) starts the sweep,
 `FBW_THUMB_STATUS` reads it, and the worker broadcasts `FBW_THUMB_PROGRESS`.
 Hub sync: `FBW_SYNC_PING` (config check), `FBW_SYNC_ALL` (push both stores),
 `FBW_SYNC_NOW` (drain the queue).
-Spy area: `FBW_SPY_SAVE` (`{ platform, key }` / `{ url }`),
+Spy area: `FBW_SPY_SAVE` (`{ platform, key }` / `{ url }`; sent by the panel and by the
+Instagram profile header's Hub button, `lib/shared/igHubButton.js`),
 `FBW_SPY_REMOVE` (`{ id }`), `FBW_SPY_REFRESH_LIST`, `FBW_SPY_RUN` (test console,
 no UI button), and `FBW_SPY_OBSERVE` (`{ platform, key, data }`, IG bridge →
 background). The background validates the sender and saved identity, throttles

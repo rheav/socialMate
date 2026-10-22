@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.16.0] — 2026-10-22
+
+### Added
+- **Hub button on an Instagram profile.** The socialMate mark sits right after the "…" (Opções) in a profile's header, on the posts, Reels and tagged tabs. A click saves the profile to the Spy list, so it reaches the Hub without opening the panel (`FBW_SPY_SAVE`, as the panel does). Not tracked, it is an outline in Instagram's own text colour; tracked, it is the extension's sky square with a green dot. A click on a tracked profile only says "Já trackeado no Hub": stopping a track stays in the panel and the Hub. Hidden on your own profile (its header links to "Editar perfil"). `src/lib/shared/igHubButton.js`, wired in `src/content/ig/bridge.js`.
+
 ## [1.15.5] — 2026-10-20
 
 ### Changed
