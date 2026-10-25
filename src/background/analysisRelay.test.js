@@ -28,10 +28,10 @@ class FakeSocket {
   send(raw) {
     this.sent.push(JSON.parse(raw));
   }
-  close(code = 1000) {
+  close(code = 1000, reason = "") {
     if (this.readyState === 3) return;
     this.readyState = 3;
-    this.emit("close", { code });
+    this.emit("close", { code, reason });
   }
   types() {
     return this.sent.map((m) => m.type);
@@ -120,13 +120,37 @@ describe("connection", () => {
     expect(FakeSocket.all).toHaveLength(2);
     const second = FakeSocket.all[1];
     second.open();
-    second.close(1008);
+    second.close(1008, "unauthorized");
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     await relay.ensure();
     expect(FakeSocket.all).toHaveLength(2);
     settings = { ...settings, token: "new-token" };
     await relay.ensure();
     expect(FakeSocket.all).toHaveLength(3);
+  });
+
+  it("retries the Hub's other 1008s (a hello that came late)", async () => {
+    const ws = await connected();
+    ws.close(1008, "hello timeout");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it("never waits more than a minute between tries, and a wake-up connects at once", async () => {
+    const ws = await connected();
+    ws.close(1006);
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      FakeSocket.all.at(-1).close(1006);
+    }
+    expect(FakeSocket.all).toHaveLength(9);
+    await relay.ensure(); // the minute alarm, mid-backoff
+    expect(FakeSocket.all).toHaveLength(10);
+  });
+
+  it("opens one socket when two wake-ups come at once", async () => {
+    await Promise.all([relay.ensure(), relay.ensure()]);
+    expect(FakeSocket.all).toHaveLength(1);
   });
 });
 

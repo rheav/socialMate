@@ -492,8 +492,9 @@ scope in `background.js`:
   (sync token in the first `hello` frame, never the URL; only when sync is
   ready). One job at a time; heartbeats every 20 s carry the collector's live
   step for the Hub's "Agora" panel; a result is kept in `fbw_analysis_relay`
-  until acked and resent after a reconnect or a worker restart; a 1008 waits for
-  a new token.
+  until acked and resent after a reconnect or a worker restart; a refused token
+  (1008 `unauthorized`) waits for a new one, anything else retries every 2–60 s
+  and the minute alarm connects at once, backoff or not.
 - `background/analysisCollect.js` — one post per job in its own background tab
   (`#socialmate-analysis`): full caption and video renditions from the bridge
   (`FBW_ANALYSIS_COLLECT`, exact shortcode/pk match), MP4 via

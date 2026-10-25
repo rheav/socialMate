@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.17.2] — 2026-10-25
+
+### Fixed
+- **The Hub no longer shows "extensão desconectada" for minutes after the Mac wakes.** Measured 2026-10-25: lid opened at 07:57:11, the Mac worker was back at 07:57:16, the extension only at 08:00:06. After 6 failed connects the analysis relay waited 5 minutes between tries, and the minute alarm's `ensure()` did nothing while a retry was pending (timers also stand still while the Mac sleeps). Now the 5-minute mode is gone (2–60 s backoff), and the alarm connects at once, backoff or not. `src/background/analysisRelay.js`.
+- **Only a refused token stops the relay.** The Hub closes with 1008 for a wrong token, a malformed hello and a hello that came late; the extension took every 1008 as a wrong token and stayed off until the token changed. Now only `unauthorized` waits; the others retry.
+- Two wake-ups at once (start-up and the alarm) opened two sockets; now one.
+
 ## [1.17.1] — 2026-10-22
 
 ### Fixed

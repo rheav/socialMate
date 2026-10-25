@@ -14,9 +14,6 @@ export const ANALYSIS_WS_PATH = "/ws/socialmate-extension";
 export const ANALYSIS_RELAY_KEY = "fbw_analysis_relay"; // { instanceId, pending }
 const HEARTBEAT_MS = 20_000;
 const STALE_MS = 60_000;
-/** After this many failed connects in a row, try every five minutes. */
-const SLOW_AFTER = 6;
-const SLOW_MS = 5 * 60_000;
 
 export function analysisWsUrl(httpUrl) {
   return String(httpUrl).replace(/\/+$/, "").replace(/^http/, "ws") + ANALYSIS_WS_PATH;
@@ -74,7 +71,7 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
 
   function scheduleReconnect() {
     clearTimeout(retry);
-    const delay = attempt >= SLOW_AFTER ? SLOW_MS : reconnectDelay(attempt, random);
+    const delay = reconnectDelay(attempt, random);
     attempt += 1;
     retry = setTimeout(() => {
       retry = null;
@@ -172,8 +169,9 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
     }
   }
 
-  async function connect(next) {
-    const id = await instanceId();
+  function connect(next, id) {
+    // A wake-up (the minute alarm, new sync settings) does not wait out the backoff: timers stand still while the Mac sleeps.
+    stopTimers();
     let sock;
     try {
       sock = new WebSocketImpl(analysisWsUrl(next.url));
@@ -210,8 +208,8 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
       ws = null;
       welcomed = false;
       if (closed) return;
-      // 1008: the Hub refused the token. Wait for a different one.
-      if (ev?.code === 1008) {
+      // The Hub refused the token: wait for a different one. Its other 1008s (a late or malformed hello) retry.
+      if (ev?.code === 1008 && ev.reason === "unauthorized") {
         authFailedToken = next.token;
         return;
       }
@@ -231,6 +229,8 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
       disconnect();
       return;
     }
+    const id = await instanceId();
+    // Nothing awaits from here on: two wake-ups at once open one socket.
     if (ws && (ws.readyState === OPEN || ws.readyState === CONNECTING)) {
       if (target?.url === next.url && target?.token === next.token) return;
       disconnect();
@@ -238,8 +238,7 @@ export function createAnalysisRelay({ WebSocketImpl, settings, storage, collect,
     }
     if (authFailedToken && authFailedToken === next.token) return;
     authFailedToken = null;
-    if (retry) return;
-    await connect(next);
+    connect(next, id);
   }
 
   function disconnect() {
