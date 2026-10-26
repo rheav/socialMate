@@ -534,3 +534,15 @@ so the owner's name never appears among the viewers. The Hub's "Coletar
 stories" arrives as a relay `command` (analysisRelay.js → `commands`) and runs a
 manual pass that reports `command_progress` per profile. Design and what was
 measured: `~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md`.
+
+## 9. Build variants: private and public
+
+One tree, two builds (plan: `docs/superpowers/plans/2026-10-26-public-build.md`).
+
+- `npm run build` → `dist/`: this extension as it always was (hub, Instagram Scraper export, warm engine).
+- `npm run build:public` → `dist-public/` (`PUBLIC=1`): no backend, no warm engine. `npm run verify:public` must print "clean".
+- `npm run export:public [dir]` writes the open-source tree (default `../socialmate-public`) and runs its tests and build there; `public-repo/` holds its README, LICENSE and .gitignore. `npm run setup` fetches the pinned binaries (`scripts/fetch-assets.mjs`).
+
+How code picks a variant: whole marker lines `// @private` … `// @end-private` and `// @public` … `// @end-public` (`{/* @private */}` among JSX children). `src/build/stripRegions.js` drops the other variant's regions in Vite and Vitest, and the export removes them from the source. Markers are only comments to Node, so `manifest.config.js` and `vite.config.js` also branch on `PUBLIC`.
+
+In the public build the Spy's server is local: `src/hub-local/` runs the hub's spy code on sql.js in the service worker, persisted to IndexedDB, behind the same contract `syncClient.js` speaks (`FBW_HUB_LOCAL` for pages). `src/dashboard/` (+ `dashboard.html`) is the hub's Spy panel ported without the AI reports; only the public build has that entry.

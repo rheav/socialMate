@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "gen:inline": "node scripts/gen-inline.mjs",
     "build:public": "PUBLIC=1 npm run build",
-    "verify:public": "node scripts/verify-public.mjs"
+    "verify:public": "node scripts/verify-public.mjs",
+    "export:public": "node scripts/export-public.mjs",
+    "setup": "node scripts/fetch-assets.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
