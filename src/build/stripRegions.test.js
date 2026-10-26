@@ -23,6 +23,10 @@ describe("stripRegions", () => {
     expect(priv.split("\n")).toEqual(["a();", "", "hub();", "", "", "", "", "", "<Warm />", "", "b();"]);
   });
 
+  it("removes the lines outright for the exported source", () => {
+    expect(stripRegions(src, "private", "", { blank: false }).split("\n")).toEqual(["a();", "  local();", "b();"]);
+  });
+
   it("leaves files without markers untouched", () => {
     expect(stripRegions("x // mentions @private in prose", "private")).toBe("x // mentions @private in prose");
   });

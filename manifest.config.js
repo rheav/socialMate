@@ -1,17 +1,24 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 
+// @private
 // PUBLIC=1 builds the open-source variant: no hub, no warm engine (docs/superpowers/plans/2026-10-26-public-build.md).
+// The // @private lines below are only comments to Node; scripts/export-public.mjs drops them.
+// @end-private
 const PUBLIC = process.env.PUBLIC === "1";
 
 const manifest = {
   manifest_version: 3,
   name: "socialMate",
   short_name: "socialMate",
+  // @private
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
+  // @end-private
   version: "1.18.0",
+  // @private
   version_name:
     "1.18.0 — Transcrição em espanhol",
+  // @end-private
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",
@@ -57,16 +64,21 @@ const manifest = {
     "*://*.pinterest.com/*",
     // Pin images are downloaded by fetching them in the SW (FBW_DL_MEDIA kind:"image").
     "*://*.pinimg.com/*",
+    // @private
     // The socialMate hub (~/Code/apps/socialmate-hub): where the Arquivo is
     // pushed so it outlives the local caps. Any OTHER host the user points the
     // sync at is asked for at runtime — see optional_host_permissions.
     "https://socialmate.rheav.dev/*",
     "http://localhost/*",
     "http://127.0.0.1/*",
+    // @end-private
   ],
+  // @private
   // Only requested when someone changes the hub URL in Opções to an arbitrary remote host.
   optional_host_permissions: ["https://*/*"],
+  // @end-private
   content_scripts: [
+    // @private
     {
       matches: [
         "*://*.facebook.com/*",
@@ -76,6 +88,7 @@ const manifest = {
       js: ["src/content.js"],
       run_at: "document_idle",
     },
+    // @end-private
     {
       matches: ["*://*.facebook.com/*"],
       js: ["src/content/transcription/inject.js"],
@@ -167,6 +180,7 @@ const manifest = {
 if (PUBLIC) {
   manifest.description =
     "Pesquisa de Facebook / Instagram / TikTok / Pinterest a partir de um painel lateral — tudo local, sem servidor.";
+  // @private
   delete manifest.version_name;
   delete manifest.optional_host_permissions;
   manifest.host_permissions = manifest.host_permissions.filter(
@@ -174,6 +188,7 @@ if (PUBLIC) {
   );
   // src/content.js is the warm engine.
   manifest.content_scripts = manifest.content_scripts.filter((c) => !c.js.includes("src/content.js"));
+  // @end-private
 }
 
 export default defineManifest(manifest);

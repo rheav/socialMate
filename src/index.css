@@ -21,7 +21,7 @@
 }
 
 :root {
-  /* O sinal de "rodando" do aquecedor. Era um ember laranja próprio; no Nord a
+  /* O sinal de "rodando". Era um ember laranja próprio; no Nord a
      cor de calor já existe e é o amber, então a assinatura é a mesma coisa que
      a paleta — não uma cor extra pendurada nela. */
   --sw-live: var(--color-amber);
@@ -133,7 +133,7 @@
   border-radius: var(--radius-card);
 }
 
-/* Os blocos tipo console — a transcrição corrida e o log do aquecedor — são
+/* Os blocos tipo console — a transcrição corrida e os logs — são
    escuros nos DOIS temas de propósito: é texto de máquina, lido em bloco. O
    `scrim` do Nord já é essa cor (índigo profundo no claro, quase preto no
    escuro), e o texto é fixo em nord4 porque `fg` inverte e ficaria preto sobre

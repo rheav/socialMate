@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { ANALYSIS_COLLECT_KEY, ANALYSIS_MARKER, createAnalysisCollect } from "./analysisCollect.js";
+// @private
 import { sha256Hex } from "../lib/analysisMedia.js";
 
 const HUB = "https://hub.example";
+// @end-private
 const CDN = (name) => `https://scontent.cdninstagram.com/v/${name}.mp4?oe=1`;
 const MiB = 1024 * 1024;
 
@@ -120,6 +122,7 @@ function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), embed =
       log.cdn.push(url);
       return cdn(url, log.cdn.length);
     }
+    // @private
     if (url.startsWith(`${HUB}/api/sync/analysis/assets/`)) {
       uploadCalls += 1;
       const body = init.body;
@@ -131,24 +134,29 @@ function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), embed =
       log.evidence.push({ headers: init.headers, body: JSON.parse(init.body) });
       return json(200, { evidenceHash: "h1" });
     }
+    // @end-private
     throw new Error(`unexpected fetch ${url}`);
   };
   const api = createAnalysisCollect({
     chrome,
     fetchImpl,
+    // @private
     hub: async () => ({ url: HUB, token: "sync-token" }),
+    // @end-private
     instagram: {
       blocked: async () => blocked,
       busy: async () => busy(),
       pause: async (code) => log.paused.push(code),
       serialize: (work) => work(),
     },
+    // @private
     transcribe:
       transcribe ??
       (async (req) => {
         log.transcribed.push(req);
         return { status: "done", text: "olá", chunks: [{ timestamp: [0, 1.5], text: "olá" }], language: "pt", source: "whisper" };
       }),
+    // @end-private
     now: () => clock,
     sleep: async (ms) => {
       clock += ms;
@@ -159,6 +167,7 @@ function world({ page = () => pageAnswer(), cdn = () => stream([mp4()]), embed =
   return { api, chrome, data, tabs, log, advance: (ms) => (clock += ms), now: () => clock };
 }
 
+// @private
 describe("preparePost", () => {
   it("collects caption, video and transcript (no comments) and files them under the task's lease", async () => {
     const w = world();
@@ -379,7 +388,10 @@ describe("preparePost", () => {
   });
 });
 
+// @end-private
+
 describe("cancelPrepare and recovery", () => {
+  // @private
   it("cancel stops the job and closes only the tab it opened", async () => {
     const w = world({
       page: async (_msg, _tabId, api) => {
@@ -403,6 +415,8 @@ describe("cancelPrepare and recovery", () => {
     await w.api.preparePost(job());
     expect(w.log.removed).toEqual([]);
   });
+
+  // @end-private
 
   it("after a worker restart, closes the lost job's own tab and forgets the job", async () => {
     const w = world();

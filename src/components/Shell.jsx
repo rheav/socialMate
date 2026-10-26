@@ -93,10 +93,14 @@ function useTheme() {
 
 // The icon each top-level tab wears. The tab LIST itself lives in lib/uiPrefs.js,
 // which is pure — icons are React, so they are mapped back in here.
+// @private
 const TAB_ICONS = { research: SearchIcon, warm: Flame, library: LibraryIcon, spy: Eye };
+// @end-private
+// @public
+const TAB_ICONS = { research: SearchIcon, library: LibraryIcon, spy: Eye };
+// @end-public
 
-// Panel-wide preferences (today: whether the Aquecer tab is shown). Stored and
-// followed exactly like the theme — the panel is per-window, so a switch flipped
+// Panel-wide preferences. Stored and followed exactly like the theme — the panel is per-window, so a switch flipped
 // in one window must reach the others without reopening them.
 function useUiPrefs() {
   const [prefs, setPrefsState] = useState(DEFAULT_UI_PREFS);
@@ -211,11 +215,14 @@ export default function Shell() {
     (p) =>
       setNav((n) => {
         // Arquivo is platform-agnostic, so picking a platform there means "take me
-        // to that platform". Aquecer exists only for platforms with a warmer, and
+        // to that platform".
+        // @private
+        // Aquecer exists only for platforms with a warmer, and
         // the header offers all four: choosing Pinterest there used to show it
         // selected while the body fell back to a picker that does not list it —
         // selected and unreachable at once. Land such a pick in Pesquisa, which
         // every platform has.
+        // @end-private
         // @private
         const leaving =
           n.tab === "library" || (n.tab === "warm" && !WARM_PLATFORMS.includes(p));
@@ -412,11 +419,14 @@ function useFollowActiveTab(ready, ownWindowId, setNav, setActiveUrl) {
   }, [ready, ownWindowId, setNav, setActiveUrl]);
 }
 
+// Pesquisa cannot render anything until a platform is chosen.
+// @private
 // Shared by Pesquisa and Aquecer: neither can render anything until a platform is
 // chosen, and both used to be the same tab, so the picker is one component.
 // `only` narrows the list to the platforms a tab actually supports — the warmer
 // runs on three of the four, and offering Pinterest there would crash WarmTool on
 // PLATFORMS[platform].defaultMode.
+// @end-private
 function PlatformPicker({ setPlatform, only = null, describe }) {
   const ids = only ? PLATFORM_ORDER.filter((id) => only.includes(id)) : PLATFORM_ORDER;
   return (

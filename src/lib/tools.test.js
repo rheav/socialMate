@@ -16,6 +16,7 @@ describe("filterToolsForPlatform", () => {
   });
 });
 
+// @private
 // The warmer is a top-level tab now, not one of the platform workspace tools, so
 // the workspace list must not offer it — while the registry still carries it (the
 // Aquecer tab renders it, and the platform picker still names it).
@@ -35,3 +36,4 @@ describe("workspaceToolsForPlatform", () => {
     expect(workspaceToolsForPlatform(fixture, "facebook").some((t) => t.id === "library")).toBe(false);
   });
 });
+// @end-private

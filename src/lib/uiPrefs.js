@@ -1,12 +1,14 @@
 // Panel-wide UI preferences: which parts of the panel the user wants to see at
 // all. Pure (DOM-free, component-free) so the Shell's behaviour can be tested
 // without React — same split as navState.js / toolsFilter.js.
+// @private
 //
 // Today it holds one switch. The warmer is the loudest thing in the panel (its
 // own top-level tab, a flame in the header of every screen) and someone whose
 // week is about SCRAPING wants it out of the way — hidden, not uninstalled: the
 // engine, its sessions and its stored pacing all stay exactly as they were, and
 // flipping the switch back returns the tab with its workspace intact.
+// @end-private
 
 export const UI_PREFS_KEY = "sw_ui_prefs";
 
@@ -20,7 +22,12 @@ export const TOP_TABS = [
   { id: "spy", label: "Spy" },
 ];
 
+// @private
 export const DEFAULT_UI_PREFS = { showWarm: true };
+// @end-private
+// @public
+export const DEFAULT_UI_PREFS = {};
+// @end-public
 
 /**
  * A stored blob (or anything at all) read as prefs.
@@ -39,16 +46,20 @@ export function normalizeUiPrefs(raw) {
 
 /** The tabs to render, in nav order. */
 export function visibleTabs(prefs) {
+  // @private
   const p = normalizeUiPrefs(prefs);
   return TOP_TABS.filter((t) => t.id !== "warm" || p.showWarm);
+  // @end-private
+  // @public
+  return TOP_TABS;
+  // @end-public
 }
 
 /**
  * The tab to actually show.
  *
- * Hiding the warmer while standing IN it would otherwise leave the panel on a
- * tab with no way back to it, so a hidden tab falls back to the first visible
- * one — and an unknown id (a rename, a stale stored nav) lands there too.
+ * A hidden tab, or an unknown id (a rename, a stale stored nav), falls back to
+ * the first visible one.
  */
 export function resolveTab(tab, prefs) {
   const tabs = visibleTabs(prefs);

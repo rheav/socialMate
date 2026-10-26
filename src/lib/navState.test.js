@@ -37,16 +37,16 @@ describe("emptyNav / normalizeNav", () => {
 
 describe("migrateNav", () => {
   it("prefers an existing v3 value", () => {
-    const v3 = { tab: "warm", platform: "instagram", perPlatform: { instagram: { toolId: "ig-stories" } } };
+    const v3 = { tab: "research", platform: "instagram", perPlatform: { instagram: { toolId: "ig-stories" } } };
     expect(migrateNav(v3, { platform: "tiktok", toolId: "tt-sort" })).toEqual(v3);
   });
   it("seeds per-platform memory from the legacy flat v2 value", () => {
-    const out = migrateNav(null, { tab: "warm", platform: "tiktok", toolId: "tt-comments" });
+    const out = migrateNav(null, { tab: "research", platform: "tiktok", toolId: "tt-comments" });
     expect(out.platform).toBe("tiktok");
     expect(out.perPlatform).toEqual({ tiktok: { toolId: "tt-comments" } });
   });
   it("seeds pinterest from the legacy sw_nav2 value (sw_nav2 -> sw_nav3 migration)", () => {
-    const out = migrateNav(null, { tab: "warm", platform: "pinterest", toolId: "pin-board" });
+    const out = migrateNav(null, { tab: "research", platform: "pinterest", toolId: "pin-board" });
     expect(out.platform).toBe("pinterest");
     expect(out.perPlatform).toEqual({ pinterest: { toolId: "pin-board" } });
   });
@@ -137,6 +137,7 @@ describe("withTab", () => {
   });
 });
 
+// @private
 // ---- three top-level tabs: Pesquisa · Aquecer · Arquivo ----
 // "Aquecer" was promoted out of the platform workspace, so the workspace needed an
 // id of its own ("research"). "warm" keeps meaning the warmer — which is what an
@@ -165,6 +166,7 @@ describe("research tab", () => {
     expect(migrateNav(null, { tab: "library" }).tab).toBe("library");
   });
 });
+// @end-private
 
 
 describe("spy tab", () => {

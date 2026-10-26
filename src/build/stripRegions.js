@@ -12,14 +12,16 @@
 // The public build (PUBLIC=1) drops @private regions; the private build drops
 // @public ones. scripts/export-public.mjs runs the same function over the files it
 // exports, so the public repo and the public dist cannot disagree.
-// Dropped lines become empty lines, so line numbers (and stack traces) still match.
+// In a build, dropped lines become empty lines, so line numbers (and stack traces)
+// still match; the export removes them (`blank: false`).
 
 const MARKER = /^\s*(?:\/\/|\/\*|\{\/\*)\s*@(end-)?(private|public)\s*(?:\*\/\}?)?\s*$/;
 
 /** `drop` is the variant whose regions go: "private" for the public build. */
-export function stripRegions(code, drop, file = "") {
+export function stripRegions(code, drop, file = "", { blank = true } = {}) {
   if (!/@(end-)?(private|public)/.test(code)) return code;
   const lines = code.split("\n");
+  const gone = new Set();
   let open = null; // { kind, line }
   for (let i = 0; i < lines.length; i++) {
     const m = MARKER.exec(lines[i]);
@@ -32,13 +34,14 @@ export function stripRegions(code, drop, file = "") {
         if (!open || open.kind !== kind) throw new Error(`${file}:${i + 1}: @end-${kind} without @${kind}`);
         open = null;
       }
-      lines[i] = "";
+      gone.add(i);
       continue;
     }
-    if (open && open.kind === drop) lines[i] = "";
+    if (open && open.kind === drop) gone.add(i);
   }
   if (open) throw new Error(`${file}:${open.line}: @${open.kind} never closed`);
-  return lines.join("\n");
+  if (blank) return lines.map((l, i) => (gone.has(i) ? "" : l)).join("\n");
+  return lines.filter((_, i) => !gone.has(i)).join("\n");
 }
 
 const SOURCE = /\.(m?js|jsx|ts|tsx)$/;

@@ -5,10 +5,15 @@
 export const filterToolsForPlatform = (tools, platform) =>
   tools.filter((t) => t.platforms !== "global" && t.platforms.includes(platform));
 
+// @private
 // The warmer is its own top-level tab (Aquecer), so the platform workspace
 // (Pesquisa) must not list it as a sub-tool — while the registry keeps carrying it,
 // because the Aquecer tab renders it and the platform picker still names it in the
 // per-platform blurb.
 export const WORKSPACE_EXCLUDED = ["warm"];
+// @end-private
+// @public
+export const WORKSPACE_EXCLUDED = [];
+// @end-public
 export const workspaceToolsForPlatform = (tools, platform) =>
   filterToolsForPlatform(tools, platform).filter((t) => !WORKSPACE_EXCLUDED.includes(t.id));

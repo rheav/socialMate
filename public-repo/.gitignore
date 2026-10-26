@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.env
+.env.*
+*.zip
+# Fetched by `npm run setup` (scripts/fetch-assets.mjs), not versioned.
+public/models/
+public/ffmpeg/
+public/assets/ort-wasm-*
