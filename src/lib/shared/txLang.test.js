@@ -44,19 +44,22 @@ beforeEach(() => {
 });
 
 describe("page language control", () => {
-  it("accepts only the two product values, legacy pt included", () => {
+  it("accepts only the product values, legacy pt included", () => {
     expect(normTxLang("en")).toBe("en");
     expect(normTxLang("EN")).toBe("en");
     expect(normTxLang("pt")).toBe("br");
     expect(normTxLang("br")).toBe("br");
-    expect(normTxLang("es")).toBe("en");
+    expect(normTxLang("es")).toBe("es");
+    expect(normTxLang("ES")).toBe("es");
+    expect(txLangInfo("es").label).toBe("Español");
+    expect(normTxLang("fr")).toBe("en");
     expect(normTxLang()).toBe("en");
     expect(txLangInfo("pt").short).toBe("BR");
     expect(txLangInfo("en").label).toBe("English");
     expect(normTxLang("auto")).toBe("auto");
     expect(normTxLang("AUTO")).toBe("auto");
     expect(txLangInfo("auto").short).toBe("AUTO");
-    expect(TX_LANG_OPTIONS.map((o) => o.value)).toEqual(["br", "en", "auto"]);
+    expect(TX_LANG_OPTIONS.map((o) => o.value)).toEqual(["br", "en", "es", "auto"]);
   });
 
   // The numbers here are Facebook's, unchanged: the rail sits on the video's left
@@ -69,7 +72,7 @@ describe("page language control", () => {
     expect(txLangMenuPos({ left: 7, right: 43, top: 120 }, view)).toEqual({ top: 120, left: 49 });
     // Never off-screen, in either axis.
     // Three items tall now (BR / EN / Auto), so it stops 126px above the bottom.
-    expect(txLangMenuPos({ left: 1190, right: 1226, top: 880 }, view)).toEqual({ top: 774, left: 1068 });
+    expect(txLangMenuPos({ left: 1190, right: 1226, top: 880 }, view)).toEqual({ top: 740, left: 1068 });
     expect(txLangMenuPos({ left: 140, right: 176, top: -50 }, view)).toEqual({ top: 8, left: 38 });
   });
 
@@ -107,7 +110,7 @@ describe("page language control", () => {
     const picked = [];
     openTxLangMenu(tx, (lang) => picked.push(lang));
     const menu = document.querySelector(".fbw-lang-menu");
-    expect([...menu.querySelectorAll("button")].map((x) => x.textContent)).toEqual(["Português", "English", "Automático"]);
+    expect([...menu.querySelectorAll("button")].map((x) => x.textContent)).toEqual(["Português", "English", "Español", "Automático"]);
     [...menu.querySelectorAll("button")].find((x) => x.textContent === "English").click();
     await new Promise((r) => setTimeout(r, 0));
     expect(picked).toEqual(["en"]);

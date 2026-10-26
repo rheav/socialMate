@@ -8,29 +8,33 @@ export const DEFAULT_TRANSCRIPT_LANGUAGE = TX_LANG_DEFAULT;
 const LABELS = {
   br: "Português",
   en: "English",
+  es: "Español",
   auto: "Automático",
 };
 
 const SHORT = {
   br: "BR",
   en: "EN",
+  es: "ES",
   auto: "AUTO",
 };
 
-// A PICK: br, en or auto. What a job runs in is always br or en — "auto" is
+// A PICK: br, en, es or auto. What a job runs in is br, en or es — "auto" is
 // resolved from the caption first (lib/captionLanguage.js, background only).
 export function normalizeTranscriptLanguage(value) {
   const lang = String(value || "").trim().toLowerCase();
   if (lang === "en") return "en";
   if (lang === "br" || lang === "pt") return "br";
+  if (lang === "es") return "es";
   if (lang === "auto") return "auto";
   return DEFAULT_TRANSCRIPT_LANGUAGE;
 }
 
-// Whisper's token. Anything but Portuguese — including an "auto" that reached
-// here unresolved — decodes as English, the default.
+// Whisper's token. Anything but Portuguese or Spanish — including an "auto" that
+// reached here unresolved — decodes as English, the default.
 export function whisperTranscriptLanguage(value) {
-  return normalizeTranscriptLanguage(value) === "br" ? "pt" : "en";
+  const lang = normalizeTranscriptLanguage(value);
+  return lang === "br" ? "pt" : lang === "es" ? "es" : "en";
 }
 
 export function transcriptLanguageLabel(value) {
@@ -53,11 +57,12 @@ export function recordedTranscriptLanguageShort(value) {
   const lang = String(value || "").trim().toLowerCase();
   if (lang === "en") return SHORT.en;
   if (lang === "br" || lang === "pt") return SHORT.br;
+  if (lang === "es") return SHORT.es;
   return null;
 }
 
-// The language of a CAPTION track we transcribed from, as our br/en value — or
-// null when it is neither (or absent).
+// The language of a CAPTION track we transcribed from, as our br/en/es value — or
+// null when it is none of them (or absent).
 //
 // A caption-sourced transcript is TikTok's own subtitle file, named by
 // `subtitleInfos[].LanguageCodeName` ("eng-US", "por-BR", "ind-ID"). Whisper never
@@ -68,6 +73,7 @@ export function captionTrackLanguage(code) {
   const c = String(code || "").trim().toLowerCase();
   if (/^(en|eng|english)\b/.test(c) || /^(en|eng)[-_]/.test(c)) return "en";
   if (/^(pt|por|portug)/.test(c)) return "br";
+  if (/^(es|spa)([-_]|$)/.test(c) || /^(spanish|espa)/.test(c)) return "es"; // not "est" (Estonian)
   return null;
 }
 

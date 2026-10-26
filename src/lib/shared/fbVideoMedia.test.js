@@ -77,6 +77,7 @@ describe("Facebook search media", () => {
     expect(fbCaptionFor(rec, "br")).toMatchObject({ url: cdn("pt.srt"), lang: "pt_BR" });
     expect(fbCaptionFor(rec, "en")).toMatchObject({ url: cdn("en.srt") });
     expect(fbCaptionFor({ ...rec, captions: rec.captions.slice(0, 1) }, "en")).toBeNull();
+    expect(fbCaptionFor(rec, "es")).toBeNull();
     expect(fbCaptionFor(rec, "auto")).toBeNull();
   });
   it("enables search feeds without decorating people, groups or home", () => {

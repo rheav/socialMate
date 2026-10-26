@@ -9,9 +9,9 @@ const manifest = {
   short_name: "socialMate",
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
-  version: "1.17.2",
+  version: "1.18.0",
   version_name:
-    "1.17.2 — Hub: a extensão reconecta logo depois que o Mac acorda",
+    "1.18.0 — Transcrição em espanhol",
   icons: {
     16: "icons/icon-16.png",
     32: "icons/icon-32.png",

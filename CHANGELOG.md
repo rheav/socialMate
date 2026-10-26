@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.18.0] — 2026-10-26
+
+### Added
+- **Spanish transcription.** The language picker (page menus, Arquivo, Opções) has a fourth option, **ES / Español**, between EN and AUTO. Whisper gets the `es` token; Facebook picks its Spanish caption track when there is one; TikTok tracks named `spa`/`es` and transcripts made in ES get the "ES" badge. Automático is unchanged (still decides between EN and PT only). Verified live 2026-10-26 in the real install: one synthetic Spanish clip through the offscreen Whisper came out in Spanish with `es` and as mangled English with `en`. `src/lib/shared/txLang.js` (regenerated inline into the content scripts), `src/lib/transcriptionLanguage.js`, `src/lib/shared/fbVideoMedia.js`.
+
 ## [1.17.2] — 2026-10-25
 
 ### Fixed

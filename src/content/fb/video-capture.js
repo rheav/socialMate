@@ -124,7 +124,7 @@ function matchFbVideo(records, hint = {}) {
 function fbCaptionFor(record, language) {
   // Auto is resolved by Whisper from the post text. Do not silently substitute
   // a translated or unknown-language caption when the user chose Auto/BR/EN.
-  const lang = language === "br" || language === "pt" ? "pt" : language === "en" ? "en" : null;
+  const lang = language === "br" || language === "pt" ? "pt" : language === "en" || language === "es" ? language : null;
   return lang ? record?.captions?.find(c => c.lang.split(/[-_]/)[0].toLowerCase() === lang) || null : null;
 }
 // >>> inline:end

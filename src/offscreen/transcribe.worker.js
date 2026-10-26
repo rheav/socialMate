@@ -78,7 +78,7 @@ self.onmessage = async (e) => {
       // anything out of range, means no penalty at all.
       if (Number.isFinite(repetitionPenalty) && repetitionPenalty > 1 && repetitionPenalty <= 2)
         opts.repetition_penalty = repetitionPenalty;
-      // Always pass "pt" or "en". Transformers.js currently defaults omitted
+      // Always pass "pt", "en" or "es". Transformers.js currently defaults omitted
       // multilingual Whisper language to English instead of auto-detecting.
       if (language) opts.language = language;
       // Real inference progress, no library patching: the pipeline spreads its

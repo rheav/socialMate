@@ -161,7 +161,7 @@ describe("offscreen transcription requests", () => {
   });
 
   it("defaults invalid or missing language to English", () => {
-    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "es").language).toBe("en");
+    expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "fr").language).toBe("en");
     expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4").language).toBe("en");
     expect(offscreenTranscribeMessage("123", "https://cdn/audio.mp4", "br").language).toBe("pt");
   });

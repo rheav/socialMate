@@ -22,7 +22,7 @@ describe("transcription language", () => {
     expect(normalizeTranscriptLanguage()).toBe("en");
     expect(normalizeTranscriptLanguage(null)).toBe("en");
     expect(normalizeTranscriptLanguage("")).toBe("en");
-    expect(normalizeTranscriptLanguage("es")).toBe("en");
+    expect(normalizeTranscriptLanguage("fr")).toBe("en");
   });
 
   // The page scripts carry their own inlined copy of the default; the panel's is
@@ -57,6 +57,7 @@ describe("transcription language", () => {
     expect(whisperTranscriptLanguage("br")).toBe("pt");
     expect(whisperTranscriptLanguage("pt")).toBe("pt");
     expect(whisperTranscriptLanguage("en")).toBe("en");
+    expect(whisperTranscriptLanguage("es")).toBe("es");
     expect(whisperTranscriptLanguage("bad")).toBe("en");
   });
 
@@ -68,6 +69,8 @@ describe("transcription language", () => {
     expect(transcriptLanguageShort("br")).toBe("BR");
     expect(transcriptLanguageShort("pt")).toBe("BR");
     expect(transcriptLanguageShort("en")).toBe("EN");
+    expect(transcriptLanguageLabel("es")).toBe("Español");
+    expect(transcriptLanguageShort("es")).toBe("ES");
     expect(transcriptLanguageShort("bad")).toBe("EN");
   });
 
@@ -82,7 +85,8 @@ describe("transcription language", () => {
     expect(recordedTranscriptLanguageShort(undefined)).toBe(null);
     expect(recordedTranscriptLanguageShort(null)).toBe(null);
     expect(recordedTranscriptLanguageShort("")).toBe(null);
-    expect(recordedTranscriptLanguageShort("es")).toBe(null);
+    expect(recordedTranscriptLanguageShort("es")).toBe("ES");
+    expect(recordedTranscriptLanguageShort("fr")).toBe(null);
   });
 
   // A caption-sourced transcript is TikTok's own subtitle track. Its language is
@@ -101,7 +105,10 @@ describe("transcription language", () => {
     expect(captionTrackLanguage("pt")).toBe("br");
     // Languages the Library cannot label, and no track at all.
     expect(captionTrackLanguage("ind-ID")).toBe(null);
-    expect(captionTrackLanguage("spa")).toBe(null);
+    expect(captionTrackLanguage("spa")).toBe("es");
+    expect(captionTrackLanguage("spa-ES")).toBe("es");
+    expect(captionTrackLanguage("es_LA")).toBe("es");
+    expect(captionTrackLanguage("est-EE")).toBe(null);
     expect(captionTrackLanguage("")).toBe(null);
     expect(captionTrackLanguage(null)).toBe(null);
     expect(captionTrackLanguage(undefined)).toBe(null);
@@ -121,7 +128,7 @@ describe("transcription language", () => {
     expect(await writeStoredTranscriptLanguage("en", storage)).toBe("en");
     expect(data.fbw_transcript_language).toBe("en");
     expect(await readStoredTranscriptLanguage(storage)).toBe("en");
-    expect(await writeStoredTranscriptLanguage("es", storage)).toBe("en");
+    expect(await writeStoredTranscriptLanguage("fr", storage)).toBe("en");
     expect(data.fbw_transcript_language).toBe("en");
     data.fbw_transcript_language = "pt";
     expect(await readStoredTranscriptLanguage(storage)).toBe("br");
