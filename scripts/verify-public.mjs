@@ -3,7 +3,8 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const ROOT = new URL("../dist-public/", import.meta.url).pathname;
+// A build folder may be passed (the exported tree's dist/); dist-public/ otherwise.
+const ROOT = process.argv[2] ? `${process.argv[2].replace(/\/$/, "")}/` : new URL("../dist-public/", import.meta.url).pathname;
 const TEXT = /\.(js|mjs|html|json|css)$/;
 const FORBIDDEN = [
   // hub

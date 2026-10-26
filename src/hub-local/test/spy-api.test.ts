@@ -382,16 +382,6 @@ describe("spy input limits", () => {
       card = (await request(app.app).get("/api/spy/profiles")).body.profiles[0];
       expect(card.externalUrl).toBe("https://nasa.gov");
 
-      // Local: the Arquivo (acervo) sync below is hub-only.
-      return;
-      await request(app.app).post("/api/sync").set("X-Sync-Token", "t").send({ saved: [
-        { platform: "instagram", videoId: "1", sourceUrl: "javascript:alert(1)", author: { name: "a", url: "/nasa/" } },
-        { platform: "tiktok", videoId: "2", sourceUrl: "https://tiktok.com/@a/video/2", author: { name: "b", url: "data:text/html,x" } },
-      ] });
-      const items = (await request(app.app).get("/api/social/saved")).body.items as { videoId: string; sourceUrl: string | null; author: { url: string | null } }[];
-      const byId = Object.fromEntries(items.map((i) => [i.videoId, i]));
-      expect(byId["1"]).toMatchObject({ sourceUrl: null, author: { url: "/nasa/" } });
-      expect(byId["2"]).toMatchObject({ sourceUrl: "https://tiktok.com/@a/video/2", author: { url: null } });
     } finally {
       app.database.close();
       rmSync(dir2, { recursive: true, force: true });

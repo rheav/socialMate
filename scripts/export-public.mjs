@@ -17,7 +17,7 @@ const OUT = resolve(process.argv[2] || join(REPO, "../socialmate-public"));
 
 // Repo paths that go out (prefix match), then the ones that stay home.
 const INCLUDE = [
-  "index.html", "jsconfig.json", "manifest.config.js", "package.json", "package-lock.json",
+  "index.html", "dashboard.html", "jsconfig.json", "manifest.config.js", "package.json", "package-lock.json",
   "vite.config.js", "vitest.config.js",
   "src/", "public/icon.svg", "public/icons/",
   "scripts/gen-inline.mjs", "scripts/gen-icons.mjs", "scripts/fetch-assets.mjs",
@@ -36,6 +36,8 @@ const PRIVATE_FILES = [
   "src/background/igExport.js", "src/background/igExport.test.js",
   "src/lib/igOutbox.js", "src/lib/igOutbox.test.js", "src/lib/igPresence.js", "src/lib/igPresence.test.js",
   "src/lib/igDestinations.js", "src/lib/igExportFormat.js", "src/lib/igExportFormat.test.js", "src/lib/useIgDestinations.js",
+  // The Spy's collection tested against a mocked hub server (the public build answers in process; see src/hub-local/test/).
+  "src/background.spy.test.js", "src/background/spyStories.test.js",
 ];
 // The repo's own leak check and this script are about the private repo.
 const PRIVATE_PREFIXES = ["scripts/verify-public.mjs", "scripts/export-public.mjs"];
@@ -48,7 +50,8 @@ const SCRUB = [
   ["iniciar o aquecimento", "iniciar a coleta"],
   ["ivymoontarot7", "creator_beta7"],
   ["veloria691", "creator001"],
-  ["solomonaldric", "creatorsample"],
+  ["Veloria691", "Creator001"],
+  ["solomonaldric", "samplecreator"],
   ["claire_mayaus", "creator_alpha"],
   ["melanie.may.528", "creator.one.528"],
   ["100092403319843", "100000000000042"],
@@ -58,8 +61,8 @@ const SCRUB = [
 // Strings that must not appear anywhere in the exported tree.
 const LEAKS = [
   /rheav/i, /X-Sync-Token/, /\/api\/sync/, /ingest\/socialmate/, /extension-relay/, /localhost:3001/,
-  /FBW_START\b/, /FBW_RELEVANCE/, /fbw_session/, /Aquecer/, /aquecedor/i, /aquecimento/i,
-  ...SCRUB.map(([real]) => new RegExp(real.replace(/[.]/g, "\\."))),
+  /~\/Code/, /FBW_START\b/, /FBW_RELEVANCE/, /fbw_session/, /Aquecer/, /aquecedor/i, /aquecimento/i,
+  ...SCRUB.map(([real]) => new RegExp(real.replace(/[.]/g, "\\."), "i")),
 ];
 
 const TEXT = /\.(m?js|jsx|ts|tsx|json|html|css|md)$/;
@@ -87,6 +90,13 @@ for (const f of files) {
   }
   let text = stripRegions(readFileSync(join(REPO, f), "utf8"), "private", f, { blank: false });
   for (const [real, fake] of SCRUB) text = text.replaceAll(real, fake);
+  // The ported hub tests (src/hub-local/test/) speak the hub's sync API to a local stand-in.
+  text = text.replace(/\.set\(\s*"X-Sync-Token"\s*,[^)]*\)/g, "").replaceAll("X-Sync-Token", "token header").replaceAll("/api/sync/", "/local/sync/");
+  // Comments that point into the owner's machine.
+  text = text
+    .replaceAll("~/Code/apps/socialmate-hub/", "the socialMate hub's ")
+    .replaceAll("~/Code/apps/socialmate-hub", "the socialMate hub")
+    .replaceAll("~/Code/libs/nord-theme", "the Nord theme library");
   if (CONFIGS.includes(f)) text = text.replaceAll('process.env.PUBLIC === "1"', "true").replaceAll('"dist-public', '"dist');
   writeFileSync(dest, text);
 }

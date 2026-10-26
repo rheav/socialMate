@@ -14,7 +14,12 @@ describe("profileStatus", () => {
   });
   it("shows a save the hub has not confirmed yet", () => {
     const queue = { ops: [{ op: "save", id: fb.id, at: now }] };
+    // @private
     expect(profileStatus(fb, { state: day, queue, now })).toMatchObject({ kind: "local", text: "salvo localmente · aguardando envio ao hub" });
+    // @end-private
+    // @public
+    expect(profileStatus(fb, { state: day, queue, now })).toMatchObject({ kind: "local", text: "salvo · gravando…" });
+    // @end-public
   });
   it("names when a paused platform resumes", () => {
     const until = now + 3 * hour;

@@ -140,6 +140,7 @@ describe("the week's numbers for the top 3", () => {
   });
 });
 
+// @private
 const exportSource = bridge.match(/^function igExportMessages\([^)]*\) \{[\s\S]*?\n\}/m)[0];
 const igExportMessages = new Function(`${exportSource}; return igExportMessages;`)();
 
@@ -172,6 +173,7 @@ describe("research export messages", () => {
     expect(msgs.map((m) => m.posts.length)).toEqual([500, 500, 200]);
   });
 });
+// @end-private
 
 const collectSource = bridge.match(/^async function igAnalysisCollect\([^)]*\) \{[\s\S]*?\n\}/m)[0];
 const metaSource = bridge.match(/^function igTranscriptMeta\([^)]*\) \{[\s\S]*?\n\}/m)[0];

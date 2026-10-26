@@ -42,7 +42,12 @@ describe("Spy measurement messages", () => {
     const button = box.querySelector("button");
     expect(button.textContent).toBe("medindo…");
     expect(button.disabled).toBe(true);
+    // @private
     expect(box.textContent).toContain("Hub: sincronizado com o hub");
+    // @end-private
+    // @public
+    expect(box.textContent).toContain("As medições ficam só neste navegador.");
+    // @end-public
   });
 
   it("lists the activity log newest first", () => {

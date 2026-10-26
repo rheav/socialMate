@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HUB_BTN_ID, flashHubButtonTip, syncHubButton } from "./igHubButton.js";
+import { HUB_BTN_ID, HUB_BTN_TIPS, flashHubButtonTip, syncHubButton } from "./igHubButton.js";
 
 // The profile header as measured on 2026-10-22: username row, then the "…".
 const HEADER = `<header><section><div><div>
@@ -21,7 +21,7 @@ describe("syncHubButton", () => {
     expect(btn.previousElementSibling.className).toBe("opt");
     syncHubButton(document, { key: "nasa", state: "idle", onClick() {} });
     expect(document.querySelectorAll(`#${HUB_BTN_ID}`)).toHaveLength(1);
-    expect(btn.dataset.tip).toBe("Trackear no Hub");
+    expect(btn.dataset.tip).toBe(HUB_BTN_TIPS.idle);
   });
 
   it("marks a tracked profile through its state, keeping one mark", () => {
@@ -31,7 +31,7 @@ describe("syncHubButton", () => {
     expect(btn.dataset.state).toBe("tracked");
     expect(btn.querySelectorAll("svg")).toHaveLength(1);
     expect(btn.querySelector(".fbw-hub-dot")).not.toBeNull();
-    expect(btn.getAttribute("aria-label")).toBe("Trackeado no Hub");
+    expect(btn.getAttribute("aria-label")).toBe(HUB_BTN_TIPS.tracked);
   });
 
   it("moves back after the options button when Instagram re-renders the row", () => {
@@ -70,9 +70,9 @@ describe("syncHubButton", () => {
     vi.useFakeTimers();
     document.body.innerHTML = HEADER;
     const btn = syncHubButton(document, { key: "nasa", state: "tracked", onClick() {} });
-    flashHubButtonTip(btn, "Já trackeado no Hub");
-    expect(btn.dataset.tip).toBe("Já trackeado no Hub");
+    flashHubButtonTip(btn, HUB_BTN_TIPS.already);
+    expect(btn.dataset.tip).toBe(HUB_BTN_TIPS.already);
     vi.advanceTimersByTime(2100);
-    expect(btn.dataset.tip).toBe("Trackeado no Hub");
+    expect(btn.dataset.tip).toBe(HUB_BTN_TIPS.tracked);
   });
 });

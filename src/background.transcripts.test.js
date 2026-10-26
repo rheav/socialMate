@@ -48,7 +48,7 @@ function chromeStub() {
   return stub;
 }
 
-let putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis;
+let putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis; // the last: private build only
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
@@ -152,6 +152,7 @@ describe("orphaned jobs after a worker restart", () => {
   });
 });
 
+// @private
 describe("the analysis' transcription", () => {
   // Before 1.14.1 the analysis' collection filed transcripts with no author,
   // picture, numbers or date. One already done is completed, never redone.
@@ -163,3 +164,4 @@ describe("the analysis' transcription", () => {
     expect(transcripts().DegENSFMsUy).toMatchObject({ status: "done", author: { name: "claire_mayaus", url: "/claire_mayaus/" }, counts: { like: 42238, views: 1094798 }, takenAt: 1792037451 });
   });
 });
+// @end-private
