@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "../theme/nord.css";
+@import "./effects.css";
+
+/* Dark is the default here, so `.light` is the opt-in class — the inverse of
+   shadcn's `.dark`. This is the same palette the socialMate side panel and the
+   gestao app use (Nord with the aurora turned up): the dashboard is the same
+   product seen on a bigger screen, and two different blues would say otherwise.
+   The palette itself lives in `theme/nord.css`, a copy from ~/Code/libs/nord-theme:
+   change it there and run the sync. */
+@custom-variant light (&:where(.light, .light *));
+@custom-variant dark (&:where(:root:not(.light), :root:not(.light) *));
+
+/* This app only; the rest of the theme comes from `theme/nord.css`. */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  /* Tailwind's own steps above lg, not the shared ×1.4/×1.8 scale. */
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+}
+
+@theme {
+  --radius-card: 1rem;
+  /* The same curve the JS motion tokens use, so CSS transitions and Motion
+     animations move alike. */
+  --sw-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Page width (`max-w-wide`): wide enough for a big monitor to fill with
+     cards, capped so an ultrawide does not stretch one row across 5000px. */
+  --container-wide: 160rem;
+}
+
+:root {
+  color-scheme: dark;
+  /* The header's row. The Inteligência column sticks right under it. */
+  --header-h: 4.0625rem;
+  /* Spy hours map: four steps of the accent over the card, light to dark. Each
+     theme has its own mix, checked with the dataviz validator (one hue, visible
+     steps, the faintest still 2:1 against the card). */
+  --heat-1: color-mix(in srgb, var(--primary) 35%, var(--card));
+  --heat-2: color-mix(in srgb, var(--primary) 57%, var(--card));
+  --heat-3: color-mix(in srgb, var(--primary) 78%, var(--card));
+  --heat-4: var(--primary);
+}
+
+:root.light {
+  color-scheme: light;
+  --heat-1: color-mix(in srgb, var(--primary) 50%, var(--card));
+  --heat-2: color-mix(in srgb, var(--primary) 67%, var(--card));
+  --heat-3: color-mix(in srgb, var(--primary) 83%, var(--card));
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A card grid with as many columns as fit, each at least --card-min wide
+   (--card-min-sm on a phone), sharing what is left over. `auto-fill` keeps the
+   empty tracks, so three cards on a wide screen stay card-sized instead of
+   stretching to a third of it. The `min(…, 100%)` keeps one card from
+   overflowing a screen narrower than the minimum. */
+.card-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min-sm, var(--card-min)), 100%), 1fr));
+}
+
+@media (width >= 40rem) {
+  .card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(var(--card-min), 100%), 1fr));
+  }
+}
+
+/* The analysis button at the top: sky→green, glowing. It pulses while there is
+   no analysis today and glows steady once today's is ready. Approved look:
+   docs/superpowers/specs/2026-10-17-analysis-journey/idle-and-reader.html. */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 15px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--color-onaccent);
+  background: linear-gradient(120deg, var(--color-sky), var(--color-good));
+  background-size: 160% 160%;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s;
+}
+.cta:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.cta:focus-visible { outline: 2px solid var(--foreground); outline-offset: 3px; }
+.cta:disabled { cursor: default; filter: saturate(0.7); }
+/* Until today's analysis exists, a sweep of light crosses the button (a
+   transform, composited: no repaint); once it exists, a steady glow and
+   nothing moving. The old pulse animated box-shadow and background-position
+   on every frame of an idle screen. */
+.cta { position: relative; overflow: hidden; }
+.cta-pulse::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: cta-sweep 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  pointer-events: none;
+}
+.cta-pulse { box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-sky) 55%, transparent), 0 0 18px 2px color-mix(in oklab, var(--color-good) 35%, transparent); }
+.cta-steady {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-sky) 55%, transparent), 0 0 18px 2px color-mix(in oklab, var(--color-sky) 30%, transparent);
+}
+@keyframes cta-sweep { 60%, 100% { transform: translateX(120%); } }
+@media (prefers-reduced-motion: reduce) {
+  .cta-pulse, .cta-steady { animation: none; }
+}
+
+/* The report's side panel slides in once when it opens. */
+.report-peek { animation: report-peek-in 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes report-peek-in { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .report-peek { animation: none; }
+}

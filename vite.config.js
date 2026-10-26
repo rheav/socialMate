@@ -30,7 +30,11 @@ export default defineConfig({
     outDir: PUBLIC ? "dist-public" : "dist",
     rollupOptions: {
       // Extra HTML entry for the offscreen document (loaded via chrome.offscreen).
-      input: { offscreen: path.resolve(__dirname, "src/offscreen/offscreen.html") },
+      input: {
+        offscreen: path.resolve(__dirname, "src/offscreen/offscreen.html"),
+        // The Spy dashboard reads the local hub, which only the public build has.
+        ...(PUBLIC ? { dashboard: path.resolve(__dirname, "dashboard.html") } : {}),
+      },
     },
   },
   server: {

@@ -1,0 +1,284 @@
+/* Stories section: layout and effects, CSS only. Colours come from the theme
+   tokens in nord.css; nothing here depends on the motion library. Every
+   animation either runs once (entrance) or only on a state (hover, new); the
+   last block turns them all off under prefers-reduced-motion. */
+
+.sm-stories { --sm-poster-w: 144px; --sm-ease: cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ---- effects ---- */
+@keyframes sm-blurfade {
+  from { opacity: 0; filter: blur(6px); transform: translateY(8px); }
+  to { opacity: 1; filter: blur(0); transform: none; }
+}
+/* Entrance, once, staggered by --i (capped so a long row does not wait). */
+.sm-deck, .sm-row .sm-story, .sm-expanded {
+  animation: sm-blurfade 0.55s var(--sm-ease) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 60ms);
+}
+.sm-deck { transition: border-color 0.25s; }
+.sm-deck:hover { border-color: color-mix(in oklab, var(--primary) 40%, transparent); }
+/* The fan opens on hover. */
+.sm-stack .sm-story { transition: transform 0.45s var(--sm-ease); }
+.sm-deck:hover .sm-stack .sm-story:nth-last-child(3) { transform: translateX(-50%) rotate(-16deg) translateY(10px) translateX(-34px); }
+.sm-deck:hover .sm-stack .sm-story:nth-last-child(2) { transform: translateX(-50%) rotate(14deg) translateY(8px) translateX(34px); }
+.sm-deck:hover .sm-stack .sm-story:nth-last-child(1) { transform: translateX(-50%) translateY(-6px); }
+.sm-acc { transition: transform 0.3s var(--sm-ease); }
+.sm-acc:hover { transform: translateY(-5px) scale(1.08); }
+.sm-story { transition: transform 0.2s var(--sm-ease); }
+.sm-row .sm-story:hover { transform: translateY(-3px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sm-stories *, .sm-stories *::before, .sm-stories *::after { animation: none !important; transition: none !important; }
+  .sm-deck:hover .sm-stack .sm-story { transform: translateX(-50%) rotate(var(--r, 0deg)) translateY(var(--y, 0)); }
+}
+
+/* ---- avatars ---- */
+.sm-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  object-fit: cover;
+  background: var(--secondary);
+  color: var(--foreground);
+  font-weight: 700;
+  font-size: 13px;
+  flex: none;
+}
+.sm-avatar[data-initial]::before { content: attr(data-initial); }
+.sm-avatar-all { color: var(--muted-foreground); }
+
+/* ---- tray ---- */
+.sm-tray {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  overflow-x: auto;
+  padding: 6px 4px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sm-acc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 66px;
+  flex: none;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 11px;
+}
+.sm-acc.on { color: var(--foreground); font-weight: 600; }
+.sm-acc-name { max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 9999px;
+  background: conic-gradient(var(--color-amber) 0 calc(var(--seg, 0) * 1%), var(--secondary) calc(var(--seg, 0) * 1%) 100%);
+}
+.sm-ring::after { content: ""; position: absolute; inset: 3px; border-radius: 9999px; background: var(--background); }
+.sm-ring .sm-avatar { position: relative; z-index: 1; width: 42px; height: 42px; }
+.sm-acc.on .sm-ring { box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary); }
+.sm-ring[data-new]::before {
+  content: attr(data-new);
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 9999px;
+  background: var(--color-amber);
+  color: var(--color-onaccent);
+}
+
+/* ---- toolbar ---- */
+.sm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 18px; font-size: 13px; color: var(--muted-foreground); }
+.sm-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sm-chip.on { border-color: var(--primary); color: var(--foreground); }
+.sm-summary { margin-left: auto; }
+.sm-collect {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--primary);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sm-collect:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- story card ---- */
+.sm-story {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border: 0;
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--secondary);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  color: var(--foreground);
+  font: inherit;
+}
+.sm-story img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.sm-story-play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 26px; color: rgba(236, 239, 244, 0.85); }
+.sm-story-time, .sm-story-dur, .sm-story-meta > span, .sm-story-who {
+  font-size: 10.5px;
+  line-height: 1.2;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: rgba(17, 20, 28, 0.65);
+  color: #eceff4;
+}
+.sm-story-time { position: absolute; top: 8px; left: 8px; color: var(--muted-foreground); }
+.sm-story-dur { position: absolute; top: 30px; left: 8px; }
+/* The star sits where the duration used to be; a favourite is never pruned. */
+.sm-star {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(17, 20, 28, 0.65);
+  color: #eceff4;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.sm-star:hover, .sm-star[aria-pressed="true"] { opacity: 1; }
+.sm-star[aria-pressed="true"] { color: var(--color-amber); }
+.sm-story[data-starred="true"] { box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-amber) 70%, transparent), 0 6px 18px rgba(0, 0, 0, 0.25); }
+.sm-viewer-star.on { color: var(--color-amber); }
+.sm-bar-dim { opacity: 0.45; }
+
+/* "Trackear stories" in the profile sheet: a pill that fills when it is on. */
+.sm-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--primary);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s var(--sm-ease), color 0.3s var(--sm-ease), padding 0.3s var(--sm-ease);
+}
+.sm-track.on { background: var(--primary); color: var(--color-onaccent); padding-left: 12px; }
+.sm-track:disabled { opacity: 0.6; cursor: wait; }
+.sm-story-who { position: absolute; top: 32px; left: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-story-meta { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 5px; flex-wrap: wrap; }
+
+/* ---- decks ---- */
+.sm-decks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 22px; }
+.sm-deck {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  padding: 16px 16px 14px;
+  cursor: pointer;
+  overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 260px;
+}
+.sm-deck.open { border-color: var(--primary); }
+.sm-deck-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.sm-deck-name { font-weight: 600; font-size: 14px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-deck-when { color: var(--muted-foreground); font-size: 12px; }
+.sm-deck-count { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--color-amber); font-variant-numeric: tabular-nums; }
+.sm-stack { position: relative; height: 180px; }
+.sm-stack .sm-story { position: absolute; left: 50%; top: 0; width: 100px; transform: translateX(-50%) rotate(var(--r, 0deg)) translateY(var(--y, 0)); transform-origin: 50% 120%; }
+.sm-stack .sm-story:nth-last-child(3) { --r: -8deg; --y: 6px; z-index: 1; opacity: 0.75; }
+.sm-stack .sm-story:nth-last-child(2) { --r: 4deg; --y: 3px; z-index: 2; opacity: 0.9; }
+.sm-stack .sm-story:nth-last-child(1) { --r: 0deg; --y: 0; z-index: 3; }
+
+.sm-expanded {
+  grid-column: 1 / -1;
+  border: 1px solid color-mix(in oklab, var(--primary) 40%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  padding: 16px 18px;
+}
+.sm-expanded-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; }
+.sm-expanded-head .sm-link { color: var(--primary); background: none; border: 0; padding: 0; font: inherit; font-size: 13px; cursor: pointer; }
+.sm-expanded-head .sm-link:hover { text-decoration: underline; }
+.sm-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--sm-poster-w), 1fr)); gap: 12px; }
+
+/* ---- focus (one account) ---- */
+.sm-focus-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.sm-focus-head .sm-avatar { width: 44px; height: 44px; }
+.sm-focus-name { font-weight: 650; font-size: 17px; }
+.sm-focus-when { color: var(--muted-foreground); font-size: 13px; }
+.sm-focus-tags { display: flex; gap: 4px; margin-top: 4px; }
+.sm-focus-tags span { font-size: 10.5px; padding: 1px 7px; border-radius: 9999px; background: var(--secondary); color: var(--muted-foreground); }
+.sm-focus-actions { margin-left: auto; display: flex; gap: 16px; }
+.sm-focus-actions a, .sm-focus-actions button { color: var(--primary); font-size: 13px; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.sm-focus-actions a:hover, .sm-focus-actions button:hover { text-decoration: underline; }
+.sm-daysep { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-foreground); margin: 18px 0 10px; }
+.sm-day { content-visibility: auto; contain-intrinsic-size: 0 300px; }
+.sm-empty { color: var(--muted-foreground); padding: 48px 0; text-align: center; font-size: 14px; }
+
+/* ---- viewer: the one place a story plays ---- */
+.sm-viewer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; }
+.sm-viewer-backdrop { position: absolute; inset: 0; border: 0; background: color-mix(in oklab, var(--color-scrim) 80%, transparent); cursor: default; }
+.sm-viewer-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(92vw, 560px);
+  max-height: 94vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  padding: 12px 14px 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+.sm-viewer-top { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.sm-viewer-title { font-weight: 650; font-size: 15px; }
+.sm-viewer-sub { color: var(--muted-foreground); }
+.sm-viewer-btn { margin-left: auto; align-self: center; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted-foreground); cursor: pointer; }
+.sm-viewer-btn:hover { background: var(--secondary); color: var(--foreground); }
+.sm-viewer-stage { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 6px; }
+.sm-viewer-media { display: block; width: 100%; max-height: calc(94vh - 130px); aspect-ratio: 9 / 16; object-fit: contain; border-radius: 12px; background: #000; }
+.sm-viewer-nav { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 9999px; background: var(--secondary); color: var(--foreground); cursor: pointer; }
+.sm-viewer-nav:disabled { opacity: 0.3; cursor: default; }
+.sm-viewer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; color: var(--muted-foreground); }
+.sm-viewer-meta a { color: var(--primary); }
+.sm-viewer-meta a:hover { text-decoration: underline; }

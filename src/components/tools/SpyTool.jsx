@@ -179,7 +179,22 @@ export default function SpyTool({ activeUrl = "" }) {
         </div>
       </section>}
       <section aria-label="Perfis salvos" className="space-y-2">
+        {/* @private */}
         <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfis salvos</h2>
+        {/* @end-private */}
+        {/* @public */}
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfis salvos</h2>
+          {/* The numbers, charts and top posts live on the dashboard page (src/dashboard/). */}
+          <button
+            type="button"
+            onClick={() => chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") })}
+            className="sw-hoverable inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink className="size-3" aria-hidden="true" /> Abrir painel
+          </button>
+        </div>
+        {/* @end-public */}
         {!ready ? <p className="text-xs text-muted-foreground">Carregando perfis…</p> : !profiles.length ?
           <p className="text-xs text-muted-foreground">Nenhum perfil salvo.</p> :
           <CollapsibleList count={profiles.length}>

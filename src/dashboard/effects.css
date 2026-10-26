@@ -1,0 +1,105 @@
+/* The panel's touches, CSS only (no motion library): each one either runs once
+   (an entrance) or exists only in a state that means something (a beam while an analysis runs, a shine while a search
+   is indexing, a pulse on a sharp drop). Nothing animates on an idle screen.
+   The last block turns them all off under prefers-reduced-motion.
+   Budget: memory `ui-lightness-ram`. */
+
+@keyframes fx-fade { from { opacity: 0; filter: blur(6px); transform: translateY(8px); } to { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes fx-shine { from { transform: translateX(-160%); } to { transform: translateX(560%); } }
+@keyframes fx-shine-back { from { transform: translateX(80%); } to { transform: translateX(-280%); } }
+@keyframes fx-sweep { 60%, 100% { transform: translateX(120%); } }
+@keyframes fx-ring { from { transform: scale(0.5); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+
+/* Entrance, once, staggered by --i and capped so a long grid does not wait. */
+.fx-fade { animation: fx-fade 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(min(var(--i, 0), 14) * 55ms); }
+
+/* A beam running along the border while something runs: Magic UI's Border Beam
+   (<BorderBeam>, src/components/ui/border-beam.tsx) inside a positioned host. */
+.fx-beam { position: relative; }
+
+/* Text with a light passing over it: the step in progress, a search indexing
+   (<ShinyText>). The text stays muted; a soft window with a bright copy slides
+   across while the copy slides back, so it stays under the text. Transform only. */
+.fx-shiny { position: relative; display: inline-block; color: var(--muted-foreground); }
+.fx-shiny-light {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+  overflow: hidden;
+  color: var(--foreground);
+  -webkit-mask: linear-gradient(90deg, transparent, #000, transparent);
+  mask: linear-gradient(90deg, transparent, #000, transparent);
+  animation: fx-shine 2.4s linear infinite;
+  pointer-events: none;
+  user-select: none;
+}
+.fx-shiny-light > span { position: absolute; top: 0; left: 0; width: 200%; animation: fx-shine-back 2.4s linear infinite; }
+.fx-shiny-light > span::before { content: attr(data-text); }
+
+/* A sweep of light over a button that still has something to do today. */
+.fx-shimmer { position: relative; overflow: hidden; }
+.fx-shimmer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: fx-sweep 2.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  pointer-events: none;
+}
+
+/* A small pulsing dot: an alert next to a number, not a button. */
+.fx-pulse { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--destructive); position: relative; margin-left: 6px; vertical-align: 1px; }
+.fx-pulse::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid var(--destructive); animation: fx-ring 1.6s ease-out infinite; }
+
+/* A soft dotted background behind an empty state. */
+.fx-dots { position: relative; }
+.fx-dots::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: radial-gradient(color-mix(in oklab, var(--foreground) 12%, transparent) 1px, transparent 1px);
+  background-size: 16px 16px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  pointer-events: none;
+}
+.fx-dots > * { position: relative; }
+
+/* A small gauge that fills once to its share (--off = 138 × (1 − share)). */
+@keyframes fx-fill { to { stroke-dashoffset: var(--off, 138); } }
+.fx-gauge { width: 34px; height: 34px; flex: none; }
+.fx-gauge circle { fill: none; stroke-width: 6; }
+.fx-gauge .track { stroke: var(--secondary); }
+.fx-gauge .val { stroke: var(--color-good); stroke-linecap: round; stroke-dasharray: 138; stroke-dashoffset: 138; transform: rotate(-90deg); transform-origin: 50% 50%; animation: fx-fill 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.fx-gauge.is-low .val { stroke: var(--color-amber); }
+
+/* The settings dialog's tabs: one underline that slides to the active tab. */
+.fx-underline { position: absolute; bottom: -1px; left: 0; height: 2px; background: var(--primary); transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), width 0.3s cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
+
+/* The theme change opens as a circle from the button (View Transitions; a plain switch where unsupported). */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: fx-circle 0.6s ease-out; }
+@keyframes fx-circle {
+  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 50%)); }
+  to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%)); }
+}
+
+/* A card that lifts 2 px under the mouse. */
+.fx-lift { transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s, box-shadow 0.2s; }
+.fx-lift:hover { transform: translateY(-2px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-fade, .fx-shimmer::before, .fx-pulse::after, ::view-transition-new(root) { animation: none !important; }
+  .fx-border-beam { display: none; }
+  .fx-fade { opacity: 1; filter: none; transform: none; }
+  .fx-gauge .val { animation: none; stroke-dashoffset: var(--off, 138); }
+  .fx-underline { transition: none; }
+  .fx-shiny { color: var(--foreground); }
+  .fx-shiny-light { display: none; }
+  .fx-lift { transition: none !important; }
+  .fx-lift:hover { transform: none; }
+}
