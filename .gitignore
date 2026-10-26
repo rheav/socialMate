@@ -10,3 +10,4 @@ dist/
 *.paywall-bak
 dist-slim/
 *.zip
+dist-public/

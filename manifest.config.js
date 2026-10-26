@@ -1,6 +1,9 @@
 import { defineManifest } from "@crxjs/vite-plugin";
 
-export default defineManifest({
+// PUBLIC=1 builds the open-source variant: no hub, no warm engine (docs/superpowers/plans/2026-10-26-public-build.md).
+const PUBLIC = process.env.PUBLIC === "1";
+
+const manifest = {
   manifest_version: 3,
   name: "socialMate",
   short_name: "socialMate",
@@ -159,4 +162,18 @@ export default defineManifest({
       run_at: "document_idle",
     },
   ],
-});
+};
+
+if (PUBLIC) {
+  manifest.description =
+    "Pesquisa de Facebook / Instagram / TikTok / Pinterest a partir de um painel lateral — tudo local, sem servidor.";
+  delete manifest.version_name;
+  delete manifest.optional_host_permissions;
+  manifest.host_permissions = manifest.host_permissions.filter(
+    (h) => !/socialmate\.rheav\.dev|localhost|127\.0\.0\.1/.test(h),
+  );
+  // src/content.js is the warm engine.
+  manifest.content_scripts = manifest.content_scripts.filter((c) => !c.js.includes("src/content.js"));
+}
+
+export default defineManifest(manifest);

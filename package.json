@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:inline": "node scripts/gen-inline.mjs"
+    "gen:inline": "node scripts/gen-inline.mjs",
+    "build:public": "PUBLIC=1 npm run build",
+    "verify:public": "node scripts/verify-public.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
