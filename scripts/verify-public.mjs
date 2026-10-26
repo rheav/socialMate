@@ -7,7 +7,7 @@ const ROOT = new URL("../dist-public/", import.meta.url).pathname;
 const TEXT = /\.(js|mjs|html|json|css)$/;
 const FORBIDDEN = [
   // hub
-  /rheav/, /X-Sync-Token/, /\/api\/sync/, /ws\/socialmate/, /fbw-hub-btn/, /FBW_SYNC_/,
+  /rheav/, /X-Sync-Token/, /\/api\/sync/, /ws\/socialmate/, /FBW_SYNC_/, /Trackear no Hub/,
   // Instagram Scraper backend
   /ingest\/socialmate/, /extension-relay/, /localhost:3001/,
   // warm engine

@@ -1,11 +1,15 @@
-// Offscreen engine — local Whisper transcription + ffmpeg muxing for FB videos,
-// plus local niche-relevance embeddings (MiniLM) for the warmer's like-gate.
+// Offscreen engine — local Whisper transcription + ffmpeg muxing for FB videos.
+// @private
+// Plus local niche-relevance embeddings (MiniLM) for the warmer's like-gate.
+// @end-private
 //
 // Runs in an offscreen document (has DOM/AudioContext/WASM/Workers that a service
 // worker lacks). The background SW hands us fbcdn track URLs (already resolved);
 // because *.fbcdn.net is in host_permissions, fetches here bypass CORS.
 
+// @private
 import { get as idbGet, set as idbSet } from "idb-keyval";
+// @end-private
 import { serialQueue } from "../lib/serialQueue.js";
 import { createVoiceSeparator } from "./voiceSeparation.js";
 import { whisperTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
@@ -222,6 +226,7 @@ async function transcribeFromAudioUrl(audioUrl, language, videoId, repetitionPen
   }
 }
 
+// @private
 // ============================================================================
 // NICHE RELEVANCE — local MiniLM sentence embeddings + cosine similarity.
 // The warmer asks "how related is this post to my keyword?" before liking. We
@@ -326,6 +331,7 @@ async function spamScore(text) {
   for (const a of anchors) { const s = dot(pv, a); if (s > max) max = s; }
   return max;
 }
+// @end-private
 
 // ---- ffmpeg mux (lazy) ----
 let ffmpeg = null;
@@ -460,18 +466,24 @@ function releaseRuntimes() {
   if (pinnedBlobUrls.size > 0) return scheduleIdleRelease();
   voiceSeparator.release();
   try { txWorker?.terminate(); } catch { /* ignore */ }
+  // @private
   try { relWorker?.terminate(); } catch { /* ignore */ }
+  // @end-private
   try { ffmpeg?.terminate?.(); } catch { /* ignore */ }
   txWorker = null;
+  // @private
   relWorker = null;
+  // @end-private
   ffmpeg = null;
   // Pending resolvers can never settle once their worker is gone — settle them so
   // no caller hangs, then drop the closures.
   for (const resolve of txPending.values()) resolve({ success: false, error: "offscreen released" });
+  // @private
   for (const resolve of relPending.values()) resolve({ success: false, error: "offscreen released" });
-  txPending.clear();
   relPending.clear();
   keywordVecCache.clear();
+  // @end-private
+  txPending.clear();
   for (const u of liveBlobUrls) URL.revokeObjectURL(u);
   liveBlobUrls.clear();
   // The SW owns the document's lifetime; it closes us (and resets its own flag).
@@ -528,6 +540,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // @private
   if (msg.action === "relevanceScore") {
     job(sendResponse, async () => ({
       score: await relevanceScore(msg.keyword, msg.text),
@@ -535,6 +548,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }));
     return true;
   }
+  // @end-private
 
   // The background sends this when its 3-minute race times out. Terminating the
   // worker is the only way to stop Whisper mid-inference; the next job lazily

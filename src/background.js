@@ -34,18 +34,16 @@ import { bytesToBase64, isDataThumb, toDurableThumb, toThumbBlob } from "./lib/t
 import { RECOVER_GAP_MS, recoverableRecords, resolveFreshThumb } from "./lib/thumbRecover.js";
 import {
   SYNC_KEY,
-  SYNC_QUEUE_KEY,
-  SYNC_STATE_KEY,
   backoffDelay,
   batchRecords,
   isRetryable,
   isSyncConfigured,
-  isSyncReady,
-  pingSync,
-  postSync,
   getSpyProfiles,
   syncSettings,
 } from "./lib/syncClient.js";
+// @private
+import { SYNC_QUEUE_KEY, SYNC_STATE_KEY, isSyncReady, pingSync, postSync } from "./lib/syncClient.js";
+// @end-private
 
 import {
   SPY_KEY,
@@ -81,10 +79,15 @@ import {
 import { createStoriesPass, STORIES_ALARM } from "./background/spyStories.js";
 import { SPY_STATE_KEY as SPY_STATE_KEY_FOR_STORIES, isBlocked as spyIsBlocked } from "./lib/spyStore.js";
 
+// @private
 import { IG_EXPORT_ALARM, acceptIgCapture, createIgExport } from "./background/igExport.js";
+// @end-private
 import { createAnalysisCollect } from "./background/analysisCollect.js";
+// @private
 import { createAnalysisRelay } from "./background/analysisRelay.js";
+// @end-private
 
+// @private
 // Instagram Scraper destinations (outbox + presence beacon). Created and wired
 // at module scope so its listeners exist before any event wakes the worker.
 const igExport = createIgExport({
@@ -95,6 +98,7 @@ const igExport = createIgExport({
   version: chrome.runtime.getManifest?.().version || "",
 });
 igExport.init();
+// @end-private
 
 // Top-video analyses for the Hub: the relay takes the Hub's collection jobs, the
 // collector reads each post in a tab of its own. Instagram is shared with the
@@ -103,10 +107,12 @@ igExport.init();
 const analysisCollect = createAnalysisCollect({
   chrome,
   fetchImpl: (...args) => fetch(...args),
+  // @private
   hub: async () => {
     const s = await readSyncSettings();
     return isSyncConfigured(s) ? s : null;
   },
+  // @end-private
   instagram: {
     blocked: async () => {
       const state = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY];
@@ -116,8 +122,11 @@ const analysisCollect = createAnalysisCollect({
     pause: (code) => pauseInstagram(code),
     serialize: (work) => serializeIg(work),
   },
+  // @private
   transcribe: (req) => transcribeForAnalysis(req),
+  // @end-private
 });
+// @private
 const analysisRelay = createAnalysisRelay({
   WebSocketImpl: globalThis.WebSocket,
   settings: async () => {
@@ -130,8 +139,11 @@ const analysisRelay = createAnalysisRelay({
   // The hub's "Coletar stories": a stories pass now (storiesPass is created below; commands arrive later).
   commands: { "stories.collect": (msg, reply) => storiesPass.onCommand(msg, reply) },
 });
+// @end-private
 analysisCollect.recover().catch(() => {});
+// @private
 analysisRelay.ensure().catch(() => {});
+// @end-private
 chrome.webRequest?.onCompleted?.addListener((details) => analysisCollect.onResponse(details), { urls: ["https://*.instagram.com/*"] });
 chrome.tabs?.onUpdated?.addListener((tabId, change) => {
   if (change.url) analysisCollect.onNavigation(tabId, change.url);
@@ -158,7 +170,9 @@ const storiesPass = createStoriesPass({
 });
 useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
 
+// @private
 const SESSION_KEY = "fbw_session";
+// @end-private
 const TRANSCRIPTS_KEY = "fbw_transcripts"; // storage.local map: videoId -> { status, text, chunks, error, updatedAt }
 const NEED_RELOAD_KEY = "fbw_need_reload"; // panel hint: active FB tab has no live content script
 
@@ -211,6 +225,7 @@ async function ensureTiktokReferer() {
   }
 }
 
+// @private
 function setBadge(text, color) {
   chrome.action.setBadgeText({ text });
   if (text) chrome.action.setBadgeBackgroundColor({ color });
@@ -234,15 +249,18 @@ function updateBadge(s) {
 function syncBadge() {
   chrome.storage.local.get(SESSION_KEY, (r) => updateBadge(r[SESSION_KEY]));
 }
+// @end-private
 
 chrome.alarms?.onAlarm?.addListener((alarm) => {
   if (alarm.name === "fbw-spy-tick") {
     spyTick().catch(() => {});
   } else if (alarm.name === "fbw-spy-sync") {
     flushSpy().catch(() => {});
+  // @private
   } else if (alarm.name === IG_EXPORT_ALARM) {
     igExport.tick().catch(() => {});
     analysisRelay.ensure().catch(() => {});
+  // @end-private
   } else if (alarm.name === STORIES_ALARM) {
     storiesPass.tick().catch(() => {});
   }
@@ -252,7 +270,9 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch(() => {});
+  // @private
   syncBadge();
+  // @end-private
   reinjectContentScripts();
   scheduleSpy().catch(() => {});
   recoverSpySync().catch(() => {});
@@ -377,20 +397,26 @@ chrome.runtime.onStartup?.addListener(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch(() => {});
+  // @private
   syncBadge();
+  // @end-private
   scheduleSpy().catch(() => {});
   recoverSpySync().catch(() => {});
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
+  // @private
   if (changes[SESSION_KEY]) updateBadge(changes[SESSION_KEY].newValue);
+  // @end-private
   if (changes[SAVED_KEY]) capSavedStore(changes[SAVED_KEY].newValue);
   if (changes[SPY_PREFS_KEY] || changes[SYNC_KEY] || changes[SPY_KEY]) {
     scheduleSpy().catch(() => {});
   }
   if (changes[SPY_QUEUE_KEY] || changes[SYNC_KEY]) recoverSpySync().catch(() => {});
+  // @private
   if (changes[SYNC_KEY]) analysisRelay.ensure().catch(() => {});
+  // @end-private
 });
 
 // `fbw_saved` is the shared Library. It used to be written from TEN places (six
@@ -609,6 +635,7 @@ async function recoverThumbs({ brokenIds } = {}) {
   return { ok: true, ...thumbSweep };
 }
 
+// @private
 // ---- hub sync --------------------------------------------------------------
 // One-way push of both stores to the socialMate hub. The rules live in
 // lib/syncClient.js; this is the part that touches storage and the network.
@@ -621,14 +648,20 @@ async function recoverThumbs({ brokenIds } = {}) {
 // transcriptions, 300 saved) and drop their oldest as they fill; forwarding that
 // eviction would make the hub just as forgetful, which is the opposite of why it
 // exists.
-const SYNC_DEBOUNCE_MS = 4000;
-let syncTimer = null;
-let syncing = false;
-
+// @end-private
 async function readSyncSettings() {
   const r = await chrome.storage.local.get(SYNC_KEY);
   return syncSettings(r[SYNC_KEY]);
 }
+
+// @public
+// No hub in this build: the write paths still call this, and it does nothing.
+async function queueForSync() {}
+// @end-public
+// @private
+const SYNC_DEBOUNCE_MS = 4000;
+let syncTimer = null;
+let syncing = false;
 
 async function setSyncState(patch) {
   const r = await chrome.storage.local.get(SYNC_STATE_KEY);
@@ -743,9 +776,9 @@ async function syncAll() {
 // the way up, before anything else asks for it.
 chrome.runtime.onStartup?.addListener(() => scheduleSync(8000));
 
-
 // initial paint (SW may spin up mid-session)
 syncBadge();
+// @end-private
 
 // ============================================================================
 // VIDEO TRACK CAPTURE + TRANSCRIPTION / DOWNLOAD
@@ -932,9 +965,11 @@ async function putTranscript(videoId, patch, opts = {}) {
     // The hub gets a copy. Fire-and-forget: a backend that is down or unset must
     // never make a local write look like it failed.
     queueForSync("transcripts", videoId).catch(() => {});
+    // @private
     // So do the Instagram Scraper backends, for a finished Instagram transcript
     // (the event is content-addressed: a metadata backfill re-enqueues nothing new).
     if (all[videoId]?.status === "done") igExport.enqueueTranscript(all[videoId]).catch(() => {});
+    // @end-private
     return all[videoId];
   });
 }
@@ -1021,7 +1056,10 @@ function sweepOrphanedTranscripts() {
 // Top level, so it is queued ahead of whatever message woke the worker.
 sweepOrphanedTranscripts().catch((e) => console.warn("[fbw] varredura de transcrições órfãs:", e));
 
-export { putTranscript, removeTranscripts, sweepOrphanedTranscripts, transcribeForAnalysis }; // test seam — see background.transcripts.test.js
+export { putTranscript, removeTranscripts, sweepOrphanedTranscripts }; // test seam — see background.transcripts.test.js
+// @private
+export { transcribeForAnalysis };
+// @end-private
 
 // ---- offscreen document lifecycle ----
 let offscreenReady = false;
@@ -1360,6 +1398,7 @@ async function runTranscription(videoId, tabId, meta = {}) {
   }
 }
 
+// @private
 // The analysis collector's transcript of a post: the Library's own when it has
 // one, else the usual queued Whisper job on the post's MP4 (which files it in the
 // Library and syncs it like any other).
@@ -1390,6 +1429,7 @@ async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, m
   });
   return done((await getTranscripts())[id]) || { status: "failed" };
 }
+// @end-private
 
 // ---- where downloads land -------------------------------------------------
 // The service worker is the only context that actually calls chrome.downloads for
@@ -1853,6 +1893,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true, ...thumbSweep });
       return false;
     }
+    // @private
     // panel → bg: hub sync. Push-only; see the notes above flushSync.
     case "FBW_SYNC_PING": {
       (async () => {
@@ -1897,6 +1938,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       return true;
     }
+    // @end-private
     // Comentários de todos (Ordenar): one post after another, in a tab of our own.
     case "FBW_IG_COMMENT_SWEEP": {
       const codes = Array.isArray(msg.codes) ? msg.codes : [];
@@ -1912,6 +1954,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: analysisCollect.stopSweep(), status: analysisCollect.sweepStatus() });
       return false;
     }
+    // @private
     case "FBW_IG_EXPORT_FLUSH": {
       igExport.tick().then(
         () => sendResponse({ ok: true }),
@@ -1919,6 +1962,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       return true;
     }
+    // @end-private
     case "FBW_SPY_OBSERVE": {
       serializeIg(() => observeIgProfile(msg, sender)).then(sendResponse, () => sendResponse({ ok: false, error: "network" }));
       return true;
@@ -2174,6 +2218,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true; // async responder
     }
+    // @private
     // content → bg → offscreen: niche-relevance (+ spam) cosine for a post.
     // Fails open (score 1, spam 0) so a model hiccup never blocks the warmer.
     case "FBW_RELEVANCE": {
@@ -2197,6 +2242,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true; // async
     }
+    // @end-private
     // panel → bg: download IG media. video = direct URL; image = fetched with our
     // host permissions (bypasses page CORS) and saved from a blob: URL minted in
     // the offscreen document, TikTok excepted. Carousels arrive one msg/child.

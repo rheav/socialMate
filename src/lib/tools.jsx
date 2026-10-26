@@ -1,5 +1,8 @@
-import { Flame, ArrowDownUp, Clapperboard, Film, Filter, MessageSquare, ListVideo, Library as LibraryIcon, Image as ImageIcon, Images } from "lucide-react";
+import { ArrowDownUp, Clapperboard, Film, Filter, MessageSquare, ListVideo, Library as LibraryIcon, Image as ImageIcon, Images } from "lucide-react";
+// @private
+import { Flame } from "lucide-react";
 import WarmTool from "@/components/tools/WarmTool";
+// @end-private
 import FbFilterTool from "@/components/tools/FbFilterTool";
 import IgSortTool from "@/components/tools/IgSortTool";
 import IgStoriesTool from "@/components/tools/IgStoriesTool";
@@ -23,7 +26,9 @@ import { filterToolsForPlatform, workspaceToolsForPlatform as workspaceFilter } 
 // in the global Library (Transcripts / Saved). The old profile-thumbnail Download
 // panel was dropped to keep the FB surface uncluttered.
 export const TOOLS = [
+  // @private
   { id: "warm", label: "Aquecer", Icon: Flame, platforms: ["facebook", "instagram", "tiktok"], Panel: WarmTool },
+  // @end-private
   // "Filtrar" — the search/hashtag engagement filter. First of Facebook's research
   // tools because it is the one that runs WHILE you browse, not after.
   { id: "fb-filter", label: "Filtrar", Icon: Filter, platforms: ["facebook"], Panel: FbFilterTool },

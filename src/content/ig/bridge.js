@@ -257,7 +257,9 @@ function openTxLangMenu(btn, onPick) {
     clearInterval(storyPathWatcher);
     window.removeEventListener("popstate", syncStoryTicker);
     clearTimeout(ovlTimer);
+    // @private
     clearTimeout(igExportTimer);
+    // @end-private
     if (ovlRaf) cancelAnimationFrame(ovlRaf);
     igPageSorter?.destroy();
     ovlObserver.disconnect();
@@ -317,6 +319,7 @@ function openTxLangMenu(btn, onPick) {
   const igCaptionFull = new Map(); // code||pk -> caption up to 20,000
   // Video renditions with sizes, for the analysis tab only (never in the list).
   const igVideoVariants = new Map(); // code||pk -> [{ w, h, url }]
+  // @private
   let igExportPosts = new Map(); // code||pk -> record
   const igExportHeld = new Map(); // cid -> comment awaiting its post
   let igExportTimer = null;
@@ -332,6 +335,7 @@ function openTxLangMenu(btn, onPick) {
       try { chrome.runtime.sendMessage(msg, () => void chrome.runtime.lastError); } catch {}
     }
   }
+  // @end-private
   let igCommentsVer = 0;
   let lastCommentPost = null;
   function ingestIgComment(r) {
@@ -714,10 +718,18 @@ const HUB_BTN_STYLE_ID = "fbw-hub-btn-style";
 
 // state -> what the button says. "tracked" is a profile in the Spy list.
 const HUB_BTN_TIPS = {
+  // @private
   idle: "Trackear no Hub",
   saving: "Salvando no Hub…",
   tracked: "Trackeado no Hub",
   already: "Já trackeado no Hub",
+  // @end-private
+  // @public
+  idle: "Salvar no Spy",
+  saving: "Salvando no Spy…",
+  tracked: "Salvo no Spy",
+  already: "Já está no Spy",
+  // @end-public
   error: "Não deu para salvar. Clique para tentar de novo.",
 };
 
@@ -913,8 +925,10 @@ function flashHubButtonTip(btn, text) {
       if (r.__kind === "reel" || r.__kind === "story") { ingestReel(r); continue; }
       if (r.__kind === "ig_comment") {
         ingestIgComment(r);
+        // @private
         igExportHeld.set(r.cid, { ...r, __queuedAt: Date.now() });
         queueIgExport();
+        // @end-private
         continue;
       }
       if (r.__kind === "user") {
@@ -976,8 +990,10 @@ function flashHubButtonTip(btn, text) {
           igVideoVariants.set(id, variants);
           while (igVideoVariants.size > 200) igVideoVariants.delete(igVideoVariants.keys().next().value);
         }
+        // @private
         igExportPosts.set(id, { ...prev, caption_full: igCaptionFull.get(id) || null });
         queueIgExport();
+        // @end-private
       }
     }
     // Cap memory across long SPA sessions: evict the oldest records (Map keeps
@@ -1339,6 +1355,7 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
   return out;
 }
 
+// @private
 // Research export (Instagram Scraper backends): the posts the MAIN world reported,
 // plus the comments whose post this tab now knows, as FBW_IG_CAPTURE messages of
 // at most 500 records each. A comment whose post is still unknown waits in
@@ -1362,6 +1379,7 @@ function igExportMessages(posts, held, media, now) {
   }
   return out;
 }
+// @end-private
 
 // The Hub's analysis of a top post (T8): what this tab can say about the one post
 // its URL names — the full caption, the video renditions, and the comment thread

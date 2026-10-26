@@ -3,14 +3,25 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { crx } from "@crxjs/vite-plugin";
 import path from "path";
+import fs from "fs";
 import manifest from "./manifest.config.js";
 import { dropBundledOrtWasm } from "./src/build/dropBundledOrtWasm.js";
+import { stripRegionsPlugin } from "./src/build/stripRegions.js";
 
 const PUBLIC = process.env.PUBLIC === "1";
 
+// public/ is copied whole; the warm engine's relevance model (23 MB) is its only user.
+const dropWarmModel = {
+  name: "drop-warm-model",
+  apply: "build",
+  closeBundle() {
+    fs.rmSync(path.resolve(__dirname, "dist-public/models/Xenova/all-MiniLM-L6-v2"), { recursive: true, force: true });
+  },
+};
+
 export default defineConfig({
   define: { __PUBLIC__: JSON.stringify(PUBLIC) },
-  plugins: [react(), tailwindcss(), crx({ manifest }), dropBundledOrtWasm()],
+  plugins: [stripRegionsPlugin(PUBLIC), react(), tailwindcss(), crx({ manifest }), dropBundledOrtWasm(), ...(PUBLIC ? [dropWarmModel] : [])],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

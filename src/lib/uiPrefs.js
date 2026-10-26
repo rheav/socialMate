@@ -13,7 +13,9 @@ export const UI_PREFS_KEY = "sw_ui_prefs";
 /** Every top-level tab, in nav order. `optional` ones can be switched off. */
 export const TOP_TABS = [
   { id: "research", label: "Pesquisa" },
+  // @private
   { id: "warm", label: "Aquecer", optional: true },
+  // @end-private
   { id: "library", label: "Arquivo" },
   { id: "spy", label: "Spy" },
 ];

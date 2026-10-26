@@ -16,7 +16,9 @@ import {
 import { DEFAULT_UI_PREFS, UI_PREFS_KEY, normalizeUiPrefs, resolveTab, visibleTabs } from "@/lib/uiPrefs";
 import Segmented from "@/components/ui/Segmented";
 import OptionsModal from "@/components/ui/OptionsModal";
+// @private
 import HubStatusDot from "@/components/ui/HubStatusDot";
+// @end-private
 import ErrorBoundary from "@/components/ui/ErrorBoundary";
 import ToolFrame from "@/components/ui/ToolFrame";
 import PlatformSwitcher from "@/components/ui/PlatformSwitcher";
@@ -214,8 +216,13 @@ export default function Shell() {
         // selected while the body fell back to a picker that does not list it —
         // selected and unreachable at once. Land such a pick in Pesquisa, which
         // every platform has.
+        // @private
         const leaving =
           n.tab === "library" || (n.tab === "warm" && !WARM_PLATFORMS.includes(p));
+        // @end-private
+        // @public
+        const leaving = n.tab === "library";
+        // @end-public
         return withPlatform(leaving ? withTab(n, "research") : n, p);
       }),
     [],
@@ -261,8 +268,10 @@ export default function Shell() {
           <PlatformSwitcher value={platform} onValueChange={pickPlatform} />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {/* @private */}
           {/* Acervo connection light; its settings live in Opções, so it opens them. */}
           <HubStatusDot onClick={() => setOptionsOpen(true)} />
+          {/* @end-private */}
           {/* One button, not two: the theme moved into Opções with the rest of the
               panel's settings, so the header keeps only the way in. */}
           <button
@@ -298,8 +307,10 @@ export default function Shell() {
           <SpyTool activeUrl={activeUrl} />
         ) : tab === "library" ? (
           <LibraryTool />
+        // @private
         ) : tab === "warm" ? (
           <WarmTab platform={platform} setPlatform={setPlatform} />
+        // @end-private
         ) : (
           <ResearchTab
             platform={platform}
@@ -505,6 +516,7 @@ function ResearchTab({ platform, setPlatform, toolId, setToolId }) {
   );
 }
 
+// @private
 // Aquecer: the warmer, promoted out of the workspace. It reads
 // PLATFORMS[platform].defaultMode on mount, so it may only be rendered once a
 // platform the warmer actually supports is chosen — hence the narrowed picker.
@@ -529,3 +541,4 @@ function WarmTab({ platform, setPlatform }) {
     </ToolFrame>
   );
 }
+// @end-private

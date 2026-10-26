@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Cloud, Moon, Sun, X } from "lucide-react";
+import { Moon, Sun, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import useStoredFlag from "@/lib/useStoredFlag";
 import { useSpyPrefs } from "@/lib/useSpy";
 import { IG_SPY_LIMIT, IG_SPY_LIMIT_MAX } from "@/lib/spyStore";
+// @private
+import { Cloud } from "lucide-react";
 import { useSyncSettings } from "@/lib/useSyncSettings";
 import { useIgDestinations } from "@/lib/useIgDestinations";
+// @end-private
 import {
   TRANSCRIPT_CAP_KEY,
   TRANSCRIPT_CAP_OPTIONS,
@@ -98,6 +101,7 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
 
         <div className="max-h-[70vh] overflow-y-auto px-4 py-3">
           <Section title="Painel">
+            {/* @private */}
             <Row
               id="opt-show-warm"
               label="Mostrar Aquecer"
@@ -105,6 +109,7 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
               checked={prefs.showWarm !== false}
               onChange={(v) => setPrefs((p) => ({ ...p, showWarm: v }))}
             />
+            {/* @end-private */}
             <div className="flex items-center justify-between gap-3 py-1.5">
               <span className="text-sm text-foreground">Tema</span>
               <Choice
@@ -141,9 +146,14 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
 
           <ArchiveSection />
 
+          {/* @private */}
           <HubSection />
 
           <IgDestinationsSection />
+          {/* @end-private */}
+          {/* @public */}
+          <SpySection />
+          {/* @end-public */}
 
           <Section
             title="Transcrição"
@@ -313,6 +323,38 @@ function TxPenaltySetting() {
   );
 }
 
+// @public
+// ---- Spy ----
+// The daily pass and the Instagram budget. Readings stay in this browser.
+function SpySection() {
+  const [spyDaily, saveSpyDaily, spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
+  const [error, setError] = useState(null);
+  const failed = () => setError("Não consegui salvar essa opção.");
+  return (
+    <Section title="Spy" hint="Perfis salvos na área Spy. As leituras ficam só neste navegador.">
+      <Row
+        id="opt-spy-daily"
+        label="Atualizar perfis salvos uma vez por dia"
+        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão. Desligada, o “Medir agora” da área Spy continua funcionando."
+        checked={spyDaily}
+        onChange={(v) => saveSpyDaily(v).catch(failed)}
+      />
+      <NumberRow
+        id="opt-spy-ig-limit"
+        label="Leituras do Instagram por dia"
+        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária e o “Medir agora”. O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
+        value={spyIgLimit}
+        min={1}
+        max={IG_SPY_LIMIT_MAX}
+        onSave={(v) => saveSpyIgLimit(v).catch(failed)}
+      />
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </Section>
+  );
+}
+// @end-public
+
+// @private
 // ---- Acervo (hub) ----
 // The local Arquivo is capped on purpose (20 transcrições, 300 salvos), so the
 // hub is where the history actually lives. Three controls, in the order someone
@@ -555,6 +597,8 @@ function IgDestinationsSection() {
   );
 }
 
+// @end-private
+
 // ---- Arquivo ----
 // How many transcriptions to keep. It used to be 20, hard-coded, and the number
 // was never the point: the store is one object re-serialized on every write,
@@ -639,6 +683,13 @@ function DownloadsSection() {
   );
 }
 
+// @private
+const ARCHIVE_HINT =
+  "Quantas transcrições ficam guardadas aqui. As mais antigas saem primeiro quando o limite é atingido — e o que já subiu para o acervo NÃO é apagado de lá.";
+// @end-private
+// @public
+const ARCHIVE_HINT = "Quantas transcrições ficam guardadas aqui. As mais antigas saem primeiro quando o limite é atingido.";
+// @end-public
 function ArchiveSection() {
   const [cap, setCap] = useState(null);
 
@@ -658,7 +709,7 @@ function ArchiveSection() {
   return (
     <Section
       title="Arquivo"
-      hint="Quantas transcrições ficam guardadas aqui. As mais antigas saem primeiro quando o limite é atingido — e o que já subiu para o acervo NÃO é apagado de lá."
+      hint={ARCHIVE_HINT}
     >
       <div className="flex items-center justify-between gap-3 py-1.5">
         <span className="text-sm text-foreground">Máximo de transcrições</span>

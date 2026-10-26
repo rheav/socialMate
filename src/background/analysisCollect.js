@@ -1,3 +1,8 @@
+// @public
+// Instagram's "Comentários de todos" sweep: each listed post is opened in a tab
+// of our own and the bridge reads its whole comment thread.
+// @end-public
+// @private
 // Preparing one top post for the Hub's analysis (T8): the extension is the only
 // part of the system with an Instagram session, so it opens the post in a tab of
 // its own, reads the full caption, fetches the video, has it transcribed when
@@ -5,6 +10,7 @@
 // task's lease. Comments are not read for the analysis: their count is a number
 // the Hub already has. (The comment sweep below serves the Instagram Scraper
 // destinations, not the analysis.)
+// @end-private
 //
 // Instagram is touched the way the Spy touches it: one background tab, one post
 // at a time, 20–40 s apart, never while a Spy batch is running, and a login wall
@@ -16,8 +22,10 @@
 // look, a video past the limits is reported too large. The job's state is
 // persisted so a worker restart closes the tab it left behind.
 
+// @private
 import { downloadLimited, fetchEmbedVideo, isInstagramCdn, pickVideoVariant } from "../lib/analysisMedia.js";
 import { igCodeFromPk } from "../lib/shared/igCode.js";
+// @end-private
 import { IG_COMMENT_EXPAND_LIMITS } from "../lib/shared/igCommentExpand.js";
 
 export const ANALYSIS_COLLECT_KEY = "fbw_analysis_collect"; // { taskId, tabId, code, startedAt, nextAt }
@@ -43,17 +51,21 @@ const idle = (nextAt = 0) => ({ taskId: null, tabId: null, code: null, startedAt
 /**
  * @param {object} deps
  * @param {object} deps.chrome  tabs + storage.local
- * @param {() => Promise<{url,token}|null>} deps.hub  the Acervo the extension syncs to
+ * @param {() => Promise<{url,token}|null>} [deps.hub]  the Acervo the extension syncs to (private build)
  * @param {{ blocked(): Promise<string|null>, busy(): Promise<boolean>, pause(code): Promise<void>, serialize(work): Promise }} deps.instagram
  *   the Spy's shared Instagram state (see background/spy.js)
- * @param {(req) => Promise<{status,text?,chunks?,language?,source?}|null>} deps.transcribe  the extension's Whisper job
+ * @param {(req) => Promise<{status,text?,chunks?,language?,source?}|null>} [deps.transcribe]  the extension's Whisper job (private build)
  */
 export function createAnalysisCollect({
   chrome,
   fetchImpl = fetch,
+  // @private
   hub,
+  // @end-private
   instagram,
+  // @private
   transcribe,
+  // @end-private
   now = Date.now,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   random = Math.random,
@@ -133,6 +145,7 @@ export function createAnalysisCollect({
     return res?.ok ? res : null;
   }
 
+  // @private
   // The post's public embed page, read once per job: the fallback when the post's
   // own page handed no usable video link (see igEmbedVideo).
   async function embedOnce(job) {
@@ -165,6 +178,7 @@ export function createAnalysisCollect({
     if (got.code === "rate_limited") job.stop = job.stop || "rate_limited";
     return { state: "unavailable", why: got.code || "download_failed" };
   }
+  // @end-private
 
   /** The Instagram part: own tab, page read, video bytes. Closed whatever happens. */
   async function collectInTab(job, p) {
@@ -175,14 +189,20 @@ export function createAnalysisCollect({
       // Only the comment sweep asks for the thread; the Hub's jobs never do.
       const page = await readPage(job, p, !!p.needs?.comments);
       if (job.cancelled || job.stop || !page) return { page };
+      // @private
       const video = p.needs?.video && p.assetId ? await fetchVideo(job, p, page) : null;
       return { page, video };
+      // @end-private
+      // @public
+      return { page };
+      // @end-public
     } finally {
       await closeOwnTab(job.tabId, job.code);
       await save({ taskId: null, tabId: null, code: null, startedAt: null });
     }
   }
 
+  // @private
   const hubHeaders = (settings, job, extra = {}) => ({ "X-Sync-Token": settings.token, "X-Analysis-Lease": job.leaseToken, ...extra });
 
   async function upload(settings, job, assetId, video) {
@@ -227,6 +247,7 @@ export function createAnalysisCollect({
     }
     return { ok: false, code: "hub_unreachable" };
   }
+  // @end-private
 
   /**
    * Before opening Instagram: not while it is paused, not during a Spy batch
@@ -255,6 +276,7 @@ export function createAnalysisCollect({
     await save({ nextAt: now() + gap });
   }
 
+  // @private
   /**
    * Prepare one post. → { ok: true, result: { evidenceHash } } or { ok: false, code }.
    * `progress(code)` records a milestone in the Hub's log; `live(patch)` says
@@ -338,6 +360,7 @@ export function createAnalysisCollect({
       if (touchedInstagram) await spaceNext();
     }
   }
+  // @end-private
 
   /**
    * Open each listed post in a tab of our own and read its whole comment thread
@@ -395,6 +418,7 @@ export function createAnalysisCollect({
     return true;
   }
 
+  // @private
   /** The Hub cancelled the task: stop it and close the tab it opened. */
   async function cancelPrepare(taskId) {
     const job = [...jobs].find((j) => j.taskId === taskId && !j.sweep);
@@ -406,6 +430,7 @@ export function createAnalysisCollect({
     }
     return true;
   }
+  // @end-private
 
   /** On worker start: a job in flight died with the old worker. Close its tab, forget it. */
   async function recover() {
@@ -434,8 +459,10 @@ export function createAnalysisCollect({
   }
 
   return {
+    // @private
     preparePost,
     cancelPrepare,
+    // @end-private
     recover,
     onResponse,
     onNavigation,

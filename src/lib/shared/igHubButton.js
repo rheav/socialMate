@@ -19,10 +19,18 @@ export const HUB_BTN_STYLE_ID = "fbw-hub-btn-style";
 
 // state -> what the button says. "tracked" is a profile in the Spy list.
 export const HUB_BTN_TIPS = {
+  // @private
   idle: "Trackear no Hub",
   saving: "Salvando no Hub…",
   tracked: "Trackeado no Hub",
   already: "Já trackeado no Hub",
+  // @end-private
+  // @public
+  idle: "Salvar no Spy",
+  saving: "Salvando no Spy…",
+  tracked: "Salvo no Spy",
+  already: "Já está no Spy",
+  // @end-public
   error: "Não deu para salvar. Clique para tentar de novo.",
 };
 

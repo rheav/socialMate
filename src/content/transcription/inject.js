@@ -1523,6 +1523,7 @@ function reelIdFromHref(href) {
     });
   });
 
+  // @private
   // ---- auto-capture (driven by the warmer engine in the same tab) ----
   // content.js (the warmer) dispatches a "__fbw_auto_capture" window event when an
   // in-view video post clears the user's thresholds. We grab that video's metadata
@@ -1573,6 +1574,7 @@ function reelIdFromHref(href) {
   window.addEventListener("__fbw_auto_capture", (e) =>
     autoCapture(e.detail || {}),
   );
+  // @end-private
 
   // ============================================================
   // In-page action buttons — a small Download/Transcribe rail on each feed

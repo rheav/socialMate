@@ -22,8 +22,11 @@ import { tidyTranscriptText } from "@/lib/transcriptJobs.js";
 import { SAVED_SORT_OPTS, sortSavedRecords } from "@/lib/savedSort.js";
 import { ToolBar, ToolSelect, ToolIconButton } from "@/components/ui/ToolBar.jsx";
 import { useThumbRecovery } from "@/lib/useThumbRecovery.js";
+// @private
 import { useSyncSettings } from "@/lib/useSyncSettings.js";
-import { CloudUpload, ImageOff } from "lucide-react";
+import { CloudUpload } from "lucide-react";
+// @end-private
+import { ImageOff } from "lucide-react";
 
 const TKEY = "fbw_transcripts";
 const SKEY = "fbw_saved";
@@ -674,6 +677,7 @@ function RecoverThumbsNote({ sweep }) {
   );
 }
 
+// @private
 // Push the whole Arquivo to the hub, from the tab where the archive is — not
 // buried in Opções. This is the button someone presses on the browser that holds
 // the real collection (the panel is per-install; the hub is not), and it works
@@ -710,6 +714,7 @@ function SyncButton() {
     </button>
   );
 }
+// @end-private
 
 // ---- Transcripts tab ----
 export default function TranscriptsPanel() {
@@ -747,7 +752,9 @@ export default function TranscriptsPanel() {
         </span>
         <div className="flex flex-none items-center gap-2">
           <TxLanguageToggle />
+          {/* @private */}
           <SyncButton />
+          {/* @end-private */}
           <RecoverThumbsButton pending={thumbs.pending} sweep={thumbs.sweep} onClick={thumbs.start} />
           {items.length > 0 && (
             <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground" onConfirm={clearAll}>limpar tudo</ClearAllButton>
@@ -826,7 +833,9 @@ export function SavedPanel() {
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-foreground">{saved.length} {saved.length === 1 ? "salvo" : "salvos"}</span>
         <div className="flex flex-none items-center gap-2">
+        {/* @private */}
         <SyncButton />
+        {/* @end-private */}
         <RecoverThumbsButton pending={thumbs.pending} sweep={thumbs.sweep} onClick={thumbs.start} />
         <ClearAllButton className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1" onConfirm={() => removeSavedEntry(saved.map((x) => x.videoId))}>
           <Trash2 size={11} /> limpar tudo
