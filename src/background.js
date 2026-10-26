@@ -32,6 +32,7 @@ import { idsOverCap, readTranscriptCap } from "./lib/transcriptCap.js";
 import { readStoredTxPenalty, txPenaltyValue } from "./lib/txPenalty.js";
 import { bytesToBase64, isDataThumb, toDurableThumb, toThumbBlob } from "./lib/thumbCache.js";
 import { RECOVER_GAP_MS, recoverableRecords, resolveFreshThumb } from "./lib/thumbRecover.js";
+// @private
 import {
   SYNC_KEY,
   backoffDelay,
@@ -41,9 +42,13 @@ import {
   getSpyProfiles,
   syncSettings,
 } from "./lib/syncClient.js";
-// @private
 import { SYNC_QUEUE_KEY, SYNC_STATE_KEY, isSyncReady, pingSync, postSync } from "./lib/syncClient.js";
 // @end-private
+// @public
+// No server in this build: the Spy's hub runs in this worker (hub-local/, sql.js + IndexedDB).
+import { SYNC_KEY, isSyncConfigured, getSpyProfiles, syncSettings } from "./hub-local/client.js";
+import { localHub, setCollectStories } from "./hub-local/hub.js";
+// @end-public
 
 import {
   SPY_KEY,
@@ -169,6 +174,16 @@ const storiesPass = createStoriesPass({
   makePoster: (url) => storyPoster(url),
 });
 useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
+// @public
+// The dashboard's "Coletar stories" (the hub sends it over the relay): a stories pass now.
+setCollectStories((msg, reply) => storiesPass.onCommand(msg, reply));
+// The local hub's hourly upkeep (removed profiles, expired stories, old observations).
+// Created only when missing: re-creating it at every wake would push it back forever.
+const HUB_LOCAL_PRUNE_ALARM = "fbw-hub-local-prune";
+chrome.alarms?.get?.(HUB_LOCAL_PRUNE_ALARM)
+  .then((alarm) => alarm || chrome.alarms.create(HUB_LOCAL_PRUNE_ALARM, { periodInMinutes: 60 }))
+  .catch(() => {});
+// @end-public
 
 // @private
 const SESSION_KEY = "fbw_session";
@@ -263,6 +278,10 @@ chrome.alarms?.onAlarm?.addListener((alarm) => {
   // @end-private
   } else if (alarm.name === STORIES_ALARM) {
     storiesPass.tick().catch(() => {});
+  // @public
+  } else if (alarm.name === HUB_LOCAL_PRUNE_ALARM) {
+    localHub().then((hub) => hub.prune()).catch(() => {});
+  // @end-public
   }
 });
 
@@ -2179,6 +2198,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true;
     }
+    // @public
+    // dashboard → bg: one request to the local hub ({ method, path, body } as the hub's HTTP API).
+    // Every write goes through this worker, so the pages never race it.
+    case "FBW_HUB_LOCAL": {
+      localHub()
+        .then((hub) => hub.handle(msg.method || "GET", String(msg.path || ""), msg.body))
+        .then(
+          (res) => sendResponse({ ok: res.status >= 200 && res.status < 300, status: res.status, json: res.json ?? null }),
+          (e) => sendResponse({ ok: false, status: 0, error: String(e?.message || e) }),
+        );
+      return true;
+    }
+    // @end-public
     case "FBW_SPY_RUN": {
       (async () => {
         try {

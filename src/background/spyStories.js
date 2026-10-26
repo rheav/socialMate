@@ -10,7 +10,12 @@
 
 import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
 import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, emptySpyQueue, queueReading } from "../lib/spyStore.js";
+// @private
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
+// @end-private
+// @public
+import { isSyncConfigured, putStoryMedia } from "../hub-local/client.js";
+// @end-public
 
 export const IG_APP_ID = "936619743392459";
 /** The pass's own alarm: the next slot's start plus its jitter. */
@@ -194,7 +199,12 @@ export function createStoriesPass(deps) {
     listeners = { report, onDone };
     const passes = state.storiesSettings.passesPerDay;
     await log("info", source === "manual"
+      // @private
       ? `Stories: coleta pedida pelo hub · ${plural(profiles.length, "conta", "contas")}`
+      // @end-private
+      // @public
+      ? `Stories: coleta pedida no painel · ${plural(profiles.length, "conta", "contas")}`
+      // @end-public
       : `Stories: passada ${(slot ?? 0) + 1} de ${passes} · ${plural(profiles.length, "conta", "contas")}`);
     // What the last passes could not send goes first; the CDN links are short-lived.
     if ((state.stories.pendingMedia || []).length) {

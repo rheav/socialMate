@@ -18,7 +18,12 @@ const clock = (ms) => new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit"
 export function profileStatus(profile, { state = {}, queue = {}, now = Date.now(), igLimit = IG_SPY_LIMIT } = {}) {
   if (state.measuring?.id === profile.id) return { kind: "measuring", text: "medindo agora…" };
   const savePending = (queue.ops || []).some((op) => op.op === "save" && (op.id || `${op.platform}:${op.key}`) === profile.id);
+  // @private
   if (savePending) return { kind: "local", text: "salvo localmente · aguardando envio ao hub" };
+  // @end-private
+  // @public
+  if (savePending) return { kind: "local", text: "salvo · gravando…" };
+  // @end-public
 
   const today = dayKey(now);
   const measureDay = measureDayKey(now);

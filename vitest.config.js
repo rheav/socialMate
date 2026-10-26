@@ -6,6 +6,6 @@ export default defineConfig({
   // Separate config from vite.config.js, so the build flag is defined here too.
   define: { __PUBLIC__: JSON.stringify(process.env.PUBLIC === "1") },
   plugins: [stripRegionsPlugin(process.env.PUBLIC === "1")],
-  test: { environment: "node", include: ["src/**/*.test.js"] },
+  test: { environment: "node", include: ["src/**/*.test.js", "src/**/*.test.ts"] },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
 });

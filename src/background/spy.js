@@ -8,7 +8,13 @@
 // arrive through useSpyDeps(), at the top of the worker, before any listener
 // can fire.
 
+// @private
 import { batchRecords, backoffDelay, getSpyProfiles, isRetryable, isSyncConfigured, postSpy } from "../lib/syncClient.js";
+// @end-private
+// @public
+// No server: the same contract, answered in process by the local hub (SQLite in IndexedDB).
+import { batchRecords, backoffDelay, getSpyProfiles, isRetryable, isSyncConfigured, postSpy } from "../hub-local/client.js";
+// @end-public
 import { parseProfileUrl, profileUrl, reelsUrl, spyId } from "../lib/spyProfile.js";
 import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "../lib/spyParse.js";
 import {
@@ -129,9 +135,19 @@ async function recordHubResult(result) {
   const before = r[SPY_HUB_KEY];
   await chrome.storage.local.set({ [SPY_HUB_KEY]: { ...result, at: Date.now() } });
   if (!result.ok && before?.ok !== false) {
+    // @private
     await logSpy("hub", "error", `Envio ao hub falhou (${hubErrorText(result)}) · os registros ficam guardados e o envio é tentado de novo`);
+    // @end-private
+    // @public
+    await logSpy(null, "error", "Gravação local falhou · os registros ficam guardados e a gravação é tentada de novo");
+    // @end-public
   } else if (result.ok && before?.ok === false) {
+    // @private
     await logSpy("hub", "ok", `Envio ao hub voltou a funcionar · ${result.sent} ${result.sent === 1 ? "registro enviado" : "registros enviados"}`);
+    // @end-private
+    // @public
+    await logSpy(null, "ok", `Gravação local voltou a funcionar · ${result.sent} ${result.sent === 1 ? "registro gravado" : "registros gravados"}`);
+    // @end-public
   }
 }
 
@@ -321,7 +337,12 @@ export async function flushSpy({ attempt = 0 } = {}) {
     }
     const rejectionError = rejected.length && lastRes?.results?.ops?.invalid > 0
       && lastRes.profiles.filter((p) => p.removedAt == null).length >= (lastRes.max || 100)
+      // @private
       ? "limit_reached" : "O hub não aceitou a alteração. Atualize a lista e tente novamente.";
+      // @end-private
+      // @public
+      ? "limit_reached" : "A alteração não foi aceita. Atualize a lista e tente novamente.";
+      // @end-public
 
     await mutateSpy(async () => {
       const freshR = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
@@ -1371,7 +1392,9 @@ export async function spyTick({ manual = false } = {}) {
     const settings = await deps.readSyncSettings();
     if (manual) await logSpy(null, "info", "Medir agora: pedido recebido");
     if (!isSyncConfigured(settings)) {
+      // @private
       if (manual) await logSpy(null, "error", "Acervo não configurado · configure o hub em Opções");
+      // @end-private
       return { ok: false, error: "acervo não configurado" };
     }
 

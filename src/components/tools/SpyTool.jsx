@@ -16,7 +16,9 @@ const TONE = {
 function SourceIcon({ platform }) {
   const Glyph = PLATFORMS[platform]?.Glyph;
   if (Glyph) return <Glyph className="size-3 shrink-0" aria-label={PLATFORMS[platform].name} />;
+  // @private
   if (platform === "hub") return <CloudUpload className="size-3 shrink-0" aria-label="Hub" />;
+  // @end-private
   return <Activity className="size-3 shrink-0" aria-hidden="true" />;
 }
 
@@ -167,8 +169,13 @@ export default function SpyTool({ activeUrl = "" }) {
         </ul>
         <div className="space-y-0.5 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
           <p>Hoje: {measured} de {profiles.length} medidos · Instagram: {igReads} de {igLimit} leituras do dia</p>
+          {/* @private */}
           <p className={TONE[sync.tone]}>Hub: {sync.text}</p>
           {state.lastError === "hub_sem_spy" && <p className={TONE.warn}>Atualize o acervo para usar a área spy.</p>}
+          {/* @end-private */}
+          {/* @public */}
+          <p>As medições ficam só neste navegador.</p>
+          {/* @end-public */}
         </div>
       </section>}
       <section aria-label="Perfis salvos" className="space-y-2">
@@ -223,7 +230,11 @@ export default function SpyTool({ activeUrl = "" }) {
             })}
           </CollapsibleList>}
       </section>
-      {!configured ? <p className="text-[11px] text-muted-foreground">Configure o acervo em Opções para usar a área spy.</p>
+      {!configured ? <p className="text-[11px] text-muted-foreground">
+        {/* @private */}
+        Configure o acervo em Opções para usar a área spy.
+        {/* @end-private */}
+      </p>
         : activity.length > 0 && <section aria-label="Histórico" className="space-y-2">
           <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Histórico</h2>
           <ol className="max-h-64 overflow-y-auto divide-y divide-border rounded-xl border border-border bg-card text-[11px] leading-relaxed">

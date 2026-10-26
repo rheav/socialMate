@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { requireOk } from "./bg.js";
 import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, igLimit } from "./spyStore.js";
 import { SPY_ACTIVITY_KEY, SPY_HUB_KEY } from "./spyActivity.js";
+// @private
 import { SYNC_KEY, isSyncConfigured, syncSettings } from "./syncClient.js";
+// @end-private
+// @public
+import { SYNC_KEY, isSyncConfigured, syncSettings } from "../hub-local/settings.js";
+// @end-public
 
 export function useSpy() {
   const [stored, setStored] = useState({});
