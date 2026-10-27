@@ -11,3 +11,4 @@ dist/
 dist-slim/
 *.zip
 dist-public/
+docs/store/raw/

@@ -119,7 +119,8 @@ const leaks = [];
     if (e.name === ".git" || e.name === "node_modules") continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) scan(p);
-    else if (TEXT.test(e.name) || e.name === "LICENSE") {
+    // PRIVACY.md names the contact e-mail on purpose.
+    else if ((TEXT.test(e.name) || e.name === "LICENSE") && e.name !== "PRIVACY.md") {
       const text = readFileSync(p, "utf8");
       for (const re of LEAKS) if (re.test(text)) leaks.push(`${relative(OUT, p)}: ${re}`);
       if (/@(end-)?(private|public)\b/.test(text) && /\.(m?js|jsx|ts|tsx)$/.test(e.name) && !/stripRegions/.test(e.name))
