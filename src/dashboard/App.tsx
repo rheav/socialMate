@@ -27,8 +27,8 @@ export function DashboardApp() {
       <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-[var(--header-h)] max-w-wide items-center justify-between gap-6 px-4">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/icon.svg" alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg" />
-            <h1 className="text-base font-semibold">socialMate</h1>
+            <img src="/icon-public.svg" alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg" />
+            <h1 className="text-base font-semibold">socialRadar</h1>
             <span className="text-sm text-muted-foreground">Spy</span>
           </div>
           <div className="flex items-center justify-end gap-1">

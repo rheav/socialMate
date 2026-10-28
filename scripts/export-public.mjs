@@ -19,7 +19,7 @@ const OUT = resolve(process.argv[2] || join(REPO, "../socialmate-public"));
 const INCLUDE = [
   "index.html", "dashboard.html", "jsconfig.json", "manifest.config.js", "package.json", "package-lock.json",
   "vite.config.js", "vitest.config.js",
-  "src/", "public/icon.svg", "public/icons/",
+  "src/", "public/icon-public.svg", "public/icons-public/",
   "scripts/gen-inline.mjs", "scripts/gen-icons.mjs", "scripts/fetch-assets.mjs",
 ];
 const PRIVATE_FILES = [

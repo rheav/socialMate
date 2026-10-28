@@ -1,4 +1,4 @@
-# Chrome Web Store listing — socialMate (public build, v1.18.0)
+# Chrome Web Store listing — socialRadar (public build)
 
 Paste into the developer dashboard. Upload the package built from the public tree
 (`npm run export:public`, then `dist/` zipped), never the private `dist/`.
@@ -35,7 +35,7 @@ accounts (`*.demo`), generated pictures, no third-party content. Regenerate with
 
 ### pt-BR
 
-O socialMate é um painel lateral para quem pesquisa conteúdo nas redes: criadores, social medias e quem estuda o próprio nicho.
+O socialRadar é um painel lateral para quem pesquisa conteúdo nas redes: criadores, social medias e quem estuda o próprio nicho.
 
 Pesquisa, direto na página que você já está vendo:
 • Instagram: ordene os posts e reels de um perfil por views, curtidas ou comentários; veja stories; exporte comentários (inclusive de vários posts seguidos)
@@ -57,7 +57,7 @@ Use com moderação: a área Spy respeita um limite diário de leituras do Insta
 
 ### en
 
-socialMate is a side panel for people who research content on social media: creators, social media managers and anyone studying their niche.
+socialRadar is a side panel for people who research content on social media: creators, social media managers and anyone studying their niche.
 
 Research, right on the page you are viewing:
 • Instagram: sort a profile's posts and reels by views, likes or comments; view stories; export comments (across several posts in a row)
@@ -79,7 +79,7 @@ Use it in moderation: the Spy respects a daily limit of Instagram readings, adju
 
 ### es
 
-socialMate es un panel lateral para quien investiga contenido en redes sociales: creadores, community managers y quien estudia su nicho.
+socialRadar es un panel lateral para quien investiga contenido en redes sociales: creadores, community managers y quien estudia su nicho.
 
 Investigación, en la misma página que estás viendo:
 • Instagram: ordena los posts y reels de un perfil por vistas, likes o comentarios; mira stories; exporta comentarios

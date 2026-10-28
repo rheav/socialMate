@@ -742,7 +742,12 @@ function ruleKey(rule) {
         "cursor:pointer",
         "user-select:none",
       ].join(";");
+      // @private
       chip.title = "socialMate — clique para ligar/desligar o filtro";
+      // @end-private
+      // @public
+      chip.title = "socialRadar — clique para ligar/desligar o filtro";
+      // @end-public
       chip.addEventListener("click", () => {
         setRule({ ...rule, on: !rule.on }, true);
       });

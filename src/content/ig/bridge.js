@@ -733,9 +733,16 @@ const HUB_BTN_TIPS = {
   error: "Não deu para salvar. Clique para tentar de novo.",
 };
 
+// @private
 // The flame of public/icon.svg, on the same 128-unit grid.
-const HUB_BTN_FLAME =
+const HUB_BTN_MARK =
   "M64 27C73 48 87 55 87 75C87 87.7 76.7 98 64 98C51.3 98 41 87.7 41 75C41 64.5 48 58 52.5 51.5C54.5 60 60 62 60 56C60 44 60 37 64 27Z";
+// @end-private
+// @public
+// The radar of public/icon-public.svg, on the same 128-unit grid.
+const HUB_BTN_MARK =
+  "M64 25A39 39 0 1 1 63.99 25ZM64 32A32 32 0 1 0 64.01 32ZM64 60A4 4 0 1 1 63.99 60ZM61.2 61.2L87.7 34.7L93.3 40.3L66.8 66.8ZM82 74A6.5 6.5 0 1 1 81.99 74Z";
+// @end-public
 
 // Instagram keeps its theme colours as bare "r, g, b" triplets
 // (--ig-primary-background: "12, 16, 20" in dark, measured), hence rgb(var()).
@@ -776,7 +783,7 @@ function isOwnIgProfile(doc) {
   return !!doc.querySelector('header a[href="/accounts/edit/"]');
 }
 
-/** The socialMate mark; its colours come from the state, in HUB_BTN_CSS. */
+/** The extension's mark; its colours come from the state, in HUB_BTN_CSS. */
 function hubButtonSvg(doc) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = doc.createElementNS(ns, "svg");
@@ -784,9 +791,9 @@ function hubButtonSvg(doc) {
   svg.setAttribute("aria-hidden", "true");
   const square = doc.createElementNS(ns, "rect");
   for (const [k, v] of [["x", 6], ["y", 6], ["width", 116], ["height", 116], ["rx", 28]]) square.setAttribute(k, String(v));
-  const flame = doc.createElementNS(ns, "path");
-  flame.setAttribute("d", HUB_BTN_FLAME);
-  svg.append(square, flame);
+  const mark = doc.createElementNS(ns, "path");
+  mark.setAttribute("d", HUB_BTN_MARK);
+  svg.append(square, mark);
   return svg;
 }
 

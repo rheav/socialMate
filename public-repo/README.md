@@ -1,11 +1,11 @@
-# socialMate
+# socialRadar
 
 Extensão do Chrome (MV3) com painel lateral para **pesquisar conteúdo** no Facebook,
 Instagram, TikTok e Pinterest e **acompanhar contas** ao longo do tempo.
 
 **Tudo roda no seu navegador.** Não há servidor, conta, login nem telemetria. A extensão
 só conversa com as próprias redes sociais, usando a sessão que você já tem aberta, e
-grava os arquivos no seu disco (`~/Downloads/social-mate/`).
+grava os arquivos na sua pasta de downloads.
 
 ## O que ela faz
 
@@ -17,7 +17,7 @@ grava os arquivos no seu disco (`~/Downloads/social-mate/`).
 | Pinterest | Baixar uma pasta inteira |
 | Em qualquer vídeo | Baixar · Transcrever (Whisper local, em português, inglês, espanhol ou automático) · Salvar no Arquivo |
 | Arquivo | Transcrições e vídeos salvos, com exportação |
-| Spy | Perfis acompanhados: seguidores, posts por dia, visualizações, top posts e tendências, num painel próprio |
+| Spy | Perfis acompanhados: seguidores, posts por dia, visualizações, top posts e tendências, num painel próprio (botão **Painel** no topo do painel lateral) |
 
 A interface é em português.
 

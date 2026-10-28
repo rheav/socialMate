@@ -10,7 +10,7 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 const RAW = join(ROOT, "docs/store/raw");
 const OUT = join(ROOT, "docs/store/screenshots");
 const png = (file) => `data:image/png;base64,${readFileSync(file).toString("base64")}`;
-const logo = png(join(ROOT, "public/icons/icon-128.png"));
+const logo = png(join(ROOT, "public/icons-public/icon-128.png"));
 const raw = (f) => png(join(RAW, f));
 
 // [title, subtitle, kind, capture, object-position for "wide"]
@@ -70,7 +70,7 @@ try {
         ? `<div class="shot wide"><img src="${raw(file)}" style="object-position:${pos}"></div>`
         : `<div class="shot ${kind}"><img src="${raw(file)}"></div>`;
       await shoot(`<html><head><meta charset="utf-8"><style>${css}</style></head><body><div class="dots"></div><div class="glow"></div>
-        <div class="cap"><div class="brand"><img src="${logo}">socialMate</div><h1>${title}</h1><p>${sub}</p></div>${shot}</body></html>`,
+        <div class="cap"><div class="brand"><img src="${logo}">socialRadar</div><h1>${title}</h1><p>${sub}</p></div>${shot}</body></html>`,
         1280, 800, join(OUT, lang, `${i + 1}.jpg`));
     }
   }
@@ -78,7 +78,7 @@ try {
     .c{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 ${big ? 90 : 30}px;gap:${big ? 22 : 10}px}
     .b{display:flex;align-items:center;gap:${big ? 18 : 10}px;font-weight:800;font-size:${big ? 56 : 30}px}.b img{width:${big ? 76 : 42}px;height:${big ? 76 : 42}px;border-radius:${big ? 16 : 9}px}
     .t{font-size:${big ? 30 : 16}px;line-height:1.3;font-weight:600;max-width:${big ? 640 : 380}px;color:#d8dee9}</style></head>
-    <body><div class="dots"></div><div class="glow"></div><div class="c"><div class="b"><img src="${logo}">socialMate</div><div class="t">${TAGLINE[lang]}</div></div>
+    <body><div class="dots"></div><div class="glow"></div><div class="c"><div class="b"><img src="${logo}">socialRadar</div><div class="t">${TAGLINE[lang]}</div></div>
     ${big ? `<div class="shot" style="right:60px;top:60px;width:560px;height:440px"><img style="width:100%;height:100%;object-fit:cover;object-position:left top" src="${raw("dash-profiles.png")}"></div>` : ""}</body></html>`;
   for (const lang of Object.keys(COPY)) {
     const suffix = lang === "pt-BR" ? "" : `-${lang}`;

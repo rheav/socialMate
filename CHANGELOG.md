@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.19.0] — 2026-10-28
+
+### Added
+- **A public, open-source build from the same tree: socialRadar.** `npm run build:public` (`PUBLIC=1`) drops the hub, the Instagram Scraper export and the warm engine; `// @private` / `// @public` regions pick each variant (`src/build/stripRegions.js`), and `npm run export:public` writes the open-source tree and runs its tests and build there. This private build behaves as before (bundles compared unminified: only reordered declarations). Details: `docs/ARCHITECTURE.md` §9.
+- **Public build only:** the Spy runs on a local hub (the hub's spy code on sql.js in the service worker, persisted to IndexedDB, `src/hub-local/`), with its dashboard as an extension page (`dashboard.html`, the hub's Spy panel without the AI reports), opened from a highlighted **Painel** button in the side panel header. Its own name and mark: socialRadar, a radar on the same squircle (`public/icon-public.svg` → `public/icons-public/` via `scripts/gen-icons.mjs`). Verified live: Spy save + "Medir agora" on a real Instagram profile, dashboard and Ordenar with real data.
+- `npm run setup` (`scripts/fetch-assets.mjs`): the models, ffmpeg core and ORT wasm pinned to their upstream sources by sha256.
+- `docs/store/`: Chrome Web Store listing, permission justifications and images (from synthetic data) for the public build.
+
 ## [1.18.0] — 2026-10-26
 
 ### Added

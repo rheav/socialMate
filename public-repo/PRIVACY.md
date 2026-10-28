@@ -1,8 +1,8 @@
-# Política de privacidade — socialMate
+# Política de privacidade — socialRadar
 
 Última atualização: 27 de outubro de 2026.
 
-O socialMate é uma extensão do Chrome que roda inteiramente no seu navegador. Não existe servidor do socialMate, nem conta, nem login.
+O socialRadar é uma extensão do Chrome que roda inteiramente no seu navegador. Não existe servidor do socialRadar, nem conta, nem login.
 
 **O que a extensão lê.** As páginas do Instagram, Facebook, TikTok e Pinterest que você abre, para mostrar, ordenar, baixar e transcrever os posts que você está vendo, e os perfis que você salva na área Spy, para medir seus números públicos uma vez por dia.
 
@@ -18,11 +18,11 @@ O socialMate é uma extensão do Chrome que roda inteiramente no seu navegador. 
 
 ---
 
-# Privacy policy — socialMate
+# Privacy policy — socialRadar
 
 Last updated: October 27, 2026.
 
-socialMate is a Chrome extension that runs entirely in your browser. There is no socialMate server, account or login.
+socialRadar is a Chrome extension that runs entirely in your browser. There is no socialRadar server, account or login.
 
 **What it reads.** The Instagram, Facebook, TikTok and Pinterest pages you open, to show, sort, download and transcribe the posts you are viewing, and the profiles you save in the Spy, to measure their public numbers once a day.
 
