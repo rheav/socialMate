@@ -21,6 +21,8 @@ const INCLUDE = [
   "vite.config.js", "vitest.config.js",
   "src/", "public/icon-public.svg", "public/icons-public/",
   "scripts/gen-inline.mjs", "scripts/gen-icons.mjs", "scripts/fetch-assets.mjs",
+  // The socialRadar site; published as website/ (Cloudflare Pages builds it from the public repo).
+  "website-radar/",
 ];
 const PRIVATE_FILES = [
   // warm engine
@@ -65,7 +67,7 @@ const LEAKS = [
   ...SCRUB.map(([real]) => new RegExp(real.replace(/[.]/g, "\\."), "i")),
 ];
 
-const TEXT = /\.(m?js|jsx|ts|tsx|json|html|css|md)$/;
+const TEXT = /\.(m?js|jsx|ts|tsx|json|html|css|md|astro|txt)$/;
 const CONFIGS = ["vite.config.js", "vitest.config.js", "manifest.config.js"];
 
 const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: REPO, encoding: "utf8" }).split("\0").filter(Boolean);
@@ -82,14 +84,15 @@ mkdirSync(OUT, { recursive: true });
 for (const e of readdirSync(OUT)) if (e !== ".git") rmSync(join(OUT, e), { recursive: true, force: true });
 
 for (const f of files) {
-  const dest = join(OUT, f);
+  const dest = join(OUT, f.replace(/^website-radar\//, "website/"));
   mkdirSync(dirname(dest), { recursive: true });
   if (!TEXT.test(f)) {
     cpSync(join(REPO, f), dest);
     continue;
   }
   let text = stripRegions(readFileSync(join(REPO, f), "utf8"), "private", f, { blank: false });
-  for (const [real, fake] of SCRUB) text = text.replaceAll(real, fake);
+  // The site names its own repo, domain and contact on purpose.
+  if (!f.startsWith("website-radar/")) for (const [real, fake] of SCRUB) text = text.replaceAll(real, fake);
   // The ported hub tests (src/hub-local/test/) speak the hub's sync API to a local stand-in.
   text = text.replace(/\.set\(\s*"X-Sync-Token"\s*,[^)]*\)/g, "").replaceAll("X-Sync-Token", "token header").replaceAll("/api/sync/", "/local/sync/");
   // Comments that point into the owner's machine.
@@ -122,7 +125,8 @@ const leaks = [];
     // PRIVACY.md names the contact e-mail on purpose.
     else if ((TEXT.test(e.name) || e.name === "LICENSE") && e.name !== "PRIVACY.md") {
       const text = readFileSync(p, "utf8");
-      for (const re of LEAKS) if (re.test(text)) leaks.push(`${relative(OUT, p)}: ${re}`);
+      const site = relative(OUT, p).startsWith("website/");
+      for (const re of LEAKS) if (!(site && /rheav/i.test(re.source)) && re.test(text)) leaks.push(`${relative(OUT, p)}: ${re}`);
       if (/@(end-)?(private|public)\b/.test(text) && /\.(m?js|jsx|ts|tsx)$/.test(e.name) && !/stripRegions/.test(e.name))
         leaks.push(`${relative(OUT, p)}: region marker left`);
     }
