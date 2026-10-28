@@ -9,7 +9,7 @@
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
 import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
-import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, emptySpyQueue, queueReading } from "../lib/spyStore.js";
+import { SPY_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, autoOn, emptySpyQueue, queueReading } from "../lib/spyStore.js";
 // @private
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
 // @end-private
@@ -131,6 +131,9 @@ export function createStoriesPass(deps) {
   let listeners = { report: null, onDone: null };
   let stepTimer = null;
 
+  /** The routines switch at the top of the Spy tab: off stops passes and the hub's command. */
+  const routinesOn = async () => autoOn((await deps.storage.get(SPY_PREFS_KEY))[SPY_PREFS_KEY]);
+
   async function readAll() {
     const r = await deps.storage.get([SPY_KEY, SPY_STATE_KEY, SPY_QUEUE_KEY]);
     const state = r[SPY_STATE_KEY] || { day: "" };
@@ -223,6 +226,7 @@ export function createStoriesPass(deps) {
       const { spy, state } = await readAll();
       const job = state.stories.job;
       if (!job) return;
+      if (!(await routinesOn())) { await log("info", "Stories: parou, rotinas desligadas"); await finish(job, { error: "off" }); return; }
       if (job.nextAt > now()) { armStep(job.nextAt); return; }
       const profile = spy.profiles?.[job.profileIds[job.index]];
       let added = 0;
@@ -296,10 +300,12 @@ export function createStoriesPass(deps) {
     const { spy, state } = await readAll();
     const at = now();
     if (state.stories.job) {
-      if (state.stories.job.nextAt <= at) { await step(); return { ran: true }; }
+      // A step due, or the switch just turned off (the step ends the job): now.
+      if (state.stories.job.nextAt <= at || !(await routinesOn())) { await step(); return { ran: true }; }
       armStep(state.stories.job.nextAt);
       return { ran: false, reason: "running" };
     }
+    if (!(await routinesOn())) return { ran: false, reason: "off" };
     if (!trackedProfiles(spy).length) return { ran: false, reason: "nothing_tracked" };
     if (await deps.isBlockedNow(at)) { armAlarm(at + 3_600_000); return { ran: false, reason: "blocked" }; }
     const passes = state.storiesSettings.passesPerDay;
@@ -393,6 +399,7 @@ export function createStoriesPass(deps) {
   async function onCommand(msg, reply) {
     const settings = await deps.readSyncSettings();
     if (!isSyncConfigured(settings)) { reply.result(false, { error: "acervo não configurado" }); return; }
+    if (!(await routinesOn())) { reply.result(false, { error: "rotinas desligadas" }); return; }
     if (await deps.isBlockedNow(now())) { reply.result(false, { error: "rate_limited" }); return; }
     const profileIds = Array.isArray(msg?.profileIds) && msg.profileIds.length ? msg.profileIds.map(String) : null;
     const out = await runPass({

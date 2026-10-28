@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createStoriesPass, STORIES_ALARM } from "./spyStories.js";
 import { parseStoriesHtml, reduceStory } from "../lib/spyStories.js";
-import { SPY_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY } from "../lib/spyStore.js";
+import { SPY_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY } from "../lib/spyStore.js";
 
 // The stories pass, service-worker side: one profile at a time, the page first,
 // the API as a fallback, every network call through the injected fetch.
@@ -57,6 +57,8 @@ beforeEach(() => {
     random: () => 0,
     now: () => Date.now(),
   };
+  // The routines switch at the top of the Spy tab, on (the private build ships it off).
+  deps.storage.set({ [SPY_PREFS_KEY]: { daily: true } });
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -306,5 +308,29 @@ describe("onCommand", () => {
     const r = reply();
     await createStoriesPass({ ...deps }).onCommand({ requestId: "req-1" }, r);
     expect(r.result).toHaveBeenCalledWith(false, { error: "nothing_tracked" });
+  });
+  it("refuses the hub's command with the routines off", async () => {
+    await seed(deps.storage, [tracked("natgeo")]);
+    await deps.storage.set({ [SPY_PREFS_KEY]: { daily: false } });
+    const r = reply();
+    await createStoriesPass({ ...deps }).onCommand({ requestId: "req-1" }, r);
+    expect(r.result).toHaveBeenCalledWith(false, { error: "rotinas desligadas" });
+  });
+});
+
+describe("routines switch", () => {
+  it("starts no pass while off, and stops a pass in progress at its next step", async () => {
+    await seed(deps.storage, [tracked("natgeo"), tracked("nasa")]);
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
+    const pass = createStoriesPass({ ...deps, fetchImpl, now: () => new Date(2026, 9, 19, 10, 50).getTime() });
+    expect((await pass.runPass({ source: "pass", slot: 0 })).ok).toBe(true);
+    expect(deps.storage.data[SPY_STATE_KEY].stories.job).toMatchObject({ index: 1 });
+    await deps.storage.set({ [SPY_PREFS_KEY]: { daily: false } });
+    expect(await pass.tick()).toEqual({ ran: true });
+    expect(deps.storage.data[SPY_STATE_KEY].stories.job).toBeNull();
+    expect(deps.logSpy.mock.calls.map((c) => c[2])).toContain("Stories: parou, rotinas desligadas");
+    await seed(deps.storage, [tracked("natgeo")]);
+    await deps.storage.set({ [SPY_PREFS_KEY]: { daily: false } });
+    expect(await pass.tick()).toEqual({ ran: false, reason: "off" });
   });
 });

@@ -73,6 +73,9 @@ beforeAll(async () => {
 beforeEach(() => {
   for (const k of Object.keys(data)) delete data[k];
   for (const k of Object.keys(alarms)) delete alarms[k];
+  // The private build ships the routines switch off (lib/spyStore.js autoOn);
+  // these tests describe a browser whose owner turned it on.
+  data.fbw_spy_prefs = { daily: true };
 });
 
 function sendMessage(msg, sender = {}) {
@@ -291,6 +294,16 @@ describe("background spy area (phase E2/E3)", () => {
   });
 
   describe("on-visit trigger", () => {
+    it("does not measure a visited Facebook profile with the routines off", async () => {
+      data.fbw_spy_prefs = { daily: false };
+      data.fbw_spy = { profiles: { "facebook:nasa": { id: "facebook:nasa", platform: "facebook", key: "nasa", removedAt: null, lastMeasuredAt: null } } };
+      const fakeFetch = vi.fn(async () => ({ status: 200, text: async () => "" }));
+      vi.stubGlobal("fetch", fakeFetch);
+      tabsUpdatedListener(1, { url: "https://www.facebook.com/NASA" });
+      await new Promise((r) => setTimeout(r, 60));
+      expect(fakeFetch).not.toHaveBeenCalled();
+    });
+
     it("triggers visit measurement for saved FB profile when not measured in last 6h", async () => {
       data.fbw_spy = {
         profiles: {
@@ -881,11 +894,17 @@ describe("Spy collection and synchronization regressions", () => {
     expect(data.fbw_spy_queue.ops).toEqual([]);
   });
 
-  it("returns an actionable error for individual Instagram measurement", async () => {
-    data.fbw_spy.profiles["instagram:nasa"] = { id: "instagram:nasa", platform: "instagram", key: "nasa" };
-    const result = await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/abr[ai]/i);
+  it("measures one Instagram profile by hand: a manual batch of that profile alone", async () => {
+    data.fbw_spy.profiles["instagram:nasa"] = { id: "instagram:nasa", platform: "instagram", key: "nasa", removedAt: null };
+    data.fbw_spy.profiles["instagram:natgeo"] = { id: "instagram:natgeo", platform: "instagram", key: "natgeo", removedAt: null };
+    data.fbw_spy_state = { day: "2026-10-03", attempts: {}, blocked: {}, igBatch: null };
+    chrome.tabs.create = vi.fn(async (opts) => ({ id: 90, ...opts }));
+    chrome.tabs.update = vi.fn(async (id, opts) => ({ id, ...opts }));
+    chrome.tabs.get = vi.fn(async (id) => ({ id, url: "https://www.instagram.com/#socialmate-spy" }));
+    chrome.tabs.sendMessage = vi.fn(async () => ({ ok: true, spy: true }));
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" })).toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igBatch).toMatchObject({ pending: ["nasa"], current: "nasa", manualAt: expect.any(Number) });
+    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
   });
 });
 
@@ -1252,28 +1271,38 @@ describe("Medir agora measures every profile on demand", () => {
     expect(log().at(-1)).toBe("hub|ok|Envio ao hub voltou a funcionar · 1 registro enviado");
   });
 
-  it("runs every account even with the daily pass switched off, and only what the click queued", async () => {
+  it("refuses Medir agora with the routines off; one Instagram profile by hand still runs, and only it", async () => {
     data.fbw_spy_prefs = { daily: false };
     data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000),
-      "instagram:natgeo": ig("natgeo", now - 7200000), "facebook:a": fb("a", now - 3600000), "facebook:b": fb("b", now - 3600000) } };
-    await spyTick({ manual: true });
+      "instagram:natgeo": ig("natgeo", now - 7200000), "facebook:a": fb("a", now - 3600000) } };
+    expect(await spyTick({ manual: true })).toMatchObject({ ok: false, error: "disabled" });
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    expect(fbRequests).toHaveLength(0);
+    expect(log()).toContain("null|warn|Rotinas desligadas · ligue no topo da aba Spy para medir todos os perfis");
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:natgeo" })).toMatchObject({ ok: true });
     expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
-    expect(fbRequests).toHaveLength(1);
+    expect(data.fbw_spy_state.igBatch).toMatchObject({ pending: ["natgeo"], manualAt: expect.any(Number) });
     await scheduleSpy();
     expect(alarms["fbw-spy-tick"]).toEqual({ delayInMinutes: 1 });
-    expect(log()).toContain("null|info|Medição diária desligada em Opções · o Medir agora roda mesmo assim");
     expect(await observe("natgeo")).toMatchObject({ ok: true });
-    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
+    expect(Object.values(data.fbw_spy_queue.readings)).toEqual([expect.objectContaining({ profileId: "instagram:natgeo", source: "manual", ok: true })]);
+    vi.clearAllTimers(); vi.setSystemTime((data.fbw_spy_state.igBatch?.nextAt ?? now) + 1);
     await spyTick();
-    expect(fbRequests).toHaveLength(2);
-    expect(chrome.tabs.update).toHaveBeenLastCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
-    expect(await observe("nasa")).toMatchObject({ ok: true });
-    vi.clearAllTimers(); vi.setSystemTime(data.fbw_spy_state.igBatch.nextAt);
-    await spyTick();
-    expect(fbRequests).toHaveLength(2);
-    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+    expect(fbRequests).toHaveLength(0);
+    expect(chrome.tabs.update).not.toHaveBeenCalledWith(90, { url: "https://www.instagram.com/nasa/#socialmate-spy" });
+    expect(data.fbw_spy_state.igBatch).toBeNull();
     await scheduleSpy();
     expect(alarms["fbw-spy-tick"]).toBeUndefined();
+  });
+
+  it("a click on a profile while its batch runs does not queue it twice", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:natgeo" })).toMatchObject({ ok: true });
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:natgeo" })).toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo"]);
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" })).toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igBatch.pending).toEqual(["natgeo", "nasa"]);
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
   });
 
   it("measures every Facebook profile, one per tick, even when all were measured today", async () => {

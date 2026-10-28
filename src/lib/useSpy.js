@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { requireOk } from "./bg.js";
-import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, igLimit } from "./spyStore.js";
+import { SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, autoOn, igLimit } from "./spyStore.js";
 import { SPY_ACTIVITY_KEY, SPY_HUB_KEY } from "./spyActivity.js";
 // @private
 import { SYNC_KEY, isSyncConfigured, syncSettings } from "./syncClient.js";
@@ -71,7 +71,7 @@ export function useSpy() {
     activity: stored[SPY_ACTIVITY_KEY] || [],
     hub: stored[SPY_HUB_KEY] || null,
     nextTickAt,
-    dailyOff: stored[SPY_PREFS_KEY]?.daily === false,
+    dailyOff: !autoOn(stored[SPY_PREFS_KEY]),
     igLimit: igLimit(stored[SPY_PREFS_KEY]),
     configured: isSyncConfigured(syncSettings(stored[SYNC_KEY])),
     ready, error,
@@ -82,7 +82,7 @@ export function useSpy() {
   };
 }
 
-/** [daily, saveDaily, igLimit, saveIgLimit]: the Spy prefs, each save merged into the stored object. */
+/** [auto, saveAuto, igLimit, saveIgLimit]: the Spy prefs (the routines switch and the Instagram cap), each save merged into the stored object. */
 export function useSpyPrefs() {
   const [prefs, setPrefs] = useState({});
   useEffect(() => {
@@ -105,11 +105,11 @@ export function useSpyPrefs() {
   // reads the Instagram cap at every step.
   const merge = useCallback(async (patch) => {
     const r = await chrome.storage.local.get(SPY_PREFS_KEY);
-    const next = { daily: true, ...(r[SPY_PREFS_KEY] || {}), ...patch };
+    const next = { ...(r[SPY_PREFS_KEY] || {}), ...patch };
     await chrome.storage.local.set({ [SPY_PREFS_KEY]: next });
     setPrefs(next);
   }, []);
   const saveDaily = useCallback((value) => merge({ daily: !!value }), [merge]);
   const saveIgLimit = useCallback((value) => merge({ igLimit: igLimit({ igLimit: value }) }), [merge]);
-  return [prefs.daily !== false, saveDaily, igLimit(prefs), saveIgLimit];
+  return [autoOn(prefs), saveDaily, igLimit(prefs), saveIgLimit];
 }

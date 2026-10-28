@@ -125,7 +125,7 @@ export function activityNow(state = {}, profiles = [], { now = Date.now(), nextT
   const busy = !!(batch || fbQueue.length || state.measuring || job);
   if (!busy && dailyOff) {
     lines.push({ platform: null, tone: "info", spinning: false,
-      text: "Nada em andamento · medição diária desligada em Opções; o Medir agora continua funcionando" });
+      text: "Nada em andamento · rotinas desligadas; salvar, visitar e medir um perfil por vez continuam" });
   } else if (!busy) {
     lines.push({ platform: null, tone: "info", spinning: false,
       text: `Nada em andamento${nextTickAt ? ` · próxima passada automática ${nextTickAt - now < 3600000 ? `em ${wait(nextTickAt - now)}` : `às ${clockText(nextTickAt)}`}` : ""}` });

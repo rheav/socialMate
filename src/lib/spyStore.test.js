@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { measuredAt,
+import { autoOn, measuredAt,
   igLimit,
   queuePosts,
   queueThumb,
@@ -418,6 +418,26 @@ describe("reels, reading-state and readings queue", () => {
     expect(ats).toHaveLength(400);
     expect(Math.min(...ats)).toBe(5);
   });
+});
+
+describe("autoOn (the routines switch)", () => {
+  it("follows the stored switch", () => {
+    expect(autoOn({ daily: false })).toBe(false);
+    expect(autoOn({ daily: true })).toBe(true);
+  });
+  // @private
+  it("is off until the owner turns it on (private build)", () => {
+    expect(autoOn(undefined)).toBe(false);
+    expect(autoOn({})).toBe(false);
+    expect(autoOn({ igLimit: 30 })).toBe(false);
+  });
+  // @end-private
+  // @public
+  it("is on until the owner turns it off (public build)", () => {
+    expect(autoOn(undefined)).toBe(true);
+    expect(autoOn({ igLimit: 30 })).toBe(true);
+  });
+  // @end-public
 });
 
 describe("igLimit", () => {

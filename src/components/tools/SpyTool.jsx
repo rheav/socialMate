@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Activity, ChevronDown, CloudUpload, ExternalLink, Loader2, RotateCw, Trash2 } from "lucide-react";
-import { useSpy } from "@/lib/useSpy";
+import { useSpy, useSpyPrefs } from "@/lib/useSpy";
+import { Switch } from "@/components/ui/switch";
 import { dayKey, measureDayKey, measuredAt } from "@/lib/spyStore";
 import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
 import { clockText } from "@/lib/spyActivity";
@@ -89,6 +90,7 @@ function RemoveButton({ id, remove, disabled = false }) {
 
 export default function SpyTool({ activeUrl = "" }) {
   const { profiles, state, queue, activity, hub, nextTickAt, dailyOff, igLimit, configured, ready, error: loadError, save, remove, measureProfile, runPass } = useSpy();
+  const [, saveAuto] = useSpyPrefs();
   const [busy, setBusy] = useState(null);
   const [runningPass, setRunningPass] = useState(false);
   const [error, setError] = useState(null);
@@ -106,7 +108,8 @@ export default function SpyTool({ activeUrl = "" }) {
     setBusy(id); setError(null);
     try { await action(); }
     catch (e) {
-      setError(e.message === "limit_reached" ? "Limite de 100 perfis. Remova um para salvar outro." : "Não consegui salvar a alteração. Tente de novo.");
+      setError(e.message === "limit_reached" ? "Limite de 100 perfis. Remova um para salvar outro."
+        : e.message === "not_queued" ? "A leitura não começou. Veja o histórico abaixo." : "Não consegui salvar a alteração. Tente de novo.");
     } finally { setBusy(null); }
   };
   const removeProfile = (id) => run(id, () => remove(id));
@@ -118,6 +121,16 @@ export default function SpyTool({ activeUrl = "" }) {
 
   return (
     <div className="space-y-4">
+      <section className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3" aria-label="Rotinas automáticas">
+        <div className="min-w-0">
+          <label htmlFor="spy-auto" className="block text-sm font-medium">Rotinas automáticas</label>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {dailyOff ? "Desligadas: só salvar perfis, visitá-los e medir um por vez." : "Passada diária, Reels e stories rodam sozinhos neste navegador."}
+          </p>
+        </div>
+        <Switch id="spy-auto" checked={!dailyOff} aria-label="Rotinas automáticas"
+          onCheckedChange={(v) => saveAuto(v).catch(() => setError("Não consegui salvar essa opção."))} />
+      </section>
       <section className="rounded-xl border border-border bg-card p-3 space-y-2.5" aria-label="Perfil da aba ativa">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Perfil da aba ativa</h2>
         {active ? <>
@@ -137,7 +150,7 @@ export default function SpyTool({ activeUrl = "" }) {
       {configured && profiles.length > 0 && <section className="rounded-xl border border-border bg-card p-3 space-y-2.5" aria-label="Medição">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-fg/45">Medição</h2>
-          <button
+          {!dailyOff && <button
             type="button"
             disabled={runningPass || passRunning}
             className={buttonClass}
@@ -154,7 +167,7 @@ export default function SpyTool({ activeUrl = "" }) {
             title={passRunning ? "Já há uma medição em andamento" : "Medir todos os perfis agora"}
           >
             {runningPass ? "iniciando…" : passRunning ? "medindo…" : "Medir agora"}
-          </button>
+          </button>}
         </div>
         <ul className="space-y-1.5 text-[11px] leading-relaxed" aria-live="polite">
           {live.lines.map((line, i) => (
@@ -225,16 +238,16 @@ export default function SpyTool({ activeUrl = "" }) {
                     {reelsLine(p, state) && <p className="text-[11px] text-muted-foreground">{reelsLine(p, state)}</p>}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {p.platform === "facebook" && <button
+                    <button
                       type="button"
-                      disabled={busy != null || !!state.measuring}
+                      disabled={busy != null || (p.platform === "instagram" ? !!state.igBatch?.pending?.includes(p.key) : !!state.measuring)}
                       className={buttonClass}
                       onClick={() => measureOne(p.id)}
-                      title="Medir este perfil agora"
+                      title={p.platform === "instagram" ? "Medir este perfil agora (grade e Reels, numa aba em segundo plano)" : "Medir este perfil agora"}
                       aria-label={p.name ? `Medir ${p.name}` : `Medir perfil @${p.key}`}
                     >
                       <RotateCw className={`size-3.5 ${busy === p.id || state.measuring?.id === p.id ? "animate-spin" : ""}`} />
-                    </button>}
+                    </button>
                     <a href={profileUrl(p.platform, p.key)} target="_blank" rel="noreferrer" className={buttonClass}
                       title={p.platform === "instagram" ? "Abrir perfil para medir pela captura passiva" : "Abrir perfil"}
                       aria-label={`Abrir ${p.name || `perfil @${p.key}`}${p.platform === "instagram" ? " para medir" : ""}`}><ExternalLink className="size-3.5" /></a>

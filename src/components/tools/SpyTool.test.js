@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import SpyTool from "./SpyTool.jsx";
 
 const spy = vi.hoisted(() => ({ current: null }));
-vi.mock("@/lib/useSpy", () => ({ useSpy: () => spy.current }));
+vi.mock("@/lib/useSpy", () => ({ useSpy: () => spy.current, useSpyPrefs: () => [!spy.current.dailyOff, vi.fn(async () => {})] }));
 const base = () => ({
   profiles: [
     { id: "instagram:nasa", platform: "instagram", key: "nasa" },
@@ -21,14 +21,34 @@ const render = () => { document.body.innerHTML = renderToStaticMarkup(React.crea
 const section = (label) => document.querySelector(`section[aria-label="${label}"]`);
 
 describe("Spy individual measurement controls", () => {
-  it("offers passive profile navigation for Instagram and measurement for Facebook", () => {
+  it("offers a measurement button for both platforms and passive navigation for Instagram", () => {
     render();
     const [instagram, facebook] = section("Perfis salvos").querySelectorAll("li");
-    expect(instagram.querySelector('button[title="Medir este perfil agora"]')).toBeNull();
+    expect(instagram.querySelector('button[title^="Medir este perfil agora"]').getAttribute("aria-label")).toBe("Medir perfil @nasa");
     const link = instagram.querySelector("a");
     expect(link.getAttribute("href")).toBe("https://www.instagram.com/nasa/");
     expect(link.getAttribute("aria-label")).toMatch(/abrir.*medir/i);
     expect(facebook.querySelector('button[title="Medir este perfil agora"]')).not.toBeNull();
+  });
+});
+
+describe("routines switch", () => {
+  it("sits at the top, on, with Medir agora available", () => {
+    render();
+    const box = section("Rotinas automáticas");
+    expect(document.body.firstElementChild.firstElementChild).toBe(box);
+    expect(box.querySelector("#spy-auto").getAttribute("aria-checked")).toBe("true");
+    expect(box.textContent).toContain("rodam sozinhos neste navegador");
+    expect([...section("Medição").querySelectorAll("button")].some((b) => b.textContent === "Medir agora")).toBe(true);
+  });
+  it("off: says what still works, hides Medir agora, keeps the per-profile buttons", () => {
+    spy.current.dailyOff = true;
+    render();
+    const box = section("Rotinas automáticas");
+    expect(box.querySelector("#spy-auto").getAttribute("aria-checked")).toBe("false");
+    expect(box.textContent).toContain("Desligadas: só salvar perfis, visitá-los e medir um por vez.");
+    expect([...section("Medição").querySelectorAll("button")].some((b) => b.textContent === "Medir agora")).toBe(false);
+    expect(section("Perfis salvos").querySelectorAll('button[title^="Medir este perfil agora"]')).toHaveLength(2);
   });
 });
 

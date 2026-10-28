@@ -24,6 +24,7 @@ import {
   SPY_RETRY_MS,
   SPY_STATE_KEY,
   SPY_THUMB_URLS_KEY,
+  autoOn,
   dayKey,
   dueProfiles,
   emptySpyQueue,
@@ -207,16 +208,16 @@ export async function scheduleSpy() {
   try {
     const settings = await deps.readSyncSettings();
     const r = await chrome.storage.local.get([SPY_PREFS_KEY, SPY_KEY, SPY_STATE_KEY]);
-    const prefs = r[SPY_PREFS_KEY] ?? { daily: true };
+    const prefs = r[SPY_PREFS_KEY] || {};
     const spy = r[SPY_KEY] || { profiles: {} };
     const state = r[SPY_STATE_KEY] || emptySpyState();
 
     const isConfigured = isSyncConfigured(settings);
-    const dailyOn = prefs.daily !== false;
+    const dailyOn = autoOn(prefs);
 
     if (!isConfigured || (!dailyOn && !manualPending(state))) {
       await chrome.alarms.clear("fbw-spy-tick");
-      serializeIg(() => closeIgBatch({ why: !isConfigured ? "acervo não configurado" : "medição desligada em Opções" })).catch(() => {});
+      serializeIg(() => closeIgBatch({ why: !isConfigured ? "acervo não configurado" : "rotinas desligadas" })).catch(() => {});
       return;
     }
     // Daily pass off: only what "Medir agora" queued keeps the worker ticking.
@@ -867,7 +868,7 @@ async function closeIgBatch({ abandoned = false, why = null } = {}) {
     } catch { /* tab already closed */ }
   }
 }
-async function advanceIgBatch({ manual = false } = {}) {
+async function advanceIgBatch({ manual = false, only = null } = {}) {
   const settings = await deps.readSyncSettings();
   const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
   const now = Date.now();
@@ -875,13 +876,13 @@ async function advanceIgBatch({ manual = false } = {}) {
   const profiles = r[SPY_KEY]?.profiles || {};
   let batch = state.igBatch;
   // The daily switch stops the automatic batch only; a manual one runs regardless.
-  const dailyOff = r[SPY_PREFS_KEY]?.daily === false && !manual && !batch?.manualAt;
+  const dailyOff = !autoOn(r[SPY_PREFS_KEY]) && !manual && !batch?.manualAt;
   if (!isSyncConfigured(settings) || dailyOff || isBlocked(state, "instagram", now)) {
     if (manual && isBlocked(state, "instagram", now)) {
       await logSpy("instagram", "warn", `Medir agora não abriu o Instagram: em pausa até ${clockText(state.blocked.instagram)} (${errorText(state.blockedReason?.instagram || "rate_limited")})`);
     }
     await closeIgBatch({ why: isBlocked(state, "instagram", now) ? "Instagram em pausa"
-      : !isSyncConfigured(settings) ? "acervo não configurado" : "medição desligada em Opções" });
+      : !isSyncConfigured(settings) ? "acervo não configurado" : "rotinas desligadas" });
     return;
   }
   if (batch && (now - batch.startedAt >= 900000 || dayKey(batch.startedAt) !== dayKey(now))) {
@@ -892,7 +893,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     // A click during a running batch widens it: every profile it has not read yet.
     const widened = { ...batch, manualAt: batch.manualAt || batch.startedAt };
     const extra = Object.values(profiles)
-      .filter((p) => p?.platform === "instagram" && !batch.pending.includes(p.key) && igStillPending(p, widened, state) && !igViewsFresh(state, p, now))
+      .filter((p) => p?.platform === "instagram" && (!only || p.key === only) && !batch.pending.includes(p.key) && igStillPending(p, widened, state) && !igViewsFresh(state, p, now))
       .sort(byMeasured(state)).map((p) => p.key);
     batch = { ...widened, pending: [...batch.pending, ...extra],
       total: Math.max(batch.total || 0, batch.pending.length) + extra.length };
@@ -909,7 +910,8 @@ async function advanceIgBatch({ manual = false } = {}) {
     const limit = igLimit(r[SPY_PREFS_KEY]);
     const remaining = limit - igDailyCount(state, now);
     // "Medir agora" reads every Instagram profile; the daily pass only the due ones.
-    const saved = manual ? Object.values(profiles).filter((p) => p && p.removedAt == null) : [];
+    // `only`: one profile measured by hand, the same batch with a list of one.
+    const saved = manual ? Object.values(profiles).filter((p) => p && p.removedAt == null && (!only || p.key === only)) : [];
     const fresh = saved.filter((p) => p.platform === "instagram" && igViewsFresh(state, p, now)).length;
     const candidates = manual ? saved.filter((p) => !igViewsFresh(state, p, now)) : dueProfiles(profiles, state, now);
     const pending = candidates
@@ -920,7 +922,8 @@ async function advanceIgBatch({ manual = false } = {}) {
       if (manual && remaining <= 0) {
         await logSpy("instagram", "warn", `Limite de ${limit} leituras do Instagram hoje já atingido · Medir agora volta amanhã (o limite se ajusta em Opções)`);
       } else if (manual && fresh) {
-        await logSpy("instagram", "info", "Medir agora: todos os perfis do Instagram tiveram as views lidas nas últimas 2 h");
+        await logSpy("instagram", "info", only ? `@${only}: views lidas nas últimas 2 h · nada a reler agora`
+          : "Medir agora: todos os perfis do Instagram tiveram as views lidas nas últimas 2 h");
       }
       return;
     }
@@ -974,7 +977,7 @@ async function advanceIgBatch({ manual = false } = {}) {
     state = currentR[SPY_STATE_KEY] || state;
     const live = currentR[SPY_KEY]?.profiles || {};
     batch.pending = batch.pending.filter((key) => igStillPending(live[spyId("instagram", key)], batch, state));
-    const stop = currentR[SPY_PREFS_KEY]?.daily === false && !batch.manualAt ? "medição desligada em Opções"
+    const stop = !autoOn(currentR[SPY_PREFS_KEY]) && !batch.manualAt ? "rotinas desligadas"
       : isBlocked(state, "instagram") ? "Instagram em pausa"
       : !batch.pending.length ? "nada mais a ler"
       : igDailyCount(state) >= igLimit(currentR[SPY_PREFS_KEY]) ? `limite de ${igLimit(currentR[SPY_PREFS_KEY])} leituras por dia atingido` : null;
@@ -1011,6 +1014,13 @@ async function advanceIgBatch({ manual = false } = {}) {
     await recordProfileError(spyId("instagram", batch.current), "network", igReading(batch));
     await closeIgBatch();
   }
+}
+/** "Medir" on one Instagram profile: a manual batch of that profile alone (grid and Reels), routines on or off. */
+export async function measureIgProfile(profile) {
+  await serializeIg(() => advanceIgBatch({ manual: true, only: profile.key }));
+  const batch = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY]?.igBatch;
+  scheduleSpy().catch(() => {});
+  return batch?.current === profile.key || batch?.pending?.includes(profile.key) ? { ok: true } : { ok: false, error: "not_queued" };
 }
 // Posts in a saved profile's grid, with their publication time, for posts per
 // day. The bridge sends each one once per document; the hub keeps each once.
@@ -1162,7 +1172,7 @@ function pickReelsWork(profiles, state, now = Date.now()) {
 async function startReelsJob() {
   const settings = await deps.readSyncSettings();
   const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
-  if (!isSyncConfigured(settings) || r[SPY_PREFS_KEY]?.daily === false) return null;
+  if (!isSyncConfigured(settings) || !autoOn(r[SPY_PREFS_KEY])) return null;
   const now = Date.now();
   const state = r[SPY_STATE_KEY] || emptySpyState(now);
   const work = pickReelsWork(r[SPY_KEY]?.profiles, state, now);
@@ -1241,7 +1251,7 @@ async function stepReelsJob(job) {
   const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
   const state = r[SPY_STATE_KEY] || emptySpyState(now);
   const profile = r[SPY_KEY]?.profiles?.[job.profileId];
-  if (!profile || profile.removedAt != null || r[SPY_PREFS_KEY]?.daily === false || isBlocked(state, "facebook", now)) {
+  if (!profile || profile.removedAt != null || !autoOn(r[SPY_PREFS_KEY]) || isBlocked(state, "facebook", now)) {
     return finishReelsJob(job, { logged: !profile || profile.removedAt != null });
   }
   if (now - job.startedAt > REELS_JOB_MAX_MS) return finishReelsJob(job);
@@ -1419,12 +1429,17 @@ export async function spyTick({ manual = false } = {}) {
     const prefs = await chrome.storage.local.get(SPY_PREFS_KEY);
     // The daily switch stops only the automatic pass: "Medir agora" and the work
     // it queued run regardless.
-    const dailyOn = prefs[SPY_PREFS_KEY]?.daily !== false;
-    if (!dailyOn && !manual && !manualPending(state)) {
-      await serializeIg(() => closeIgBatch({ why: "medição desligada em Opções" }));
+    const dailyOn = autoOn(prefs[SPY_PREFS_KEY]);
+    // Routines off: "Medir agora" is refused; only a profile measured by hand
+    // (a batch with manualAt) keeps the worker ticking.
+    if (!dailyOn && manual) {
+      await logSpy(null, "warn", "Rotinas desligadas · ligue no topo da aba Spy para medir todos os perfis");
+      return { ok: false, error: "disabled" };
+    }
+    if (!dailyOn && !manualPending(state)) {
+      await serializeIg(() => closeIgBatch({ why: "rotinas desligadas" }));
       return { ok: true, skipped: "disabled" };
     }
-    if (!dailyOn && manual) await logSpy(null, "info", "Medição diária desligada em Opções · o Medir agora roda mesmo assim");
 
     // 1. Refresh profile list if older than 10 minutes or manual
     const tenMinAgo = now - 10 * 60 * 1000;
@@ -1523,10 +1538,10 @@ chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
 
   (async () => {
     try {
-      const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY]);
+      const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
       const spy = r[SPY_KEY] || { profiles: {} };
       const profile = spy.profiles?.[pid];
-      if (!profile || profile.removedAt != null) return;
+      if (!profile || profile.removedAt != null || !autoOn(r[SPY_PREFS_KEY])) return;
 
       const now = Date.now();
       const last = profile.lastMeasuredAt || 0;

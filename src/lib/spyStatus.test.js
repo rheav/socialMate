@@ -83,9 +83,9 @@ describe("activityNow", () => {
     expect(a.lines).toEqual([expect.objectContaining({ text: "Nada em andamento · próxima passada automática às 17:00" })]);
   });
 
-  it("says when the daily pass is off and Medir agora is the only way", () => {
+  it("says when the routines are off and what still works", () => {
     const a = activityNow({}, profiles, { now, dailyOff: true });
-    expect(a.lines[0].text).toBe("Nada em andamento · medição diária desligada em Opções; o Medir agora continua funcionando");
+    expect(a.lines[0].text).toBe("Nada em andamento · rotinas desligadas; salvar, visitar e medir um perfil por vez continuam");
   });
 
   it("follows an Instagram batch: progress, the profile being read, the wait and the queue", () => {

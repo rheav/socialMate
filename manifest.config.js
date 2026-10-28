@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.20.1",
+  version: "1.21.0",
   // @private
   version_name:
-    "1.20.1 — Reels de nicho falha fechado; run retomado para no login",
+    "1.21.0 — Rotinas automáticas: chave no topo da aba Spy, desligada por padrão; medir um perfil do Instagram",
   // @end-private
   icons: ICONS,
   action: {

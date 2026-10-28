@@ -17,6 +17,22 @@ export function igLimit(prefs) {
   const n = Math.round(Number(prefs?.igLimit));
   return Number.isFinite(n) && n >= 1 ? Math.min(n, IG_SPY_LIMIT_MAX) : IG_SPY_LIMIT;
 }
+// The automatic routines (daily pass, Facebook reels, stories, the hub's
+// collection jobs) hang on one switch at the top of the Spy tab
+// (fbw_spy_prefs.daily). Saving a profile, visiting it and measuring one by
+// hand work either way.
+// @private
+// Off until the owner turns it on: a fresh browser profile is fragile, and the
+// list it inherits from the hub is everyone's.
+export function autoOn(prefs) {
+  return prefs?.daily === true;
+}
+// @end-private
+// @public
+export function autoOn(prefs) {
+  return prefs?.daily !== false;
+}
+// @end-public
 
 export function emptySpyQueue() {
   return {

@@ -325,24 +325,17 @@ function TxPenaltySetting() {
 
 // @public
 // ---- Spy ----
-// The daily pass and the Instagram budget. Readings stay in this browser.
+// The Instagram budget; the routines switch is at the top of the Spy tab. Readings stay in this browser.
 function SpySection() {
-  const [spyDaily, saveSpyDaily, spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
+  const [, , spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
   const [error, setError] = useState(null);
   const failed = () => setError("Não consegui salvar essa opção.");
   return (
     <Section title="Spy" hint="Perfis salvos na área Spy. As leituras ficam só neste navegador.">
-      <Row
-        id="opt-spy-daily"
-        label="Atualizar perfis salvos uma vez por dia"
-        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão. Desligada, o “Medir agora” da área Spy continua funcionando."
-        checked={spyDaily}
-        onChange={(v) => saveSpyDaily(v).catch(failed)}
-      />
       <NumberRow
         id="opt-spy-ig-limit"
         label="Leituras do Instagram por dia"
-        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária e o “Medir agora”. O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
+        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária, o “Medir agora” e o medir de um perfil (as rotinas ligam no topo da aba Spy). O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
         value={spyIgLimit}
         min={1}
         max={IG_SPY_LIMIT_MAX}
@@ -363,7 +356,7 @@ function SpySection() {
 // exactly like everything working.
 function HubSection() {
   const { settings, state, ready, save, ensureHost, ping, syncAll } = useSyncSettings();
-  const [spyDaily, saveSpyDaily, spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
+  const [, , spyIgLimit, saveSpyIgLimit] = useSpyPrefs();
   const [busy, setBusy] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -451,18 +444,10 @@ function HubSection() {
         onChange={(v) => save({ enabled: v })}
       />
 
-      <Row
-        id="opt-spy-daily"
-        label="Atualizar perfis salvos uma vez por dia"
-        hint="A extensão consulta cada perfil salvo no Instagram e no Facebook uma vez por dia, usando a sua sessão, e manda só os números para o acervo. Desligada, o “Medir agora” da área Spy continua funcionando."
-        checked={spyDaily}
-        onChange={(v) => saveSpyDaily(v).catch(() => setResult({ ok: false, error: "Não consegui salvar essa opção." }))}
-      />
-
       <NumberRow
         id="opt-spy-ig-limit"
         label="Leituras do Instagram por dia"
-        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária e o “Medir agora”. O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
+        hint={`Cada leitura abre a página de um perfil numa aba em segundo plano, uma a cada 20–40 s, e vale para a passada diária, o “Medir agora” e o medir de um perfil (as rotinas ligam no topo da aba Spy). O Instagram não publica um limite: mais leituras aumentam o risco de verificação ou bloqueio temporário da conta. Padrão ${IG_SPY_LIMIT}, máximo ${IG_SPY_LIMIT_MAX}.`}
         value={spyIgLimit}
         min={1}
         max={IG_SPY_LIMIT_MAX}

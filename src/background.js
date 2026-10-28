@@ -55,6 +55,7 @@ import {
   SPY_PREFS_KEY,
   SPY_QUEUE_KEY,
   SPY_STATE_KEY,
+  autoOn,
   emptySpyQueue,
   emptySpyState,
   mergeList,
@@ -69,6 +70,7 @@ import {
   finishIgDeep,
   flushSpy,
   measureFbProfile,
+  measureIgProfile,
   mutateSpy,
   observeIgProfile,
   pauseInstagram,
@@ -134,9 +136,12 @@ const analysisCollect = createAnalysisCollect({
 // @private
 const analysisRelay = createAnalysisRelay({
   WebSocketImpl: globalThis.WebSocket,
+  // Routines off (the switch at the top of the Spy tab): no line to the hub, so
+  // it never hands this browser a collection job or a command.
   settings: async () => {
     const s = await readSyncSettings();
-    return isSyncReady(s) ? s : null;
+    const prefs = (await chrome.storage.local.get(SPY_PREFS_KEY))[SPY_PREFS_KEY];
+    return isSyncReady(s) && autoOn(prefs) ? s : null;
   },
   storage: chrome.storage.local,
   collect: analysisCollect,
@@ -293,6 +298,9 @@ chrome.runtime.onInstalled.addListener(() => {
   syncBadge();
   // @end-private
   reinjectContentScripts();
+  // @private
+  settleRoutinesSwitch().catch(() => {});
+  // @end-private
   scheduleSpy().catch(() => {});
   recoverSpySync().catch(() => {});
   // Per-run event telemetry (and the JSON it used to download after every run)
@@ -303,6 +311,17 @@ chrome.runtime.onInstalled.addListener(() => {
   // stored a pick get it once, here (see lib/transcriptionLanguage.js).
   applyTranscriptLanguageDefaultOnce().catch(() => {});
 });
+
+// @private
+// 1.21.0 ships the routines switch off (lib/spyStore.js autoOn). A browser that
+// had already run passes keeps them on; every other install gets the key
+// written once, so a later update never flips it.
+async function settleRoutinesSwitch() {
+  const r = await chrome.storage.local.get([SPY_PREFS_KEY, SPY_STATE_KEY]);
+  if (r[SPY_PREFS_KEY]?.daily != null) return;
+  await chrome.storage.local.set({ [SPY_PREFS_KEY]: { ...(r[SPY_PREFS_KEY] || {}), daily: !!r[SPY_STATE_KEY]?.lastPassAt } });
+}
+// @end-private
 
 // Re-inject content scripts into already-open platform tabs after an extension
 // reload/update — otherwise every open FB/IG/TT tab silently loses its engine
@@ -434,7 +453,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes[SPY_QUEUE_KEY] || changes[SYNC_KEY]) recoverSpySync().catch(() => {});
   // @private
-  if (changes[SYNC_KEY]) analysisRelay.ensure().catch(() => {});
+  if (changes[SYNC_KEY] || changes[SPY_PREFS_KEY]) analysisRelay.ensure().catch(() => {});
   // @end-private
 });
 
@@ -2160,12 +2179,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
           }
 
-          if (profile.platform === "facebook") {
-            const res = await measureFbProfile(profile, "visit", fetch, { force: true });
-            sendResponse(res);
-          } else {
-            sendResponse({ ok: false, code: "passive_only", error: "No Instagram, abra o perfil para medir pela captura passiva." });
-          }
+          sendResponse(profile.platform === "facebook"
+            ? await measureFbProfile(profile, "visit", fetch, { force: true })
+            : await measureIgProfile(profile));
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }

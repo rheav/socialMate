@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.21.0] — 2026-10-28
+
+### Added
+- **Routines switch at the top of the Spy tab ("Rotinas automáticas").** One switch now covers everything the Spy does on its own: the 23:00 pass, the Facebook reels job, the stories passes, the measurement of a Facebook profile when it is visited, and the hub's line (the WebSocket that brings the Top's collection jobs and "Coletar stories"). Off, the extension only saves profiles, sends what the owner visits (passive capture) and measures one profile at a time. **The private build ships it off:** a browser profile that just got the extension inherits the hub's whole list, and a fragile account should not read a hundred profiles on its first night. Installs that had already run passes keep the routines on (`settleRoutinesSwitch`, once, on update); the public build keeps them on by default. The switch replaces "Atualizar perfis salvos uma vez por dia" in Opções (same key, `fbw_spy_prefs.daily`, read through `autoOn()`); the Instagram cap stays there. `src/lib/spyStore.js`, `src/background/spy.js`, `src/background/spyStories.js`, `src/background.js`, `src/components/tools/SpyTool.jsx`, `src/components/ui/OptionsModal.jsx`.
+- **"Medir" on one Instagram profile.** The per-profile button the Facebook rows had is now on Instagram rows too: a manual batch of that profile alone (followers, the week's grid and the Reels tab, in the usual background tab), routines on or off. It counts against the day's Instagram cap and skips a profile whose views were read in the last 2 h, like "Medir agora". `FBW_SPY_MEASURE_ONE` → `measureIgProfile`.
+
+### Changed
+- With the routines off, "Medir agora" (every profile) is refused and hidden; the panel reads "rotinas desligadas" where it said "medição desligada em Opções". A stories pass in progress stops at its next tick when the switch goes off.
+
 ## [1.20.1] — 2026-10-28
 
 ### Fixed
