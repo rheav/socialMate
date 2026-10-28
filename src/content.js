@@ -1143,16 +1143,27 @@ import {
       comments: parseCountOrZero(cb && cb.innerText),
     };
   }
-  // Posts are the direct children of [role="feed"] carrying a like control. FB's
+  // The feed's post units, in order. [VERIFIED live en 2026-10-28]: the home feed
+  // no longer has a [role="feed"] — the list is a plain div — and each post is the
+  // outermost [aria-labelledby] unit inside [role="main"], one per list item. The old
+  // container is still tried first (other FB surfaces may keep it).
+  function fbFeedPosts() {
+    const feed = document.querySelector('[role="feed"]');
+    if (feed) return feed.children;
+    const main = document.querySelector('[role="main"]');
+    if (!main) return [];
+    return Array.from(main.querySelectorAll("[aria-labelledby]")).filter(
+      (el) => !el.parentElement?.closest('[role="main"] [aria-labelledby]'),
+    );
+  }
+  // Posts are the feed's units (fbFeedPosts) carrying a like control. FB's
   // feed only grows (children are never removed), so this gates on the CHEAP
   // checks first — has-like-control, then in-viewport — and only computes the
   // expensive keys (post/author id, menu) for the one in-view candidate it
   // returns. Enumerating + hashing every accumulated child each pick was O(N)
   // on a feed that keeps growing.
   function fbPickPost() {
-    const feed = document.querySelector('[role="feed"]');
-    if (!feed) return null;
-    for (const child of feed.children) {
+    for (const child of fbFeedPosts()) {
       const likeBtn = fbBarLikeBtn(child);
       if (!likeBtn) continue; // not a post
       if (!inViewport(likeBtn)) continue; // off-screen — skip before any hashing
@@ -1722,8 +1733,7 @@ import {
 
         const p = fbPickPost();
         if (!p) {
-          const feedCount =
-            document.querySelector('[role="feed"]')?.children.length || 0;
+          const feedCount = fbFeedPosts().length;
           if (feedCount > lastFeedCount) {
             lastFeedCount = feedCount;
             emptyScrolls = 0;

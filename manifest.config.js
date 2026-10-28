@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.19.0",
+  version: "1.19.1",
   // @private
   version_name:
-    "1.19.0 — Build público (socialRadar) a partir do mesmo código",
+    "1.19.1 — Aquecer no feed do Facebook volta a achar os posts",
   // @end-private
   icons: ICONS,
   action: {

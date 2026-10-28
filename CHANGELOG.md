@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.19.1] — 2026-10-28
+
+### Fixed
+- **Warm, Facebook feed mode: the engine finds posts again instead of scrolling until it gives up.** Measured live 2026-10-28 on facebook.com (en): the home feed has no `[role="feed"]` any more (0 on the page, before and after scrolling); the list is a plain div, one post per item, each post the outermost `[aria-labelledby]` unit inside `[role="main"]`. `fbPickPost` only looked inside `[role="feed"]`, so it returned nothing forever. New `fbFeedPosts()` tries `[role="feed"]` first and falls back to those units; the empty-scroll progress count uses it too. Verified by running the engine's own code read-only against the live feed: 4 posts picked in 8 scrolls, each with its post key, author, menu and Like control; the unit count grew 1 → 19. `src/content.js`.
+
 ## [1.19.0] — 2026-10-28
 
 ### Added
