@@ -43,10 +43,15 @@ export async function launch({ extension, port = 9334 } = {}) {
     if (!extId) throw new Error("extension service worker not found");
   }
 
-  async function open(url, { width = 1280, height = 800, scale = 1 } = {}) {
+  // `preload`: a script that runs before the page's own on every load of this target.
+  async function open(url, { width = 1280, height = 800, scale = 1, preload } = {}) {
     const { result: { targetId } } = await send("Target.createTarget", { url: "about:blank" });
     const { result: { sessionId } } = await send("Target.attachToTarget", { targetId, flatten: true });
     await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: scale, mobile: false }, sessionId);
+    if (preload) {
+      await send("Page.enable", {}, sessionId); // addScriptToEvaluateOnNewDocument is ignored without it
+      await send("Page.addScriptToEvaluateOnNewDocument", { source: preload }, sessionId);
+    }
     await send("Page.navigate", { url }, sessionId);
     await wait(1800);
     const ev = async (expression) => {

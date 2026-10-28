@@ -1,0 +1,55 @@
+---
+// /docs (pt-BR) and /en/docs. Text: src/content/docs/<lang>/guide.md; screenshots: public/images/docs/
+// (regenerate with docs/store/tools/capture.mjs in the private repo).
+import { getEntry, render } from "astro:content";
+import Footer from "../../components/Footer.astro";
+import Navbar from "../../components/Navbar.astro";
+import Layout from "../../layouts/Layout.astro";
+import { getLangFromUrl, localeStaticPaths, useTranslations } from "../../i18n/ui";
+
+export function getStaticPaths() {
+  return localeStaticPaths();
+}
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const entry = await getEntry("docs", `${lang}/guide`);
+if (!entry) throw new Error(`Missing guide ${lang}`);
+const { Content, headings } = await render(entry);
+const toc = headings.filter((h) => h.depth === 2);
+---
+
+<Layout
+  title={entry.data.title}
+  description={entry.data.description}
+  ogType="article"
+  breadcrumbs={[{ name: entry.data.title, path: "/docs" }]}
+>
+  <Navbar />
+  <main class="pt-32 pb-24 px-6">
+    <div class="max-w-6xl mx-auto lg:grid lg:grid-cols-[13rem_1fr] lg:gap-12">
+      <nav class="hidden lg:block" aria-label={t("docs.toc")}>
+        <div class="sticky top-28">
+          <p class="text-xs font-semibold uppercase tracking-wider text-theme-muted mb-3">{t("docs.toc")}</p>
+          <ul class="space-y-1.5 text-sm">
+            {toc.map((h) => (
+              <li><a href={`#${h.slug}`} class="text-theme-muted hover:text-theme transition-colors">{h.text}</a></li>
+            ))}
+          </ul>
+        </div>
+      </nav>
+      <article class="min-w-0 max-w-4xl">
+        <header class="mb-10">
+          <h1 class="text-3xl md:text-4xl font-bold tracking-tight mb-3">{entry.data.title}</h1>
+          <p class="text-sm text-theme-muted">
+            {t("common.lastUpdated")} <time datetime={entry.data.updatedISO}>{entry.data.updated}</time>
+          </p>
+        </header>
+        <div class="md-content docs-content">
+          <Content />
+        </div>
+      </article>
+    </div>
+  </main>
+  <Footer />
+</Layout>

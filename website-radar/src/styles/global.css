@@ -704,6 +704,48 @@ body {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* ===== DOCS (/docs) ===== */
+.docs-content h2 {
+  clear: both;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+  scroll-margin-top: 6rem;
+}
+.docs-content h3 {
+  scroll-margin-top: 6rem;
+}
+.docs-content .shot img {
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.35);
+}
+.docs-content .shot figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+/* Side panel captures (400 px wide in the browser) sit beside the text. */
+.docs-content .shot-panel {
+  float: right;
+  clear: right; /* the next capture goes below this one, never beside it */
+  width: 300px;
+  margin: 0.5rem 0 1.5rem 2rem;
+}
+/* A 100%-wide table cannot sit beside a capture and would drop below it, leaving a hole. */
+.docs-content table {
+  width: auto;
+}
+.docs-content .shot-wide {
+  margin: 1.5rem 0;
+}
+@media (max-width: 768px) {
+  .docs-content .shot-panel {
+    float: none;
+    margin: 1.5rem auto;
+  }
+}
+
 /* ===== MAGIC UI (registry keyframes + site-theme glue) ===== */
 
 /* Dark = <html> without .light (set from the shared `theme` cookie), so the

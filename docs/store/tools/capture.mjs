@@ -24,6 +24,48 @@ const IG = [
 ];
 const FB = [["estudio.venus.demo", "Estúdio Vênus", 154000, 20]];
 
+// Runs before the panel's own code (cdp.mjs `preload`), so the panel follows this tab.
+const FAKE_IG_TAB = `(() => {
+  const TAB = { id: 424242, windowId: -2, index: 0, active: true, url: "https://www.instagram.com/atelie.lunar.demo/reels/", title: "Ateliê Lunar (@atelie.lunar.demo)" };
+  const img = async (w, h, hue) => {
+    const c = new OffscreenCanvas(w, h), g = c.getContext("2d"), grd = g.createLinearGradient(0, 0, w, h);
+    grd.addColorStop(0, "hsl(" + hue + ",58%,52%)"); grd.addColorStop(1, "hsl(" + ((hue + 60) % 360) + ",55%,24%)");
+    g.fillStyle = grd; g.fillRect(0, 0, w, h); g.globalAlpha = .22; g.fillStyle = "#fff"; g.beginPath(); g.arc(w * .68, h * .32, w * .3, 0, 7); g.fill();
+    const blob = await c.convertToBlob({ type: "image/jpeg", quality: .8 });
+    return await new Promise((r) => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(blob); });
+  };
+  let records = null;
+  const list = async () => {
+    if (!records) {
+      records = [];
+      const now = Date.now() / 1000;
+      for (let i = 0; i < 12; i++) {
+        const wave = Math.abs(Math.sin(i * 1.9 + 1));
+        const views = Math.round(1240000 * (0.05 + wave * 0.9) * (i % 4 === 1 ? 2.6 : 1));
+        records.push({ pk: String(3170000000000100000n + BigInt(i)), code: "DemoIg" + i, username: "atelie.lunar.demo", full_name: "Ateliê Lunar",
+          media_type: i % 5 === 3 ? "carousel" : "video", video: i % 5 !== 3, play_count: views, like_count: Math.round(views * (0.03 + wave * 0.04)),
+          comment_count: Math.round(views * (0.001 + wave * 0.002)), repost: Math.round(views * 0.0004), taken_at: Math.round(now - (i * 30 + 6) * 3600),
+          user_follower_count: 1240000, duration: 14 + i * 3, caption: "Post de demonstração", surface: "profile:atelie.lunar.demo", thumb: await img(180, 320, (190 + i * 27) % 360) });
+      }
+    }
+    return { records, surface: "profile:atelie.lunar.demo", surfaces: [{ key: "profile:atelie.lunar.demo", count: records.length }] };
+  };
+  const t = chrome.tabs, query = t.query.bind(t), get = t.get.bind(t), send = t.sendMessage.bind(t);
+  const done = (p, cb) => (typeof cb === "function" ? void p.then(cb) : p);
+  t.query = (info, cb) => done(info && (info.active || /instagram/.test(String(info.url))) ? Promise.resolve([TAB]) : query(info), cb);
+  t.get = (id, cb) => done(id === TAB.id ? Promise.resolve(TAB) : get(id), cb);
+  t.sendMessage = (id, msg, ...rest) => {
+    if (id !== TAB.id) return send(id, msg, ...rest);
+    const cb = rest.find((x) => typeof x === "function");
+    return done(msg && msg.type === "FBW_IG_LIST" ? list() : Promise.resolve({ ok: true }), cb);
+  };
+})();`;
+const chrome_set = async (b, items) => {
+  const p = await b.open(`chrome-extension://${b.extId}/index.html`, { width: 400, height: 300 });
+  await p.ev(`chrome.storage.local.set(${JSON.stringify(items)}).then(() => true)`);
+  await p.close();
+};
+
 const b = await launch({ extension: process.argv[2] || join(ROOT, "dist-public") });
 try {
   const panel = await b.open(`chrome-extension://${b.extId}/index.html`, { width: 400, height: 780, scale: 2 });
@@ -101,13 +143,24 @@ try {
       await mk("DemoPt2", "instagram", "atelie.lunar.demo", 190, "br", "Três cartas para a sua semana. A primeira fala do que você precisa deixar ir. A segunda mostra onde está a sua força agora. A terceira é o conselho para os próximos dias.", 1270000),
       await mk("DemoEn3", "tiktok", "cafe.astro.demo", 40, "en", "Mercury is moving into a new sign this week. Slow down before signing anything important. Use the extra time to review your plans and talk things through.", 236000),
     ];
-    await chrome.storage.local.set({ fbw_transcripts: Object.fromEntries(items.map((r) => [r.videoId, r])), fbw_transcript_language: "auto" });
+    // Saved posts (Arquivo > Salvos): the shape buildSavedEntry writes.
+    const saved = {};
+    const SAVED = [["DemoS1", "instagram", "atelie.lunar.demo", 200, 1820000, 96000, 2100, "video"], ["DemoS2", "tiktok", "cafe.astro.demo", 30, 940000, 61000, 880, "video"],
+      ["DemoS3", "instagram", "taro.do.dia.demo", 290, 512000, 30400, 1240, "carousel"], ["DemoS4", "facebook", "estudio.venus.demo", 10, 388000, 12800, 430, "video"],
+      ["DemoS5", "instagram", "ritual.cosmico.demo", 340, 207000, 15100, 390, "video"], ["DemoS6", "tiktok", "mapa.signos.demo", 220, 131000, 9700, 260, "video"]];
+    for (const [id, platform, user, hue, views, like, comment, type] of SAVED) {
+      const i = Object.keys(saved).length;
+      saved[id] = { schema: 2, videoId: id, platform, thumb: await __img(180, 320, hue), caption: "Post de demonstração", author: { name: user, url: null },
+        counts: { like, comment, views, share: null, save: null }, code: id, pk: null, media_type: type, sourceUrl: null, updatedAt: Date.now() - i * 36e5 };
+    }
+    await chrome.storage.local.set({ fbw_transcripts: Object.fromEntries(items.map((r) => [r.videoId, r])), fbw_transcript_language: "auto", fbw_saved: saved });
     return true;
   })()`);
 
   const click = (label) => panel.ev(`(() => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim() === ${JSON.stringify(label)} || x.title === ${JSON.stringify(label)}); b?.click(); return !!b; })()`);
   await panel.ev("location.reload(); true");
   await wait(2500);
+  writeFileSync(join(RAW, "panel-home.png"), await panel.shot());
   await click("Spy");
   await wait(2500);
   writeFileSync(join(RAW, "panel-spy.png"), await panel.shot());
@@ -116,7 +169,33 @@ try {
   await panel.ev(`(() => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim().startsWith("Transcrição")); b?.click(); return !!b; })()`);
   await wait(800);
   writeFileSync(join(RAW, "panel-archive.png"), await panel.shot());
+  await click("Salvos");
+  await wait(1200);
+  writeFileSync(join(RAW, "panel-saved.png"), await panel.shot());
+  await click("Opções");
+  await wait(1200);
+  writeFileSync(join(RAW, "panel-options.png"), await panel.shot());
   await panel.close();
+
+  // Ordenar on a pretend Instagram tab: the panel's tab lookups and messages are
+  // answered in the page, with generated posts of a fictional account.
+  await chrome_set(b, { sw_ig_query: { version: 1, join: "all", sorts: [{ key: "views", dir: "desc" }], filters: [] } });
+  const ig = await b.open(`chrome-extension://${b.extId}/index.html`, { width: 400, height: 900, scale: 2, preload: FAKE_IG_TAB });
+  await wait(2500);
+  // The panel reopens on the last tab it showed: go back to Pesquisa, then Instagram, then Ordenar.
+  for (const label of ["Pesquisa", "Instagram", "Ordenar"]) {
+    await ig.ev(`(() => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim().startsWith(${JSON.stringify(label)}) || x.title === ${JSON.stringify(label)} || x.getAttribute("aria-label") === ${JSON.stringify(label)}); b?.click(); return !!b; })()`);
+    await wait(1500);
+  }
+  await wait(3000);
+  writeFileSync(join(RAW, "panel-ig-sort.png"), await ig.shot());
+  // The same grid narrowed by a filter, with the filter box open.
+  await ig.ev(`chrome.storage.local.set({ sw_ig_query: { version: 1, join: "all", sorts: [{ key: "views", dir: "desc" }, { key: "er", dir: "desc" }], filters: [{ field: "views", op: "gte", value: 500000, valueTo: null }] } }).then(() => true)`);
+  await wait(1500);
+  await ig.ev(`(() => { const b = [...document.querySelectorAll("button")].find((x) => x.textContent.trim().startsWith("Filtros")); b?.click(); return !!b; })()`);
+  await wait(1500);
+  writeFileSync(join(RAW, "panel-ig-filters.png"), await ig.shot());
+  await ig.close();
 
   for (const [name, hash, after] of [["dash-top", "#spy", null], ["dash-profiles", "#spy/perfis", null], ["dash-sheet", "#spy/perfis", "sheet"]]) {
     const d = await b.open(`chrome-extension://${b.extId}/dashboard.html${hash}`, { width: 1440, height: 900, scale: 1 });

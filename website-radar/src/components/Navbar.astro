@@ -60,6 +60,12 @@ const l = (path: string) => getLocalizedPath(lang, path);
       >
         {t("nav.faq")}
       </a>
+      <a
+        href={l("/docs")}
+        class="nav-link text-theme-muted text-sm px-3 py-2 rounded-lg relative z-10"
+      >
+        {t("nav.docs")}
+      </a>
     </div>
 
     <!-- Desktop Actions -->
@@ -116,6 +122,12 @@ const l = (path: string) => getLocalizedPath(lang, path);
         class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
       >
         {t("nav.faq")}
+      </a>
+      <a
+        href={l("/docs")}
+        class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
+      >
+        {t("nav.docs")}
       </a>
     <div class="border-t border-theme my-2"></div>
 

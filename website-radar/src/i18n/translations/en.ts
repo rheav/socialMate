@@ -8,6 +8,8 @@ export const en = {
   "nav.features": "Features",
   "nav.spy": "Spy",
   "nav.how": "How it works",
+  "nav.docs": "Guide",
+  "docs.toc": "On this page",
   "nav.faq": "FAQ",
   "nav.addToBrowser": "Download for Chrome",
   "nav.menu": "Menu",

@@ -10,6 +10,8 @@ export const ptBr: Record<TranslationKeys, string> = {
   "nav.features": "Recursos",
   "nav.spy": "Spy",
   "nav.how": "Como funciona",
+  "nav.docs": "Guia",
+  "docs.toc": "Nesta página",
   "nav.faq": "Perguntas",
   "nav.addToBrowser": "Baixar para o Chrome",
   "nav.menu": "Menu",

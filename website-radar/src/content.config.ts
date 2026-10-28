@@ -12,4 +12,10 @@ const legal = defineCollection({
   }),
 });
 
-export const collections = { legal };
+// The guide: "<lang>/guide" (src/content/docs/<lang>/guide.md), same frontmatter.
+const docs = defineCollection({
+  loader: glob({ pattern: "*/*.md", base: "./src/content/docs" }),
+  schema: legal.schema,
+});
+
+export const collections = { legal, docs };
