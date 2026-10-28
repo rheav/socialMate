@@ -39,12 +39,26 @@ const iconSize = size === "small" ? "h-6 w-6" : "h-8 w-8";
   >
   </div>
 
-  <!-- Chrome icon, spins on hover -->
-  <div class="relative z-10 flex items-center">
+  <!-- Browser Icons - overlapping with spin on hover -->
+  <div class="relative z-10 flex items-center -space-x-1.5">
     <img
       src="/images/chrome.svg"
       alt=""
       class={`${iconSize} transition-all duration-500 group-hover:rotate-[360deg]`}
+      width="32"
+      height="32"
+    />
+    <img
+      src="/images/edge.svg"
+      alt=""
+      class={`${iconSize} transition-all duration-500 group-hover:rotate-[360deg] group-hover:delay-75`}
+      width="32"
+      height="32"
+    />
+    <img
+      src="/images/brave.svg"
+      alt=""
+      class={`${iconSize} transition-all duration-500 group-hover:rotate-[360deg] group-hover:delay-150`}
       width="32"
       height="32"
     />
