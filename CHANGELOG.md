@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.20.0] — 2026-10-28
+
+### Added
+- **Warm, Reels: the niche-relevance gate now applies to Reels too.** With a `keyword` and `relevanceMin > 0` in `FBW_START` settings, a Reel is saved, liked or followed only when its caption's cosine to the keyword reaches `relevanceMin`; the rest are just watched, logged as `· fora do nicho (rel 0.07 "caption…") — só assistiu` / `· dentro do nicho (rel 0.29 "…")`. Until now the gate lived only in the posts loop (modes A/B). Why: a Reels feed has no niche URL — measured live 2026-10-28 on Facebook, `/search/reels/?q=` answers "This content isn't available right now" and the For-you feed of a warming account was 1 in 6 on-niche — so engaging only with on-niche Reels is how a niche reaches that feed. Off by default (`relevanceMin` 0), so the panel's runs are unchanged. Calibrated live with "manifestation soulmate twinflame": a twin-flame caption scored 0.29, tarot 0.13, unrelated captions -0.05–0.09; the orchestrator that sends these settings (adspower-autom) uses 0.2. `doVideoActions` in `src/content.js`.
+
 ## [1.19.1] — 2026-10-28
 
 ### Fixed

@@ -2114,6 +2114,27 @@ import {
   // ============================================================
   async function doVideoActions(A, c, watchedFull) {
     const per = persona();
+    // Niche gate. A Reels feed has no niche URL (measured 2026-10-28: FB's
+    // /search/reels/ is "not available", and the For-you feed of a warming
+    // account was 1 in 6 on-niche), so with a keyword + relevanceMin only reels
+    // whose caption is near the keyword get saved, liked or followed; the rest
+    // are just watched. Off by default (relevanceMin 0), as in the posts loop.
+    if (
+      S.relevanceMin > 0 &&
+      (S.keyword || "").trim() &&
+      (S.actions.save || S.actions.like || S.actions.follow)
+    ) {
+      const text =
+        (platformForHost() === "facebook" ? fbGetPostText(c) : "") ||
+        (c.innerText || "").slice(0, 600);
+      const { score } = await getRelevanceInfo(S.keyword, text, false);
+      const quote = `"${text.replace(/\s+/g, " ").trim().slice(0, 40)}"`;
+      if (score < S.relevanceMin) {
+        logLine(`· fora do nicho (rel ${score.toFixed(2)} ${quote}) — só assistiu`);
+        return;
+      }
+      logLine(`· dentro do nicho (rel ${score.toFixed(2)} ${quote})`);
+    }
     if (S.actions.save) {
       const ok = await A.save(c);
       if (ok) {
