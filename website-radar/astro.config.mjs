@@ -6,7 +6,7 @@ import { defineConfig } from "astro/config";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://socialradar.pages.dev", // shortcut: placeholder until a domain is chosen; also siteUrl in src/i18n/ui.ts
+  site: "https://socialradar.rheav.dev",
 
   // One served URL per page, no trailing slash: /privacy -> privacy.html.
   // Cloudflare Pages serves *.html without the extension, so canonical,

@@ -16,7 +16,7 @@ export const languages = {
 } as const;
 
 export const defaultLang = "pt-br" as const;
-export const siteUrl = "https://socialradar.pages.dev"; // shortcut: placeholder, same as astro.config.mjs
+export const siteUrl = "https://socialradar.rheav.dev";
 
 export type Lang = keyof typeof languages;
 export type { TranslationKeys };

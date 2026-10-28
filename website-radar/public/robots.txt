@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://socialradar.pages.dev/sitemap-index.xml
+Sitemap: https://socialradar.rheav.dev/sitemap-index.xml
