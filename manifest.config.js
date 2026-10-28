@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.20.0",
+  version: "1.20.1",
   // @private
   version_name:
-    "1.20.0 — Reels de nicho: só age no que é do nicho",
+    "1.20.1 — Reels de nicho falha fechado; run retomado para no login",
   // @end-private
   icons: ICONS,
   action: {

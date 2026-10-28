@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.20.1] — 2026-10-28
+
+### Fixed
+- **A resumed run no longer reloads the page forever on a Facebook login screen.** Measured 2026-10-28: a profile whose Facebook session had dropped kept bouncing between `/reel/` and `/index.php?next=…/reel/` ("Continuar como …"). The resume IIFE navigated to the mode's target before checking for a wall, and that saved-account page has no email/password fields, so `detectStop` did not see it. Now a resumed run checks the page first and halts (`barreira de login`), and `/index.php` or `/login` with a `next=` parameter counts as a login wall. `src/content.js`.
+- **The Reels niche gate fails closed.** `getRelevanceInfo` fails open (score 1) so a model hiccup never blocks the posts loop, where the score only nudges the like chance; in Reels the score decides save/like/follow outright, so a failed, errored or stalled model (no answer in 8 s) now means "only watched" (`· nicho indisponível (modelo não respondeu) — só assistiu`). The relevance model is preloaded when a gated Reels run starts. Checked live on Facebook: every reel scored and logged, nothing acted on with an unreachable bar.
+
 ## [1.20.0] — 2026-10-28
 
 ### Added

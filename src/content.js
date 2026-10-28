@@ -100,6 +100,7 @@ import {
   const MAX_COMMENTS_PER_HOUR = 10; // rolling hard ceiling
   const MAX_COMMENTS_PER_AUTHOR = 1; // never comment the same creator twice / session
   const SOFT_FAIL_LIMIT = 3; // reactions that click but don't register → soft-block backoff
+  const RELEVANCE_TIMEOUT_MS = 8000; // Reels niche gate: no answer by then = off-niche
   const SPAM_MIN = 0.34; // cosine to spam anchors above which a post is skipped
   const SEEN_KEY = "fbw_seen"; // cross-session post-id dedup (chrome.storage.local)
   const SEEN_CAP = 5000;
@@ -462,6 +463,14 @@ import {
       if (
         document.querySelector('input[name="email"]') &&
         document.querySelector('input[name="pass"]')
+      )
+        return "barreira de login";
+      // Logged out with a saved account: Facebook sends deep links to
+      // /index.php?next=… ("Continuar como …"), a page with no email/pass fields.
+      // Measured 2026-10-28: a resumed Reels run looped /reel/ → this page.
+      if (
+        /^\/(index\.php|login)/.test(location.pathname) &&
+        /[?&]next=/.test(location.search)
       )
         return "barreira de login";
       if (
@@ -1201,22 +1210,23 @@ import {
 
   // Niche relevance + spam: ask background→offscreen for the MiniLM cosine of this
   // text vs the keyword (and vs spam anchors). Fails open (score 1, spam 0) so a
-  // model hiccup never blocks the warmer.
+  // model hiccup never blocks the warmer; `ok` says whether the model answered.
   function getRelevanceInfo(keyword, text, spam) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
           { type: "FBW_RELEVANCE", keyword, text, spam: !!spam },
           (res) => {
-            if (chrome.runtime.lastError) return resolve({ score: 1, spam: 0 });
+            if (chrome.runtime.lastError) return resolve({ score: 1, spam: 0, ok: false });
             resolve({
               score: typeof res?.score === "number" ? res.score : 1,
               spam: typeof res?.spam === "number" ? res.spam : 0,
+              ok: typeof res?.score === "number" && !res?.error,
             });
           },
         );
       } catch {
-        resolve({ score: 1, spam: 0 });
+        resolve({ score: 1, spam: 0, ok: false });
       }
     });
   }
@@ -2127,7 +2137,17 @@ import {
       const text =
         (platformForHost() === "facebook" ? fbGetPostText(c) : "") ||
         (c.innerText || "").slice(0, 600);
-      const { score } = await getRelevanceInfo(S.keyword, text, false);
+      // Here the score decides the action outright, so unlike the posts loop a
+      // failed or stalled model fails closed: the reel is only watched.
+      const rel = await Promise.race([
+        getRelevanceInfo(S.keyword, text, false),
+        sleep(RELEVANCE_TIMEOUT_MS).then(() => null),
+      ]);
+      if (!rel?.ok) {
+        logLine("· nicho indisponível (modelo não respondeu) — só assistiu");
+        return;
+      }
+      const { score } = rel;
       const quote = `"${text.replace(/\s+/g, " ").trim().slice(0, 40)}"`;
       if (score < S.relevanceMin) {
         logLine(`· fora do nicho (rel ${score.toFixed(2)} ${quote}) — só assistiu`);
@@ -2267,6 +2287,9 @@ import {
     logLine(
       `${A.emoji || "🎞️"} sessão de ${adapterLabelPT(A.label)} iniciada (até ${new Date(S.willEndAt).toTimeString().slice(0, 5)})`,
     );
+    // Preload the relevance model so the first gated reel doesn't stall (as postsLoop does).
+    if (S.relevanceMin > 0 && (S.keyword || "").trim())
+      getRelevanceInfo(S.keyword, "warming up niche model", false).catch(() => {});
     let emptyScrolls = 0,
       endStreak = 0;
     try {
@@ -2693,6 +2716,10 @@ import {
       if (!S.nextBreakAt || S.nextBreakAt < Date.now())
         S.nextBreakAt = scheduleNextBreak(BREAKS[S.personalityMode], Date.now());
 
+      // A run resumed onto a login wall or checkpoint stops here instead of
+      // navigating again (which looped: /reel/ → login → resume → /reel/ …).
+      const stop = detectStopUncached();
+      if (stop) return halt(stop);
       const target = targetUrlForMode();
       if (target) {
         logLine("↪ retomando — navegando até o destino");
