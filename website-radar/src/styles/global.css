@@ -1,0 +1,871 @@
+@import "tailwindcss";
+@import "@fontsource-variable/outfit";
+
+@theme {
+  /* Brand Colors */
+  --color-smart-blue: #3c7cfc;
+  --color-smart-cyan: #59c0e8;
+  --color-brute-red: #ff4d4d;
+  --color-brute-yellow: #f9cb28;
+
+  /* Theme tokens as Tailwind colors (text-accent-from, bg-accent-from/10,
+     bg-bg-card/50…). Values here are the dark defaults; the unlayered :root /
+     :root.light blocks below override them, so the utilities follow the theme.
+     Nord, as in the extension's panel: sky on polar night. */
+  --color-accent-from: #88c0d0;
+  --color-accent-to: #5e81ac;
+  --color-bg-card: #2b303b;
+  --color-text-muted: #a3adbf;
+
+  /* Font Family */
+  --font-outfit: "Outfit Variable", "Outfit", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Dark Theme (default) - the panel's own colours */
+:root {
+  --color-bg: #232833;
+  --color-bg-card: #2b303b;
+  --color-border: #3b4252;
+  --color-text: #eceff4;
+  --color-text-muted: #a3adbf;
+  --color-accent-from: #88c0d0;
+  --color-accent-to: #81a1c1;
+  /* Text on the accent gradient: dark on the light frost (as the panel's primary button) */
+  --color-on-accent: #232833;
+}
+
+/* Light Theme - Nord snow storm, frost accents dark enough for text */
+:root.light {
+  --color-bg: #f2f4f8;
+  --color-bg-card: #ffffff;
+  --color-border: #d8dee9;
+  --color-text: #2e3440;
+  --color-text-muted: #4c566a;
+  --color-accent-from: #5e81ac;
+  --color-accent-to: #4c8aa3;
+  --color-on-accent: #ffffff;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* ===== GLOBAL BUTTON STYLES ===== */
+button,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+.btn {
+  cursor: pointer;
+}
+
+/* ===== VIEW TRANSITIONS ===== */
+
+/* Fast crossfade - 150ms total */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
+}
+
+/* Keep navbar static during transitions */
+::view-transition-old(navbar),
+::view-transition-new(navbar),
+::view-transition-old(site-logo),
+::view-transition-new(site-logo) {
+  animation: none;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-old(site-logo),
+  ::view-transition-new(site-logo) {
+    animation: none;
+  }
+
+  .animate-on-scroll,
+  .stagger-item {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+/* ===== SCROLL-TRIGGERED ANIMATIONS ===== */
+
+/* Base state for animated elements - hidden until triggered */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(30px);
+  transition:
+    opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Staggered animation for lists/grids */
+.stagger-item {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stagger-item.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger delays */
+.stagger-item:nth-child(1) {
+  transition-delay: 0ms;
+}
+.stagger-item:nth-child(2) {
+  transition-delay: 80ms;
+}
+.stagger-item:nth-child(3) {
+  transition-delay: 160ms;
+}
+.stagger-item:nth-child(4) {
+  transition-delay: 240ms;
+}
+.stagger-item:nth-child(5) {
+  transition-delay: 320ms;
+}
+.stagger-item:nth-child(6) {
+  transition-delay: 400ms;
+}
+
+/* ===== HERO ENTRANCE ANIMATIONS ===== */
+
+@keyframes hero-badge-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hero-title-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes hero-subtitle-enter {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-cta-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hero-demo-enter {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.hero-badge-animate {
+  animation: hero-badge-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.1s both;
+}
+
+.hero-title-animate {
+  animation: hero-title-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
+}
+
+.hero-subtitle-animate {
+  animation: hero-subtitle-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.35s both;
+}
+
+.hero-cta-animate {
+  animation: hero-cta-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.45s both;
+}
+
+.hero-demo-animate {
+  animation: hero-demo-enter 0.7s cubic-bezier(0.4, 0, 0.2, 1) 0.55s both;
+}
+
+/* ===== SECTION ANIMATIONS ===== */
+
+@keyframes section-header-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.section-header-animate {
+  opacity: 0;
+}
+
+.section-header-animate.is-visible {
+  animation: section-header-enter 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Card scale-up animation */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(25px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.card-animate {
+  opacity: 0;
+}
+
+.card-animate.is-visible {
+  animation: card-enter 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ===== FADE-IN VARIANTS ===== */
+
+.fade-in-up {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.fade-in-up.is-visible {
+  animation: fade-in-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fade-in-up {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-scale {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.fade-in-scale.is-visible {
+  animation: fade-in-scale 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fade-in-scale {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+body {
+  font-family: var(--font-outfit);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+/* Gradient Text Utility */
+.gradient-text-smart {
+  background: linear-gradient(
+    135deg,
+    var(--color-smart-blue),
+    var(--color-smart-cyan)
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-brute {
+  background: linear-gradient(
+    135deg,
+    var(--color-brute-red),
+    var(--color-brute-yellow)
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gradient Border Cards */
+.card-smart {
+  background:
+    linear-gradient(var(--color-bg-card), var(--color-bg-card)) padding-box,
+    linear-gradient(135deg, var(--color-smart-blue), var(--color-smart-cyan))
+      border-box;
+  border: 2px solid transparent;
+}
+
+.card-brute {
+  background:
+    linear-gradient(var(--color-bg-card), var(--color-bg-card)) padding-box,
+    linear-gradient(135deg, var(--color-brute-red), var(--color-brute-yellow))
+      border-box;
+  border: 2px solid transparent;
+}
+
+/* GIF Placeholder */
+.gif-placeholder {
+  background: var(--color-bg-card);
+  border: 2px dashed var(--color-border);
+}
+
+/* Theme-aware utilities */
+.bg-theme {
+  background-color: var(--color-bg);
+}
+
+.bg-theme-card {
+  background-color: var(--color-bg-card);
+}
+
+.border-theme {
+  border-color: var(--color-border);
+}
+
+.text-theme {
+  color: var(--color-text);
+}
+
+.text-theme-muted {
+  color: var(--color-text-muted);
+}
+
+/* Theme-aware accent gradient (Nord frost) */
+.gradient-text-accent {
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.bg-accent-gradient {
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+}
+
+.border-accent {
+  border-color: var(--color-accent-from);
+}
+
+/* Brute Mode Reveal Effect */
+.brute-revealed * {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  transform: none !important;
+  height: auto !important;
+  width: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.brute-revealed *::before,
+.brute-revealed *::after {
+  display: block !important;
+  visibility: visible !important;
+}
+
+/* Demo sandbox styles */
+.demo-sandbox {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Feature card with gradient border - no hover effects */
+.feature-card {
+  position: relative;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+}
+
+/* Theme-aware accent color utilities */
+.border-accent-from {
+  border-color: var(--color-accent-from);
+}
+
+.bg-accent-from\/10 {
+  background-color: color-mix(
+    in srgb,
+    var(--color-accent-from) 10%,
+    transparent
+  );
+}
+
+.border-accent-from\/30 {
+  border-color: color-mix(in srgb, var(--color-accent-from) 30%, transparent);
+}
+
+/* Experimental tag with solid gradient background */
+.experimental-tag {
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  box-shadow: 0 2px 8px
+    color-mix(in srgb, var(--color-accent-from) 40%, transparent);
+}
+
+/* Donate button with gradient border and gradient text */
+.donate-button {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+  overflow: visible;
+  isolation: isolate;
+  transition: transform 0.3s ease;
+}
+
+/* White text */
+.donate-button {
+  color: white;
+  -webkit-text-fill-color: white;
+}
+
+/* Animated gradient border - thin */
+.donate-button::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  padding: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-from),
+    var(--color-accent-to),
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  background-size: 300% 100%;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  animation: gradient-move 2s linear infinite;
+}
+
+/* Animated glow shadow that follows the border - outside */
+.donate-button::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-from),
+    var(--color-accent-to),
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  background-size: 300% 100%;
+  z-index: -2;
+  filter: blur(8px);
+  opacity: 0.8;
+  animation: gradient-move 2s linear infinite;
+}
+
+@keyframes gradient-move {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Latest version badge with animated gradient border */
+.latest-version-badge {
+  position: relative;
+  background: var(--color-bg-card);
+  color: white;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.latest-version-badge::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-from),
+    var(--color-accent-to),
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  background-size: 300% 100%;
+  z-index: -1;
+  animation: gradient-move 2s linear infinite;
+}
+
+.latest-version-badge::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-from),
+    var(--color-accent-to),
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  background-size: 300% 100%;
+  z-index: -2;
+  filter: blur(6px);
+  opacity: 0.6;
+  animation: gradient-move 2s linear infinite;
+}
+
+.donate-button:hover {
+  transform: scale(1.05);
+}
+
+.donate-button:hover::after {
+  opacity: 0.85;
+  filter: blur(10px);
+  inset: -5px;
+}
+
+/* Navigation links container */
+.nav-links-container {
+  position: relative;
+}
+
+/* Fluid highlight background */
+.nav-highlight {
+  position: absolute;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    135deg,
+    var(--color-accent-from),
+    var(--color-accent-to)
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    top 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    opacity 0.2s ease;
+}
+
+/* Navigation link */
+.nav-link {
+  position: relative;
+  color: var(--color-text-muted);
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+  color: white;
+}
+
+/* ===== MARKDOWN CONTENT (docs, legal, changelog) ===== */
+.md-content {
+  color: var(--color-text);
+  line-height: 1.75;
+}
+.md-content > * + * {
+  margin-top: 1rem;
+}
+.md-content h2 {
+  margin-top: 2.5rem;
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--color-text);
+  scroll-margin-top: 6rem;
+}
+.md-content h3 {
+  margin-top: 1.75rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  scroll-margin-top: 6rem;
+}
+.md-content p,
+.md-content li {
+  color: var(--color-text-muted);
+}
+.md-content strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.md-content ul,
+.md-content ol {
+  padding-left: 1.25rem;
+}
+.md-content ul {
+  list-style: disc;
+}
+.md-content ol {
+  list-style: decimal;
+}
+.md-content li + li {
+  margin-top: 0.35rem;
+}
+.md-content li::marker {
+  color: var(--color-accent-from);
+}
+.md-content a {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-from);
+  text-underline-offset: 3px;
+}
+.md-content a:hover {
+  text-decoration-thickness: 2px;
+}
+.md-content code {
+  font-size: 0.875em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.375rem;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+}
+.md-content blockquote {
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--color-accent-from);
+  background: var(--color-bg-card);
+  border-radius: 0 0.75rem 0.75rem 0;
+}
+.md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.md-content th,
+.md-content td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ===== MAGIC UI (registry keyframes + site-theme glue) ===== */
+
+/* Dark = <html> without .light (set from the shared `theme` cookie), so the
+   registry components' dark: classes follow the site theme, not the OS. */
+@custom-variant dark (&:where(:root:not(.light), :root:not(.light) *));
+
+@theme inline {
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  --animate-shine: shine var(--duration) infinite linear;
+  --animate-shiny-text: shiny-text 8s infinite;
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes shine {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    to {
+      background-position: 0% 0%;
+    }
+  }
+  @keyframes shiny-text {
+    0%,
+    90%,
+    100% {
+      background-position: calc(-100% - var(--shiny-width)) 0;
+    }
+    30%,
+    60% {
+      background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-marquee-vertical,
+  .retro-grid-lines {
+    animation: none !important;
+  }
+}
+
+/* Marquee edges fade into the page */
+.marquee-fade {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* RetroGrid (registry CSS fallback, no WebGL / no JS) */
+.retro-grid-lines {
+  position: absolute;
+  inset: 0% 0px;
+  margin-left: -200%;
+  height: 300vh;
+  width: 600vw;
+  transform-origin: 100% 0 0;
+  background-image:
+    linear-gradient(to right, var(--retro-line) 1px, transparent 0),
+    linear-gradient(to bottom, var(--retro-line) 1px, transparent 0);
+  background-repeat: repeat;
+  background-size: 60px 60px;
+  animation: retro-grid 15s linear infinite;
+  --retro-line: color-mix(in srgb, var(--color-accent-from) 60%, transparent);
+}
+@keyframes retro-grid {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* MagicCard spotlight (registry magic-card, gradient mode) without React/next-themes:
+   colors come from theme tokens, the pointer position from one delegated listener. */
+:root {
+  --magic-glow: #262626;
+}
+:root.light {
+  --magic-glow: #d9d9d955;
+}
+.magic-card {
+  --mx: -300px;
+  --my: -300px;
+  position: relative;
+  isolation: isolate;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-bg-card) 0 0) padding-box,
+    radial-gradient(240px circle at var(--mx) var(--my), var(--color-accent-from), var(--color-accent-to), var(--color-border) 100%) border-box;
+}
+.magic-card::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(240px circle at var(--mx) var(--my), var(--magic-glow), transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.magic-card:hover::before {
+  opacity: 0.8;
+}
+.magic-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Theme toggle circle reveal (registry animated-theme-toggler), only while toggling
+   so Astro's page crossfade keeps working. */
+html[data-theme-vt]::view-transition-old(root),
+html[data-theme-vt]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-theme-vt]::view-transition-new(root) {
+  clip-path: var(--theme-vt-clip-from);
+}
+
+/* Lazy videos fade in over their poster once a frame is ready */
+.lazy-video {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.lazy-video.is-ready {
+  opacity: 1;
+}
+
+/* AnimatedList entrance (CSS stand-in for the registry's motion spring) */
+@media (prefers-reduced-motion: no-preference) {
+  .animated-list-item {
+    transform-origin: top center;
+    animation: dialog-pop 0.45s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+  }
+}
+@keyframes dialog-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

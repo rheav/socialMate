@@ -1,0 +1,54 @@
+---
+import BorderBeam from "../magicui/BorderBeam.astro";
+import { DotPattern } from "../magicui/dot-pattern";
+import { Safari } from "../magicui/safari";
+import WordRotate from "../magicui/WordRotate.astro";
+import ChromeButton from "../ui/ChromeButton.astro";
+import { extensionVersion } from "../../data/site";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const words = t("hero.title.words").split("|");
+---
+
+<section class="relative overflow-hidden pt-32 pb-20 px-6">
+  <DotPattern
+    width={22}
+    height={22}
+    cr={1.1}
+    className="fill-[color-mix(in_srgb,var(--color-text-muted)_35%,transparent)] [mask-image:radial-gradient(640px_circle_at_center,white,transparent)]"
+  />
+
+  <div class="relative max-w-5xl mx-auto text-center">
+    <span class="hero-badge-animate inline-flex items-center gap-2 px-4 py-1.5 mb-8 rounded-full border border-theme bg-theme-card text-xs font-medium text-theme-muted">
+      v{extensionVersion} · {t("hero.badge")}
+    </span>
+
+    <h1 class="hero-title-animate text-4xl md:text-6xl lg:text-7xl font-normal tracking-tight mb-6 leading-[1.08]">
+      <span class="block min-h-[1.25em]">
+        <WordRotate words={words} class="gradient-text-accent pb-1" />
+      </span>
+      <span class="block">{t("hero.title.after")}</span>
+    </h1>
+
+    <p class="hero-subtitle-animate text-lg md:text-xl text-theme-muted max-w-2xl mx-auto mb-10 leading-relaxed">
+      {t("hero.subtitle")}
+    </p>
+
+    <div class="hero-cta-animate flex flex-col sm:flex-row items-center justify-center gap-4 mb-4">
+      <ChromeButton>{t("hero.cta.primary")}</ChromeButton>
+    </div>
+    <p class="hero-cta-animate text-xs text-theme-muted mb-16">{t("hero.cta.note")}</p>
+
+    <div class="hero-demo-animate relative max-w-4xl mx-auto">
+      <div class="absolute -inset-6 -z-10 rounded-3xl bg-accent-gradient opacity-20 blur-3xl" aria-hidden="true"></div>
+      <div class="relative rounded-xl">
+        <Safari url={t("hero.frame.url")}>
+          <img src="/images/shots/dash-profiles.png" alt={t("hero.frame.label")} width="1440" height="900" class="size-full object-cover object-left-top" />
+        </Safari>
+        <BorderBeam size={110} duration={8} borderWidth={2} />
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,66 @@
+---
+import { ChevronDown } from "@lucide/astro";
+import { getLangFromUrl, getLocalizedPath, getCleanPath, type Lang } from "../../i18n/ui";
+
+const lang = getLangFromUrl(Astro.url);
+const currentPath = getCleanPath(Astro.url.pathname);
+
+const flags: Record<Lang, { label: string; path: string; flag: string }> = {
+  'pt-br': { label: 'Português', path: getLocalizedPath('pt-br', currentPath), flag: '/images/countries/br.svg' },
+  en: { label: 'English', path: getLocalizedPath('en', currentPath), flag: '/images/countries/us.svg' },
+};
+
+const currentLang = flags[lang];
+---
+
+<div class="language-dropdown relative z-50">
+  <!-- Trigger Button -->
+  <button 
+    class="lang-trigger flex items-center gap-2 px-3 py-1.5 rounded-lg border border-theme bg-bg-card/50 hover:bg-theme-card transition-all text-sm"
+    aria-haspopup="true"
+    aria-expanded="false"
+  >
+    <img src={currentLang.flag} alt="" width="20" height="15" class="w-5 h-auto" />
+    <span class="text-theme-muted">{currentLang.label}</span>
+    <ChevronDown size={14} class="text-theme-muted transition-transform" />
+  </button>
+  
+  <!-- Dropdown Menu -->
+  <div class="lang-menu absolute bottom-full left-0 mb-2 w-40 rounded-xl border border-accent-from/20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl shadow-xl opacity-0 invisible translate-y-2 transition-all">
+    {Object.entries(flags).map(([code, { label, path, flag }]) => (
+      <a
+        href={path}
+        data-astro-reload
+        class:list={[
+          "flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors first:rounded-t-xl last:rounded-b-xl",
+          code === lang 
+            ? "bg-accent-from/10 text-slate-800 dark:text-white font-medium hover:bg-accent-from/15" 
+            : "text-slate-600 dark:text-slate-300 hover:bg-accent-from/5 hover:text-slate-800 dark:hover:text-white"
+        ]}
+      >
+        <img src={flag} alt="" width="20" height="15" class="w-5 h-auto rounded-sm shadow-sm" />
+        <span>{label}</span>
+      </a>
+    ))}
+  </div>
+</div>
+
+<style>
+  .lang-menu {
+    box-shadow: 
+      0 4px 20px rgba(60, 124, 252, 0.1),
+      0 0 0 1px rgba(60, 124, 252, 0.05);
+  }
+
+  .language-dropdown:hover .lang-menu,
+  .language-dropdown:focus-within .lang-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+  
+  .language-dropdown:hover .lang-trigger svg,
+  .language-dropdown:focus-within .lang-trigger svg {
+    transform: rotate(180deg);
+  }
+</style>

@@ -1,0 +1,66 @@
+---
+/**
+ * Magic UI WordRotate, ported to CSS + a tiny script (JS budget). The first word is
+ * in the HTML; words slide down/fade every `duration` ms, like the registry's
+ * motion variant. Stays on the first word with prefers-reduced-motion.
+ */
+interface Props {
+  words: string[];
+  duration?: number;
+  class?: string;
+}
+
+const { words, duration = 2500, class: className = "" } = Astro.props;
+---
+
+<span class="word-rotate block overflow-hidden py-1" data-words={JSON.stringify(words)} data-duration={duration}>
+  <span class:list={["word-rotate-word block", className]}>{words[0]}</span>
+</span>
+
+<style>
+  .word-rotate-word {
+    transition:
+      opacity 0.25s ease-out,
+      transform 0.25s ease-out;
+  }
+  .word-rotate-word.is-out {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  .word-rotate-word.is-in {
+    opacity: 0;
+    transform: translateY(-40px);
+    transition: none;
+  }
+</style>
+
+<script>
+  let timers: number[] = [];
+
+  function initWordRotate() {
+    timers.forEach(clearInterval);
+    timers = [];
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    document.querySelectorAll<HTMLElement>(".word-rotate").forEach((root) => {
+      const words: string[] = JSON.parse(root.dataset.words || "[]");
+      const word = root.querySelector<HTMLElement>(".word-rotate-word");
+      if (!word || words.length < 2) return;
+      let i = 0;
+      timers.push(
+        window.setInterval(() => {
+          word.classList.add("is-out");
+          setTimeout(() => {
+            i = (i + 1) % words.length;
+            word.textContent = words[i];
+            word.classList.remove("is-out");
+            word.classList.add("is-in");
+            void word.offsetWidth; // restart the transition from the top
+            word.classList.remove("is-in");
+          }, 250);
+        }, Number(root.dataset.duration))
+      );
+    });
+  }
+
+  document.addEventListener("astro:page-load", initWordRotate);
+</script>

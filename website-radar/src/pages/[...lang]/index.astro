@@ -1,0 +1,42 @@
+---
+// Home: / (pt-BR), /en
+import Footer from "../../components/Footer.astro";
+import Navbar from "../../components/Navbar.astro";
+import CTA from "../../components/sections/CTA.astro";
+import Faq from "../../components/sections/Faq.astro";
+import Features from "../../components/sections/Features.astro";
+import Hero from "../../components/sections/Hero.astro";
+import Highlights from "../../components/sections/Highlights.astro";
+import HowItWorks from "../../components/sections/HowItWorks.astro";
+import Platforms from "../../components/sections/Platforms.astro";
+import Problem from "../../components/sections/Problem.astro";
+import Spy from "../../components/sections/Spy.astro";
+import { getLangFromUrl, localeStaticPaths, useTranslations } from "../../i18n/ui";
+import Layout from "../../layouts/Layout.astro";
+
+export function getStaticPaths() {
+  return localeStaticPaths();
+}
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+const faq = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({
+  q: t(`faq.q${n}` as "faq.q1"),
+  a: t(`faq.a${n}` as "faq.a1"),
+}));
+---
+
+<Layout title={t("seo.title")} description={t("seo.description")} faq={faq}>
+  <Navbar />
+  <main>
+    <Hero />
+    <Problem />
+    <Features />
+    <Spy />
+    <HowItWorks />
+    <Platforms />
+    <Highlights />
+    <Faq items={faq} />
+    <CTA />
+  </main>
+  <Footer />
+</Layout>

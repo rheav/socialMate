@@ -1,0 +1,11 @@
+---
+// /privacy (pt-BR), /en/privacy, /es/privacy. Text: src/content/legal/<lang>/privacy.md
+import LegalPage from "../../components/LegalPage.astro";
+import { localeStaticPaths } from "../../i18n/ui";
+
+export function getStaticPaths() {
+  return localeStaticPaths();
+}
+---
+
+<LegalPage slug="privacy" />

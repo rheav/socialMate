@@ -1,0 +1,10 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- socialRadar (the public build): the same Nord squircle as socialMate's,
+       with a radar in place of the flame — the Spy tracks accounts. -->
+  <rect x="2" y="2" width="124" height="124" rx="30" fill="#8ECAE6"/>
+  <!-- the sweep's trail: a quarter of the dial, behind everything -->
+  <path d="M64 64L64 27A37 37 0 0 1 90.16 37.84Z" fill="#232833" fill-opacity="0.22"/>
+  <!-- outer ring, middle ring, sweep line, centre, one blip; the first path is the Instagram button's too -->
+  <path d="M64 25A39 39 0 1 1 63.99 25ZM64 32A32 32 0 1 0 64.01 32ZM64 60A4 4 0 1 1 63.99 60ZM61.2 61.2L87.7 34.7L93.3 40.3L66.8 66.8ZM82 74A6.5 6.5 0 1 1 81.99 74Z" fill="#232833"/>
+  <path d="M64 46A18 18 0 1 1 63.99 46ZM64 51A13 13 0 1 0 64.01 51Z" fill="#232833" fill-opacity="0.55"/>
+</svg>

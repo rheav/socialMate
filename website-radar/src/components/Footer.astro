@@ -1,0 +1,89 @@
+---
+import { Code2 } from '@lucide/astro';
+import { repoUrl } from '../data/site';
+import { getLangFromUrl, getLocalizedPath, useTranslations } from '../i18n/ui';
+import LanguageSwitcher from './ui/LanguageSwitcher.astro';
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const l = (path: string) => getLocalizedPath(lang, path);
+
+const links = [
+  { href: l('/#features'), label: t('nav.features') },
+  { href: l('/#spy'), label: t('nav.spy') },
+  { href: l('/#faq'), label: t('nav.faq') },
+  { href: l('/privacy'), label: t('footer.privacy') },
+  { href: l('/terms'), label: t('footer.terms') },
+  { href: repoUrl, label: 'GitHub', external: true },
+];
+---
+
+<footer class="py-12 px-6 border-t border-theme">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+      <div class="flex flex-col items-center md:items-start gap-2 max-w-xs">
+        <a href={l('/')} class="flex items-center gap-2">
+          <img src="/logo.svg" alt="" class="w-6 h-6 rounded-md" width="24" height="24" />
+          <span class="font-semibold gradient-text-accent">socialRadar</span>
+        </a>
+        <p class="text-xs text-theme-muted text-center md:text-left">{t('footer.tagline')}</p>
+      </div>
+
+      <nav class="nav-links-container flex flex-wrap items-center justify-center gap-1 text-sm text-theme-muted relative max-w-xl">
+        <div class="nav-highlight"></div>
+        {
+          links.map((link) => (
+            <a
+              href={link.href}
+              class="nav-link px-2.5 py-2 rounded-lg relative z-10"
+              {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+            >
+              {link.label}
+            </a>
+          ))
+        }
+      </nav>
+
+      <p class="text-xs text-theme-muted">&copy; {new Date().getFullYear()} socialRadar · GPL-3.0</p>
+    </div>
+
+    <div class="mt-8 pt-6 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <p class="text-xs text-theme-muted flex items-center gap-2">
+        <Code2 size={14} class="text-accent-from" />
+        <span>
+          {t('footer.madeBy')}
+          <a href="https://www.linkedin.com/in/rheavictor/" target="_blank" rel="noopener noreferrer" class="animated-gradient-text">rhea victor</a>
+        </span>
+      </p>
+      <div class="hidden sm:block w-px h-4 bg-theme-muted/30"></div>
+      <LanguageSwitcher />
+    </div>
+
+    <p class="mt-4 text-center text-xs text-theme-muted">{t('footer.independent')}</p>
+  </div>
+</footer>
+
+<style>
+  .animated-gradient-text {
+    background: linear-gradient(90deg, var(--color-accent-from), var(--color-accent-to), var(--color-accent-from), var(--color-accent-to));
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-shift 4s ease-in-out infinite;
+  }
+  @keyframes gradient-shift {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animated-gradient-text {
+      animation: none;
+    }
+  }
+</style>

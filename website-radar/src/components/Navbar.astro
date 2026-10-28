@@ -1,0 +1,322 @@
+---
+import { Menu, X } from "@lucide/astro";
+import ChromeButton from "./ui/ChromeButton.astro";
+import ThemeToggle from "./ui/ThemeToggle.astro";
+import { getLangFromUrl, useTranslations, getLocalizedPath } from "../i18n/ui";
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const l = (path: string) => getLocalizedPath(lang, path);
+---
+
+<nav
+  transition:name="navbar"
+  transition:persist
+  class="fixed top-0 left-0 right-0 z-50 bg-theme/80 backdrop-blur-md border-b border-theme"
+>
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <!-- Logo -->
+    <a
+      href={l("/")}
+      class="flex items-center gap-2 group"
+      transition:name="site-logo"
+    >
+      <img
+        src="/logo.svg"
+        alt=""
+        class="w-8 h-8 rounded-lg"
+        width="32"
+        height="32"
+      />
+      <span class="text-xl font-semibold tracking-tight gradient-text-accent">
+        socialRadar
+      </span>
+    </a>
+
+    <!-- Desktop Navigation -->
+    <div class="nav-links-container hidden md:flex items-center gap-2 relative">
+      <div class="nav-highlight"></div>
+      <a
+        href={l("/#features")}
+        class="nav-link text-theme-muted text-sm px-3 py-2 rounded-lg relative z-10"
+      >
+        {t("nav.features")}
+      </a>
+      <a
+        href={l("/#spy")}
+        class="nav-link text-theme-muted text-sm px-3 py-2 rounded-lg relative z-10"
+      >
+        {t("nav.spy")}
+      </a>
+      <a
+        href={l("/#how")}
+        class="nav-link text-theme-muted text-sm px-3 py-2 rounded-lg relative z-10"
+      >
+        {t("nav.how")}
+      </a>
+      <a
+        href={l("/#faq")}
+        class="nav-link text-theme-muted text-sm px-3 py-2 rounded-lg relative z-10"
+      >
+        {t("nav.faq")}
+      </a>
+    </div>
+
+    <!-- Desktop Actions -->
+    <div class="hidden md:flex items-center gap-3">
+      <ThemeToggle />
+      <ChromeButton size="small">{t("nav.addToBrowser")}</ChromeButton>
+    </div>
+
+    <!-- Mobile Actions -->
+    <div class="md:hidden flex items-center gap-2">
+      <ThemeToggle />
+      <button
+        id="mobile-menu-btn"
+        class="flex items-center justify-center w-10 h-10 rounded-xl bg-theme-card border border-theme text-theme-muted hover:text-theme transition-colors cursor-pointer"
+        aria-label={t("nav.menu")}
+      >
+        <Menu id="menu-icon-open" class="w-5 h-5" />
+        <X id="menu-icon-close" class="w-5 h-5 hidden" />
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile Dropdown Menu - OUTSIDE nav so backdrop-filter works -->
+<div
+  id="mobile-menu"
+  class="md:hidden fixed left-0 right-0 z-40 border-b border-theme"
+  style="top: 73px;"
+>
+  <div class="max-w-6xl mx-auto px-6 py-4 flex flex-col gap-1">
+    <!-- Nav Links Container with sliding highlight -->
+    <div class="mobile-nav-container relative flex flex-col gap-1">
+      <div class="mobile-nav-highlight"></div>
+      <a
+        href={l("/#features")}
+        class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
+      >
+        {t("nav.features")}
+      </a>
+      <a
+        href={l("/#spy")}
+        class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
+      >
+        {t("nav.spy")}
+      </a>
+      <a
+        href={l("/#how")}
+        class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
+      >
+        {t("nav.how")}
+      </a>
+      <a
+        href={l("/#faq")}
+        class="mobile-nav-link text-theme-muted text-sm px-4 py-3 rounded-xl relative z-10 transition-colors"
+      >
+        {t("nav.faq")}
+      </a>
+    <div class="border-t border-theme my-2"></div>
+
+    <!-- Add to Browser Button (with icons) -->
+    <ChromeButton size="small" class="w-full justify-center"
+      >{t("nav.addToBrowser")}</ChromeButton
+    >
+  </div>
+</div>
+
+<script>
+  function initFluidNav() {
+    // Desktop nav
+    const desktopContainers = document.querySelectorAll(".nav-links-container");
+
+    desktopContainers.forEach((container) => {
+      if ((container as HTMLElement).dataset.fluid) return; // already bound
+      (container as HTMLElement).dataset.fluid = "1";
+      const highlight = container.querySelector(
+        ".nav-highlight",
+      ) as HTMLElement;
+      const links = container.querySelectorAll(".nav-link");
+
+      if (!highlight) return;
+
+      let isActive = false;
+
+      links.forEach((link) => {
+        link.addEventListener("mouseenter", () => {
+          const rect = (link as HTMLElement).getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+
+          highlight.style.width = `${rect.width}px`;
+          highlight.style.height = `${rect.height}px`;
+          highlight.style.left = `${rect.left - containerRect.left}px`;
+          highlight.style.top = `${rect.top - containerRect.top}px`;
+
+          if (!isActive) {
+            highlight.style.opacity = "1";
+            isActive = true;
+          }
+        });
+      });
+
+      container.addEventListener("mouseleave", () => {
+        highlight.style.opacity = "0";
+        isActive = false;
+      });
+    });
+
+    // Mobile nav
+    const mobileContainer = document.querySelector(".mobile-nav-container");
+    const mobileHighlight = document.querySelector(
+      ".mobile-nav-highlight",
+    ) as HTMLElement;
+    const mobileLinks = document.querySelectorAll(".mobile-nav-link");
+
+    if (mobileContainer && mobileHighlight && !(mobileContainer as HTMLElement).dataset.fluid) {
+      (mobileContainer as HTMLElement).dataset.fluid = "1";
+      let mobileIsActive = false;
+
+      mobileLinks.forEach((link) => {
+        link.addEventListener("mouseenter", () => {
+          const rect = (link as HTMLElement).getBoundingClientRect();
+          const containerRect = mobileContainer.getBoundingClientRect();
+
+          mobileHighlight.style.width = `${rect.width}px`;
+          mobileHighlight.style.height = `${rect.height}px`;
+          mobileHighlight.style.left = `${rect.left - containerRect.left}px`;
+          mobileHighlight.style.top = `${rect.top - containerRect.top}px`;
+
+          if (!mobileIsActive) {
+            mobileHighlight.style.opacity = "1";
+            mobileIsActive = true;
+          }
+        });
+
+        // Also handle touch for mobile
+        link.addEventListener("touchstart", () => {
+          const rect = (link as HTMLElement).getBoundingClientRect();
+          const containerRect = mobileContainer.getBoundingClientRect();
+
+          mobileHighlight.style.width = `${rect.width}px`;
+          mobileHighlight.style.height = `${rect.height}px`;
+          mobileHighlight.style.left = `${rect.left - containerRect.left}px`;
+          mobileHighlight.style.top = `${rect.top - containerRect.top}px`;
+          mobileHighlight.style.opacity = "1";
+          mobileIsActive = true;
+        }, { passive: true });
+      });
+
+      mobileContainer.addEventListener("mouseleave", () => {
+        mobileHighlight.style.opacity = "0";
+        mobileIsActive = false;
+      });
+    }
+  }
+
+  function initMobileMenu() {
+    const menuBtn = document.getElementById("mobile-menu-btn");
+    const mobileMenu = document.getElementById("mobile-menu");
+    const iconOpen = document.getElementById("menu-icon-open");
+    const iconClose = document.getElementById("menu-icon-close");
+    const mobileLinks = document.querySelectorAll(".mobile-nav-link");
+
+    if (!menuBtn || !mobileMenu || !iconOpen || !iconClose) return;
+
+    // Toggle menu with animation
+    menuBtn.addEventListener("click", () => {
+      const isOpen = mobileMenu.classList.contains("menu-open");
+
+      if (isOpen) {
+        mobileMenu.classList.remove("menu-open");
+        iconOpen.classList.remove("hidden");
+        iconClose.classList.add("hidden");
+      } else {
+        mobileMenu.classList.add("menu-open");
+        iconOpen.classList.add("hidden");
+        iconClose.classList.remove("hidden");
+      }
+    });
+
+    // Close menu when clicking a link
+    mobileLinks.forEach((link) => {
+      link.addEventListener("click", () => {
+        mobileMenu.classList.remove("menu-open");
+        iconOpen.classList.remove("hidden");
+        iconClose.classList.add("hidden");
+      });
+    });
+  }
+
+  // Init on load and after view transitions
+  // Navbar persists across client-side navigation (bind once); the footer's
+  // highlight is re-bound on every page.
+  initMobileMenu();
+  document.addEventListener("astro:page-load", initFluidNav);
+</script>
+
+<style is:global>
+  /* Mobile menu frost glass with a frost-blue gradient */
+  #mobile-menu {
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.35s ease-out,
+      opacity 0.25s ease-out;
+    /* Dark mode: dark base with orange-blue tint */
+    background: linear-gradient(
+      180deg,
+      rgba(35, 40, 51, 0.88) 0%,
+      rgba(136, 192, 208, 0.14) 50%,
+      rgba(94, 129, 172, 0.22) 100%
+    );
+  }
+
+  /* Light mode - lighter with visible gradient */
+  .light #mobile-menu {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.88) 0%,
+      rgba(136, 192, 208, 0.14) 50%,
+      rgba(94, 129, 172, 0.16) 100%
+    );
+  }
+
+  #mobile-menu.menu-open {
+    max-height: 600px;
+    opacity: 1;
+  }
+
+  /* Mobile nav container */
+  .mobile-nav-container {
+    position: relative;
+  }
+
+  /* Mobile sliding highlight */
+  .mobile-nav-highlight {
+    position: absolute;
+    border-radius: 0.75rem;
+    background: linear-gradient(
+      135deg,
+      var(--color-accent-from),
+      var(--color-accent-to)
+    );
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    transition:
+      left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+      top 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+      width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+      height 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+      opacity 0.2s ease;
+  }
+
+  .mobile-nav-link:hover {
+    color: white;
+  }
+
+</style>

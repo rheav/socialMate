@@ -1,0 +1,67 @@
+---
+/**
+ * Magic UI BorderBeam, ported to pure CSS (offset-path rect + offset-distance
+ * keyframes instead of motion): a light travelling along the parent's border.
+ * Parent needs `position: relative` and a border radius. Nothing moves with
+ * prefers-reduced-motion.
+ */
+interface Props {
+  size?: number;
+  duration?: number;
+  borderWidth?: number;
+  colorFrom?: string;
+  colorTo?: string;
+}
+
+const {
+  size = 50,
+  duration = 6,
+  borderWidth = 1,
+  colorFrom = "var(--color-accent-from)",
+  colorTo = "var(--color-accent-to)",
+} = Astro.props;
+---
+
+<div
+  class="border-beam pointer-events-none absolute inset-0 rounded-[inherit]"
+  aria-hidden="true"
+  style={`--bb-size:${size}px;--bb-duration:${duration}s;--bb-width:${borderWidth}px;--bb-from:${colorFrom};--bb-to:${colorTo}`}
+>
+  <div class="border-beam-light"></div>
+</div>
+
+<style>
+  .border-beam {
+    /* show only a --bb-width ring (same mask trick as ShineBorder) */
+    padding: var(--bb-width);
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+  .border-beam-light {
+    position: absolute;
+    width: var(--bb-size);
+    aspect-ratio: 1;
+    background: linear-gradient(to left, var(--bb-from), var(--bb-to), transparent);
+    offset-path: rect(0 auto auto 0 round var(--bb-size));
+    animation: border-beam var(--bb-duration) linear infinite;
+  }
+  @keyframes border-beam {
+    from {
+      offset-distance: 0%;
+    }
+    to {
+      offset-distance: 100%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .border-beam {
+      display: none;
+    }
+  }
+</style>

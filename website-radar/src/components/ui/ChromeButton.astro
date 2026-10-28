@@ -1,0 +1,81 @@
+---
+import { downloadUrl } from "../../data/site";
+
+interface Props {
+  href?: string;
+  class?: string;
+  size?: "default" | "small";
+}
+
+const {
+  href = downloadUrl,
+  class: className = "",
+  size = "default",
+} = Astro.props;
+
+const sizeClasses =
+  size === "small"
+    ? "px-6 py-2.5 text-sm rounded-full gap-3"
+    : "px-8 py-4 text-base rounded-full gap-3";
+
+const iconSize = size === "small" ? "h-6 w-6" : "h-8 w-8";
+---
+
+<a
+  target="_blank"
+  rel="noopener noreferrer"
+  href={href}
+  class={`chrome-button group relative inline-flex items-center justify-center overflow-hidden border border-white/20 font-semibold text-[var(--color-on-accent)] shadow-xl backdrop-blur-md backdrop-saturate-[1.3] transition-all duration-300 hover:scale-105 hover:shadow-2xl ${sizeClasses} ${className}`}
+>
+  <!-- Frosted glass overlay on hover -->
+  <div
+    class="absolute inset-0 bg-white/10 opacity-0 backdrop-blur-md transition-opacity duration-300 group-hover:opacity-100"
+  >
+  </div>
+
+  <!-- Inner metallic shine -->
+  <div
+    class="absolute inset-0 bg-linear-to-tr from-white/30 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+  >
+  </div>
+
+  <!-- Chrome icon, spins on hover -->
+  <div class="relative z-10 flex items-center">
+    <img
+      src="/images/chrome.svg"
+      alt=""
+      class={`${iconSize} transition-all duration-500 group-hover:rotate-[360deg]`}
+      width="32"
+      height="32"
+    />
+  </div>
+
+  <!-- Text -->
+  <span class="relative z-10 whitespace-nowrap">
+    <slot />
+  </span>
+</a>
+
+<style>
+  /* Theme-aware gradient background */
+  .chrome-button {
+    background: linear-gradient(
+      135deg,
+      var(--color-accent-from),
+      var(--color-accent-to)
+    );
+    box-shadow:
+      0 10px 15px -3px
+        color-mix(in srgb, var(--color-accent-from) 40%, transparent),
+      0 4px 6px -4px
+        color-mix(in srgb, var(--color-accent-from) 40%, transparent);
+  }
+
+  .chrome-button:hover {
+    box-shadow:
+      0 20px 25px -5px
+        color-mix(in srgb, var(--color-accent-from) 50%, transparent),
+      0 8px 10px -6px
+        color-mix(in srgb, var(--color-accent-from) 50%, transparent);
+  }
+</style>

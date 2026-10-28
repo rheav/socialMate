@@ -1,0 +1,32 @@
+---
+// Where it works and what it does, as text chips (no third-party logos). Zero-JS Marquee.
+import { Marquee } from "../magicui/marquee";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+const networks = ["Instagram", "TikTok", "Facebook", "Pinterest"];
+const tools = t("platforms.tools").split("|");
+const chips = [...networks, ...tools];
+---
+
+<section class="py-20" aria-labelledby="platforms-title">
+  <div class="max-w-6xl mx-auto px-6 text-center mb-8">
+    <h2 id="platforms-title" class="text-xl md:text-2xl font-semibold">{t("platforms.title")}</h2>
+  </div>
+  <div class="marquee-fade max-w-6xl mx-auto">
+    <Marquee pauseOnHover className="[--duration:45s]" repeat={2}>
+      {
+        chips.map((name, i) => (
+          <span
+            class:list={[
+              "whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium",
+              i < networks.length ? "border-accent-from/40 text-theme bg-accent-from/10" : "border-theme text-theme-muted bg-bg-card",
+            ]}
+          >
+            {name}
+          </span>
+        ))
+      }
+    </Marquee>
+  </div>
+</section>

@@ -1,0 +1,30 @@
+---
+import { FileSpreadsheet, MousePointerClick, VideoOff } from "@lucide/astro";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+const pains = [
+  { icon: MousePointerClick, title: t("problem.1.title"), text: t("problem.1.text") },
+  { icon: FileSpreadsheet, title: t("problem.2.title"), text: t("problem.2.text") },
+  { icon: VideoOff, title: t("problem.3.title"), text: t("problem.3.text") },
+];
+---
+
+<section class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <h2 class="section-header-animate text-3xl md:text-4xl font-bold text-center mb-14 max-w-3xl mx-auto" data-animate>
+      {t("problem.title")} <span class="gradient-text-accent">{t("problem.titleAccent")}</span>
+    </h2>
+    <div class="grid md:grid-cols-3 gap-6" data-stagger-container>
+      {
+        pains.map(({ icon: Icon, title, text }) => (
+          <div class="stagger-item p-7 rounded-2xl bg-theme-card border border-theme" data-animate>
+            <Icon size={26} stroke-width={1.5} class="text-accent-from mb-5" aria-hidden="true" />
+            <h3 class="text-lg font-semibold mb-2">{title}</h3>
+            <p class="text-sm text-theme-muted leading-relaxed">{text}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

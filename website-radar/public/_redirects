@@ -1,0 +1,3 @@
+# pt-BR lives at the root; the old /pt-br prefix is permanent-redirected.
+/pt-br    /         301
+/pt-br/*  /:splat   301

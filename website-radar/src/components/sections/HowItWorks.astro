@@ -1,0 +1,19 @@
+---
+import { HowItWorksBeam } from "../islands/HowItWorksBeam";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+const steps = [1, 2, 3].map((n) => ({
+  title: t(`how.${n}.title` as "how.1.title"),
+  text: t(`how.${n}.text` as "how.1.text"),
+}));
+---
+
+<section id="how" class="py-24 px-6 bg-bg-card/50">
+  <div class="max-w-5xl mx-auto">
+    <h2 class="section-header-animate text-3xl md:text-4xl font-bold text-center mb-16" data-animate>
+      {t("how.title")} <span class="gradient-text-accent">{t("how.titleAccent")}</span>
+    </h2>
+    <HowItWorksBeam client:visible steps={steps} />
+  </div>
+</section>

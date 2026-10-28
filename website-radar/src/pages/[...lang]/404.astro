@@ -1,0 +1,36 @@
+---
+/**
+ * Not-found page: /404.html (pt-BR), /en/404.html.
+ * Cloudflare Pages serves the closest 404.html with a real 404 status.
+ */
+import Footer from "../../components/Footer.astro";
+import Navbar from "../../components/Navbar.astro";
+import ChromeButton from "../../components/ui/ChromeButton.astro";
+import { getLangFromUrl, getLocalizedPath, localeStaticPaths, useTranslations } from "../../i18n/ui";
+import Layout from "../../layouts/Layout.astro";
+
+export function getStaticPaths() {
+  return localeStaticPaths();
+}
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+---
+
+<Layout title={t("notFound.title")} noIndex>
+  <Navbar />
+  <main class="pt-40 pb-24 px-6">
+    <div class="max-w-xl mx-auto text-center">
+      <p class="text-7xl font-bold gradient-text-accent mb-6" aria-hidden="true">404</p>
+      <h1 class="text-3xl md:text-4xl font-bold mb-4">{t("notFound.title")}</h1>
+      <p class="text-theme-muted mb-10">{t("notFound.text")}</p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <ChromeButton size="small">{t("nav.addToBrowser")}</ChromeButton>
+        <a href={getLocalizedPath(lang, "/")} class="text-sm text-theme-muted underline underline-offset-4 hover:text-theme whitespace-nowrap">
+          {t("notFound.home")}
+        </a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+</Layout>

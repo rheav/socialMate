@@ -1,0 +1,44 @@
+---
+/**
+ * Shared layout for the legal pages. Content: src/content/legal/<lang>/<slug>.md
+ */
+import { getEntry, render } from "astro:content";
+import Footer from "./Footer.astro";
+import Navbar from "./Navbar.astro";
+import Layout from "../layouts/Layout.astro";
+import { getLangFromUrl, useTranslations } from "../i18n/ui";
+
+interface Props {
+  slug: "privacy" | "terms";
+}
+
+const { slug } = Astro.props;
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const entry = await getEntry("legal", `${lang}/${slug}`);
+if (!entry) throw new Error(`Missing legal page ${lang}/${slug}`);
+const { Content } = await render(entry);
+---
+
+<Layout
+  title={entry.data.title}
+  description={entry.data.description}
+  ogType="article"
+  breadcrumbs={[{ name: entry.data.title, path: `/${slug}` }]}
+>
+  <Navbar />
+  <main class="pt-32 pb-24 px-6">
+    <article class="max-w-3xl mx-auto">
+      <header class="mb-10">
+        <h1 class="text-3xl md:text-4xl font-bold tracking-tight mb-3">{entry.data.title}</h1>
+        <p class="text-sm text-theme-muted">
+          {t("common.lastUpdated")} <time datetime={entry.data.updatedISO}>{entry.data.updated}</time>
+        </p>
+      </header>
+      <div class="md-content">
+        <Content />
+      </div>
+    </article>
+  </main>
+  <Footer />
+</Layout>

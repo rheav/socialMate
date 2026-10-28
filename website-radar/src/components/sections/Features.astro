@@ -1,0 +1,57 @@
+---
+/**
+ * Features bento: Magic UI BentoGrid layout ported to Astro (CSS grid) with the
+ * MagicCard spotlight on hover (vanilla, theme-token colors).
+ */
+import { ArrowDownUp, AudioLines, Clapperboard, Download, Filter, Images, MessageSquare, Radar } from "@lucide/astro";
+import { ProgressiveBlur } from "../magicui/progressive-blur";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+
+const tiles = [
+  { key: "sort", icon: ArrowDownUp, span: "lg:col-start-3 lg:row-start-1" },
+  { key: "download", icon: Download, span: "lg:col-start-3 lg:row-start-2" },
+  { key: "transcribe", icon: AudioLines, span: "" },
+  { key: "comments", icon: MessageSquare, span: "" },
+  { key: "stories", icon: Clapperboard, span: "" },
+  { key: "facebook", icon: Filter, span: "lg:col-span-2" },
+  { key: "pinterest", icon: Images, span: "" },
+] as const;
+---
+
+<section id="features" class="py-24 px-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="section-header-animate text-center mb-14" data-animate>
+      <h2 class="text-3xl md:text-4xl font-bold mb-4">
+        {t("features.title")} <span class="gradient-text-accent">{t("features.title.highlight")}</span>
+      </h2>
+      <p class="text-theme-muted max-w-xl mx-auto">{t("features.subtitle")}</p>
+    </div>
+
+    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 lg:auto-rows-[minmax(15rem,auto)]">
+      <article class="magic-card rounded-2xl p-7 md:col-span-2 lg:row-span-2 flex flex-col overflow-hidden">
+        <div>
+          <Radar size={30} stroke-width={1.5} class="text-accent-from mb-4" aria-hidden="true" />
+          <h3 class="text-2xl font-bold mb-3">{t("feat.spy.title")}</h3>
+          <p class="text-theme-muted leading-relaxed max-w-xl">{t("feat.spy.text")}</p>
+          <a href="#spy" class="inline-block mt-4 text-sm font-semibold underline underline-offset-4 hover:opacity-80">{t("feat.spy.more")} →</a>
+        </div>
+        <div class="relative mt-6 flex-1 min-h-48 max-h-72 overflow-hidden rounded-xl border border-theme">
+          <img src="/images/shots/dash-top.png" alt="" width="1440" height="900" loading="lazy" class="w-full object-cover object-left-top" />
+          <ProgressiveBlur position="bottom" height="45%" />
+        </div>
+      </article>
+
+      {
+        tiles.map(({ key, icon: Icon, span }) => (
+          <article class:list={["magic-card rounded-2xl p-6", span]}>
+            <Icon size={24} stroke-width={1.5} class="text-accent-from mb-4" aria-hidden="true" />
+            <h3 class="text-lg font-semibold mb-2">{t(`feat.${key}.title`)}</h3>
+            <p class="text-sm text-theme-muted leading-relaxed">{t(`feat.${key}.text`)}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

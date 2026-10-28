@@ -1,0 +1,27 @@
+---
+import ChromeButton from "../ui/ChromeButton.astro";
+import { getLangFromUrl, useTranslations } from "../../i18n/ui";
+
+const t = useTranslations(getLangFromUrl(Astro.url));
+---
+
+<section id="download" class="relative overflow-hidden py-28 px-6">
+  <!-- Magic UI RetroGrid, CSS version (no JS, still under reduced motion) -->
+  <div class="pointer-events-none absolute inset-0 overflow-hidden opacity-50 [perspective:200px]" aria-hidden="true">
+    <div class="absolute inset-0 [transform:rotateX(65deg)]">
+      <div class="retro-grid-lines"></div>
+    </div>
+    <div class="absolute inset-0 bg-linear-to-t from-(--color-bg) via-(--color-bg)/70 to-transparent"></div>
+  </div>
+
+  <div class="relative section-header-animate max-w-3xl mx-auto text-center" data-animate>
+    <img src="/logo.svg" alt="" class="w-16 h-16 mx-auto mb-6 rounded-2xl" width="64" height="64" loading="lazy" />
+    <h2 class="text-3xl md:text-5xl font-bold mb-4">
+      {t("cta.title")} <span class="gradient-text-accent">{t("cta.title.highlight")}</span>
+    </h2>
+    <p class="text-theme-muted mb-8 max-w-lg mx-auto">{t("cta.subtitle")}</p>
+    <div class="flex items-center justify-center">
+      <ChromeButton>{t("cta.button")}</ChromeButton>
+    </div>
+  </div>
+</section>
