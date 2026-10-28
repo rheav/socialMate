@@ -2,7 +2,7 @@
 // Instagram Scraper export or the warm engine, then proves it by running its tests
 // and its build there.
 //
-//   node scripts/export-public.mjs [outDir]     (default: ../socialmate-public)
+//   node scripts/export-public.mjs [outDir]     (default: ~/Code/extensions/socialmate-public, the public checkout)
 //
 // Same rules as the public dist: src/build/stripRegions.js drops every @private
 // region, PRIVATE_FILES go entirely, and the result must contain none of LEAKS.
@@ -13,7 +13,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { stripRegions } from "../src/build/stripRegions.js";
 
 const REPO = resolve(new URL("..", import.meta.url).pathname);
-const OUT = resolve(process.argv[2] || join(REPO, "../socialmate-public"));
+const OUT = resolve(process.argv[2] || join(REPO, "../../socialmate-public"));
 
 // Repo paths that go out (prefix match), then the ones that stay home.
 const INCLUDE = [
