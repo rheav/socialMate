@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.24.1] — 2026-10-30
+
+### Fixed
+- **Pinterest: the card buttons never appeared on the home feed.** On a logged-in home, Pinterest's own boot script (`writeDocument`, inline) can call `document.open()` and write the page in, 1.6 s after the content script started. That replaces `<html>` and `<body>` and erases every listener, so the overlay's observer went silent: 48 tiles, 0 buttons after 20 s, and neither scrolling nor switching tabs woke it. It watches `document` now, which survives, and re-adds its `visibilitychange` listener. Its stylesheet is found by id instead of a flag, because `document.open()` takes the `<head>` too and the buttons would have come back unstyled.
+- **Pinterest: the buttons arrive with the images.** The render waited for a 300 ms gap in a grid that mutates for seconds during boot, then for idle time. It is throttled now (150 ms, then idle up to 200 ms): 0.9–1.4 s after the images became 0.2–0.3 s, and 505 ms became 371 ms when scrolling. Same long tasks, no React errors. A tile that gains its size without a DOM mutation is retried, at most 20 times.
+
 ## [1.24.0] — 2026-10-30
 
 ### Changed

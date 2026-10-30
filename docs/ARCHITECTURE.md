@@ -343,6 +343,7 @@ restored empty on every navigation until `serializeLedger`/`restoreLedger`
   `#__UNIVERSAL_DATA_FOR_REHYDRATION__` SSR fallback is load-bearing.
 
 **Pinterest**
+- The boot script can call `document.open()` and write the page in (inline `writeDocument`, seen on a logged-in home in a long-lived profile, not in a fresh one). It replaces `<html>` and `<body>` and erases every listener, after the content script has started. So the overlay observes `document`, re-adds its listeners and finds its stylesheet by id. A node or a listener taken before that moment is dead, silently.
 - Two silent-403 rules: `x-pinterest-pws-handler` is mandatory and must match
   the route; GET must **not** carry `x-csrftoken`, POST must.
 - `filter_section_pins: false` is the bulk key — Pinterest's own site sends

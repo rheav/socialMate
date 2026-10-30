@@ -348,24 +348,25 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
   // only download path used to be the panel's Board tool. This closes that gap.
   //
   // Mirrors src/content/ig/bridge.js's overlay conventions (style injected once,
-  // debounced MutationObserver, dataset-marked idempotence so recycled/virtualized
+  // throttled MutationObserver, dataset-marked idempotence so recycled/virtualized
   // tiles never get double-decorated) adapted to Pinterest's multi-column masonry
   // grid. Toggle via sw_pin_overlay in chrome.storage.local (default ON).
   // ============================================================
   const MAX_TILES_PER_PASS = 48; // hard cap — Pinterest's grid mutates constantly
 
   let overlayOn = true;
-  let ovlStyleAdded = false;
   let ovlTimer = null;
+  let layoutRetries = 0;
   // Mirror of fbw_saved's keys — drives the yellow "already saved" highlight,
   // kept in sync by storage.onChanged (never re-read the whole map per pass).
   let savedSet = new Set();
   function refreshSaved(map) { savedSet = new Set(Object.keys(map || {})); }
 
   function ensureOvlStyle() {
-    if (ovlStyleAdded) return;
-    ovlStyleAdded = true;
+    // By id, not a flag: document.open() (see observePage) takes the <head> with it.
+    if (document.getElementById("sw-pin-style")) return;
     const s = document.createElement("style");
+    s.id = "sw-pin-style";
     s.textContent = `
       .sw-pin-acts{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:6px;z-index:6}
       .sw-pin-acts.sw-pin-closeup{position:fixed;top:84px;right:20px;left:auto;z-index:2147483000}
@@ -541,12 +542,13 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
   // happen for tiles that actually need (re)building — and the observer is
   // disconnected while we append our own nodes so we never re-trigger ourselves.
   function renderOverlays() {
+    document.addEventListener("visibilitychange", onVisible); // same reference: a no-op unless document.open() erased it
     if (document.visibilityState !== "visible") return;
     if (!overlayOn) {
       if (document.querySelector(".sw-pin-acts")) {
         ovlObserver.disconnect();
         document.querySelectorAll(".sw-pin-acts").forEach((e) => e.remove());
-        observeBody();
+        observePage();
       }
       return;
     }
@@ -560,14 +562,15 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
       toBuild.push([tile, id, sig]);
     }
     // Hard cap per pass — a big board can have dozens of tiles mounted at once;
-    // scheduleRender() below picks up whatever didn't fit on the next debounced tick.
+    // scheduleRender() below picks up whatever didn't fit on the next tick.
     const capped = toBuild.slice(0, MAX_TILES_PER_PASS);
 
     ensureOvlStyle();
     ovlObserver.disconnect();
+    let unlaid = false;
     for (const [tile, id, sig] of capped) {
       const rect = tile.getBoundingClientRect();
-      if (rect.width < 60 || rect.height < 60) continue; // not laid out yet — retry next pass
+      if (rect.width < 60 || rect.height < 60) { unlaid = true; continue; } // not laid out yet — retry below
       tile.querySelectorAll(":scope > .sw-pin-acts").forEach((e) => e.remove());
       tile.dataset.swPinId = id;
       tile.dataset.swPinSig = sig;
@@ -577,17 +580,23 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
       tile.appendChild(buildActs(id));
     }
     maintainCloseup();
-    observeBody();
+    observePage();
 
-    if (toBuild.length > capped.length) scheduleRender(); // more tiles queued — catch up next pass
+    // A tile gaining its size is not a childList mutation, so nothing else would wake
+    // us. Bounded: some tiles stay 0×0 for good.
+    layoutRetries = unlaid ? layoutRetries + 1 : 0;
+    if (toBuild.length > capped.length || (unlaid && layoutRetries <= 20)) scheduleRender(); // catch up next pass
   }
-  // Debounced, then run at idle so bursts of grid mutations cost one off-path pass.
+  // Throttled, then run at idle so a pass never lengthens a busy frame. Not debounced:
+  // the grid mutates for seconds while the page boots, and waiting for a quiet gap put
+  // the buttons 0.9–1.4 s behind the images.
   function scheduleRender() {
-    clearTimeout(ovlTimer);
+    if (ovlTimer) return;
+    const run = () => { ovlTimer = null; renderOverlays(); };
     ovlTimer = setTimeout(() => {
-      if (typeof requestIdleCallback === "function") requestIdleCallback(renderOverlays, { timeout: 700 });
-      else renderOverlays();
-    }, 300);
+      if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 200 });
+      else run();
+    }, 150);
   }
 
   chrome.storage?.local?.get(["sw_pin_overlay", "fbw_saved"]).then((r) => {
@@ -602,10 +611,12 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     if (ch.sw_pin_overlay || ch.fbw_saved) scheduleRender();
   });
   const ovlObserver = new MutationObserver(scheduleRender);
-  const observeBody = () => ovlObserver.observe(document.body, { childList: true, subtree: true });
-  observeBody();
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") scheduleRender();
-  });
+  // `document`, not `document.body`: Pinterest's boot script can call document.open()
+  // and write the page in (inline `writeDocument`, measured 2026-10-30), which replaces
+  // <html> and <body> and erases every listener. An observer on the old body went
+  // silent and the home feed never got its buttons.
+  const observePage = () => ovlObserver.observe(document, { childList: true, subtree: true });
+  const onVisible = () => { if (document.visibilityState === "visible") scheduleRender(); };
+  observePage();
   scheduleRender();
 })();
