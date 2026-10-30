@@ -33,4 +33,21 @@ it("knows which feed video is playing from the player's wrapper", async () => {
     ["FBW_ZIP_FINISH", undefined],
   ]);
   expect(sent[0].zipName).toBe("tt-maker-7683724573904243988.zip");
+
+  // The photo view: no <video>, so the player rail hangs on the swiper.
+  window.happyDOM.setURL("https://www.tiktok.com/@maker/photo/7683724573904243988");
+  document.body.innerHTML = `<div class="swiper"><img></div>`;
+  document.querySelector(".swiper").getBoundingClientRect = () => ({ width: 1305, height: 900, top: 0, bottom: 900, left: 0, right: 1305 });
+  window.dispatchEvent(new MessageEvent("message", { source: window, data: { __fbwTt: true, records: [{ __kind: "video", id: "7683724573904243988", username: "maker", play_count: 5540, images: ["https://p16.tiktokcdn.com/1.jpeg"] }] } }));
+  await new Promise((r) => setTimeout(r, 120));
+  expect([...document.querySelectorAll("#sw-tt-layer .sw-ttacts button")].map((b) => b.title)).toContain("Baixar fotos");
+  // Below TikTok's close button, not on it.
+  expect(document.querySelector("#sw-tt-layer .sw-ttacts").style.top).toBe("64px");
+
+  // Closing the view takes the rail with it.
+  window.happyDOM.setURL("https://www.tiktok.com/@maker");
+  document.body.innerHTML = "";
+  window.dispatchEvent(new Event("scroll"));
+  await new Promise((r) => setTimeout(r, 350));
+  expect(document.querySelectorAll("#sw-tt-layer .sw-ttacts")).toHaveLength(0);
 });

@@ -1057,8 +1057,8 @@ function recordReachTier(rec) {
   // FYP once TikTok rewrites the path), then the most-centered <video>'s nearest
   // /video/<id> link, then the last video whose comments loaded.
   function currentAwemeId(centered) {
-    const m = location.pathname.match(/\/video\/(\d+)/);
-    if (m) return m[1];
+    const routed = ttIdFromHref(location.pathname);
+    if (routed) return routed;
     const v = centered !== undefined ? centered : mostCenteredVideo();
     if (v) {
       let el = v;
@@ -1168,7 +1168,9 @@ function recordReachTier(rec) {
       applyCreator(prev);
       if (r.list_id) ingestListVideo(prev); // playlist/collection membership
     }
-    while (byId.size > 500) byId.delete(byId.keys().next().value);
+    // The MAIN world's own cap: a full collection (60 rounds × 16) must not lose its
+    // first videos here. 4.2 KB a record, measured, so about 5 MB at worst.
+    while (byId.size > 1200) byId.delete(byId.keys().next().value);
     bump("videos"); // lets the panel poll short-circuit when nothing changed
     overlayNow();
     ttPageSorter?.schedule(); // new numbers can change the page order
@@ -2631,6 +2633,7 @@ function chromeQueryStorage() {
 
   // ---- the top-level layer for player rails (see the CSS note) ----
   const ttLayerRails = new Map(); // host element -> its rails
+  const onPhotoRoute = () => /\/photo\/\d/.test(location.pathname);
   function ensureTtLayer() {
     let layer = document.getElementById("sw-tt-layer");
     if (!layer) {
@@ -2650,7 +2653,8 @@ function chromeQueryStorage() {
     rails.ovl.style.display = "";
     rails.acts.style.display = "";
     rails.acts.style.left = Math.round(r.left + 8) + "px";
-    rails.acts.style.top = Math.round(r.top + 8) + "px";
+    // TikTok's close button sits on that corner of the photo view.
+    rails.acts.style.top = Math.round(r.top + (onPhotoRoute() ? 64 : 8)) + "px";
     // Lower-middle, flush to the video's RIGHT edge. TikTok burns captions across
     // the lower-centre of the frame and hangs its own action rail just outside the
     // right edge, so this sits between them rather than on either.
@@ -2841,13 +2845,17 @@ function chromeQueryStorage() {
       renderTileOverlays();
     });
   }
+  // The photo view has no <video> to hang the rail on: its slides sit in a swiper.
+  const photoHost = () => (onPhotoRoute() ? document.querySelector(".swiper") : null);
+
   function maintainOverlay() {
     if (disabled || document.visibilityState !== "visible") return;
     ssrCreator(); // cheap: parses the blob once per profile path, not per tick
     // ONE layout pass per tick: mostCenteredVideo() reads a rect per <video>, and it
     // used to run twice (once here, once inside currentAwemeId()). Resolve it here
-    // and thread it down.
-    const centered = mostCenteredVideo();
+    // and thread it down. The photo view first: a preview left playing in the grid
+    // behind that modal would otherwise win.
+    const centered = photoHost() || mostCenteredVideo();
     // A tile's autoplaying preview is not a player — see ttPlayerHost.js. Deciding
     // this on "some video is on screen" put the whole rail on every grid, pointing
     // at whichever tile drifted closest to the middle.
@@ -2855,7 +2863,8 @@ function chromeQueryStorage() {
     // A generation older than 1.0.0 pinned its own action stack to the window's
     // right edge; the player rail carries those actions now.
     document.getElementById("sw-tt-acts")?.remove();
-    if (!onVideo) return;
+    // Off a player surface too: closing a video or photo left its rail over the grid.
+    if (!onVideo) return renderPlayerRail(null);
     updateTxBadges(); // this tick is also the BR/EN badge's repaint loop
     renderPlayerRail(centered);
   }

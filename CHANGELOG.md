@@ -16,6 +16,20 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.26.0] — 2026-10-30
+
+### Added
+- **TikTok: the rail on the photo view.** `/@user/photo/<id>` has no `<video>`, so the rail now hangs on its swiper, with "Baixar fotos", cover, comments and like, below TikTok's close button. A photo post in For You still has no rail: none appeared in the feed to measure.
+
+### Fixed
+- **TikTok: closing a video or a photo takes its rail with it.** The rail stayed floating over the grid, on every player since the rail moved to its own layer.
+- **TikTok: a long collection keeps its first videos.** The bridge held 500 videos while a collection reaches about 960 and the capture keeps 1200, so the oldest ones silently left the panel, the spreadsheet and the ZIP. It holds 1200 now.
+
+### Checked on the installed public build, with the real session
+- Pinterest's real `document.open()` boot: 21 and 17 buttons at +174 and +239 ms, where it used to stay at 0.
+- TikTok: grid 32 of 32 rails, a real ZIP to `✓ 4/4`, stop and resume, For You 3 of 3, Stories with data.
+- Facebook: "Miniaturas" and "Vídeos" with both stops.
+
 ## [1.25.0] — 2026-10-30
 
 ### Added
