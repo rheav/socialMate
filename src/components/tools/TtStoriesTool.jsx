@@ -3,7 +3,8 @@ import { Download, FileText, Loader2, Bookmark, RotateCw, Trash2, Eye, Heart } f
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
-import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
+import { baseNameFor, fmtCount } from "@/lib/ttMedia";
+import { ttSaveMedia } from "@/lib/shared/ttItems.js";
 import { startPolling } from "@/lib/poll";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
@@ -12,10 +13,9 @@ import { readStoredTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { txButtonState } from "@/lib/transcriptJobs.js";
 import IconBtn from "@/components/ui/IconBtn";
 
-// TikTok Stories. Reads the passive fetch capture of /api/story/item_list (via the
-// bridge, FBW_TT_STORIES) — stories appear once you OPEN a creator's story ring or
-// visit a profile that has active stories. Each story item is a full video record
-// (HD + captions), so download uses hd_url and transcribe is caption-first.
+// TikTok Stories. Reads the passive fetch capture of /api/story/item_list and of the
+// batch the site loads for followed accounts (via the bridge, FBW_TT_STORIES). Each
+// story item is a full record, a video (HD + captions) or photos.
 export default function TtStoriesTool() {
   const [owners, setOwners] = useState([]);
   const [txMap, setTxMap] = useState({});
@@ -91,11 +91,7 @@ export default function TtStoriesTool() {
   const { run, statusOf, errorOf } = useItemStatus();
 
   async function download(item) {
-    await run(statusKey(item.id), async () => {
-      const url = item.hd_url || item.download_url || item.video;
-      if (!url) throw new Error("sem URL de vídeo");
-      await requireOk({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor({ ...item, username: item.reel_owner || item.username }, extFromUrl(url, "video")) });
-    });
+    await run(statusKey(item.id), () => ttSaveMedia({ ...item, username: item.reel_owner || item.username }, baseNameFor, requireOk));
   }
 
   async function transcribe(item) {
@@ -205,7 +201,7 @@ export default function TtStoriesTool() {
                   {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
 
                   <div className="absolute left-1 top-1 flex flex-col gap-1">
-                    <IconBtn title={statusTitle("Baixar HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
+                    <IconBtn title={statusTitle(item.images ? "Baixar fotos" : "Baixar HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
                       {st === "downloading" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />}
                     </IconBtn>
                     {(item.video || item.subtitle) && (

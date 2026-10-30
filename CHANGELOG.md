@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.25.0] — 2026-10-30
+
+### Added
+- **TikTok: photo posts and photo stories.** They used to have no rail and nothing to download (9 of 19 stories on a real feed). The capture now reads the slides at full size (`imagePost`, 1440x2788 measured), so a photo tile gets the rail with "Baixar fotos", and the Ordenar, Playlists and Stories panels download them. One photo lands as a file; several land as one ZIP named after the post. Not on the `/photo/` page or a photo post in For You: the player rail hangs on a `<video>`, and those have none.
+
+### Changed
+- **TikTok: "Tudo" and "Tudo em HD" save one ZIP and can stop.** They used to drop loose files with no way out. The ZIP follows the filters and order you see, and holds videos and every slide of a photo post. A second click stops and saves what it has; the next one takes only the rest. The run lives in the panel (`lib/bulkZip.js`), so it survives walking around TikTok and switching tools, and closing the panel ends it. Only one runs at a time. Same archive path as Facebook (`FBW_ZIP_ADD`, `FBW_ZIP_FINISH`), which now installs the TikTok Referer rule when it needs it. The loop itself moved to `lib/shared/bulkDownload.js`, one definition for both.
+
 ## [1.24.2] — 2026-10-30
 
 ### Fixed

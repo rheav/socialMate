@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.24.2",
+  version: "1.25.0",
   // @private
   version_name:
-    "1.24.2 — TikTok: rail no Para você, Stories voltam, Referer do site intacto",
+    "1.25.0 — TikTok: baixar tudo em ZIP com parar, fotos e stories de foto",
   // @end-private
   icons: ICONS,
   action: {

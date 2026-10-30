@@ -2311,6 +2311,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "FBW_ZIP_FINISH": {
       (async () => {
         try {
+          if (isTiktokCdn(msg.url)) await ensureTiktokReferer();
           await ensureOffscreen();
           const res = await callOffscreen(msg.type === "FBW_ZIP_ADD"
             ? { action: "zipAdd", jobId: msg.jobId, name: msg.filename, url: msg.url }

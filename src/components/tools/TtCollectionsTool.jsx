@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { Download, Bookmark, RotateCw, Trash2, ListVideo, ChevronDown, ChevronRight, Eye } from "lucide-react";
+import { Download, Bookmark, RotateCw, Trash2, ListVideo, ChevronDown, ChevronRight, Eye, Square } from "lucide-react";
 import { ToolBar, ActionButton } from "@/components/ui/ToolBar";
 import ContentLinkBanner from "@/components/ui/ContentLinkBanner";
 import { useContentLink } from "@/lib/useContentLink";
-import { filenameFor, extFromUrl, fmtCount } from "@/lib/ttMedia";
+import { baseNameFor, fmtCount, sanitizeFilenamePart } from "@/lib/ttMedia";
+import { startBulkZip, useBulkZip } from "@/lib/bulkZip";
+import { ttSaveMedia } from "@/lib/shared/ttItems.js";
 import { startPolling } from "@/lib/poll";
 import { requireOk } from "@/lib/bg";
 import { buildSavedEntry } from "@/lib/shared/savedEntry";
@@ -90,11 +92,7 @@ export default function TtCollectionsTool() {
   }, []);
 
   async function download(item) {
-    await run(statusKey(item.id), async () => {
-      const url = item.hd_url || item.download_url || item.video;
-      if (!url) throw new Error("sem URL de vídeo");
-      await requireOk({ type: "FBW_DL_MEDIA", kind: "video", url, filename: filenameFor(item, extFromUrl(url, "video")) });
-    });
+    await run(statusKey(item.id), () => ttSaveMedia(item, baseNameFor, requireOk));
   }
   async function save(item) {
     // The background owns the write (serialized) and decides insert-vs-remove by
@@ -122,8 +120,9 @@ export default function TtCollectionsTool() {
     });
   }
 
-  async function downloadAll(items) {
-    for (const it of items) { await download(it); await new Promise((r) => setTimeout(r, 400)); }
+  const zip = useBulkZip();
+  function downloadAll(L, items) {
+    startBulkZip(`list:${L.list_id}`, items, `tt-${sanitizeFilenamePart(L.name) || L.list_id}-${new Date().toISOString().slice(0, 10)}.zip`);
   }
 
   // One banner for every link failure, rendered in every branch below so the
@@ -175,6 +174,7 @@ export default function TtCollectionsTool() {
       {lists.map((L) => {
         const isOpen = !!open[L.list_id];
         const items = L.items || [];
+        const zipMine = zip.key === `list:${L.list_id}`;
         return (
           <div key={L.list_id} className="rounded-lg border border-border bg-card">
             <button
@@ -206,11 +206,12 @@ export default function TtCollectionsTool() {
                         INSIDE the card, not the panel's. */}
                     <ToolBar className="mb-2 justify-end">
                       <ActionButton
-                        icon={Download}
-                        label="Tudo em HD"
-                        hint="Baixar todos os vídeos desta coleção em HD"
+                        icon={zipMine && zip.running ? Square : Download}
+                        label={(zipMine && zip.label) || "Tudo em HD"}
+                        hint={zipMine && zip.running ? "Parar e salvar no ZIP o que já baixou" : (zipMine && zip.error) || "Baixar todos os vídeos desta coleção em HD, em um ZIP"}
                         variant="secondary"
-                        onClick={() => downloadAll(items)}
+                        onClick={() => downloadAll(L, items)}
+                        disabled={zip.running && !zipMine}
                       />
                     </ToolBar>
                     <div className="grid grid-cols-3 gap-1.5">
@@ -221,7 +222,7 @@ export default function TtCollectionsTool() {
                           <div key={item.id} className="group relative aspect-[9/16] overflow-hidden rounded-lg bg-muted ring-1 ring-black/5">
                             {item.cover ? <img src={item.cover} alt="" loading="lazy" referrerPolicy="no-referrer" className="absolute inset-0 h-full w-full object-cover" /> : null}
                             <div className="absolute left-1 top-1 flex flex-col gap-1">
-                              <IconBtn title={statusTitle("Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
+                              <IconBtn title={statusTitle(item.images ? "Baixar fotos" : "Baixar vídeo em HD", st, errorOf(statusKey(item.id)))} onClick={() => download(item)} disabled={st === "downloading"}>
                                 <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
                               </IconBtn>
                               <IconBtn

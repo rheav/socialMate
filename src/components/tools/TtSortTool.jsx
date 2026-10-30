@@ -51,7 +51,7 @@ import IconBtn from "@/components/ui/IconBtn";
 import MetricLegend from "@/components/ui/MetricLegend";
 import {
   recordToCard,
-  filenameFor,
+  baseNameFor,
   thumbFilenameFor,
   extFromUrl,
   fmtCount,
@@ -70,6 +70,8 @@ import { reachTier } from "@/lib/shared/ttFormat.js";
 // TikTok's createTime is the same unix-seconds stamp Instagram's taken_at is.
 import { DATE_RANGES, withinDateRange } from "@/lib/shared/harvest.js";
 import { buildXlsx } from "@/lib/xlsx";
+import { startBulkZip, useBulkZip } from "@/lib/bulkZip";
+import { ttSaveMedia } from "@/lib/shared/ttItems.js";
 import { downloadPath } from "@/lib/downloadPath";
 
 // The sort select's options come from the query's field map (Alcance first — the
@@ -256,16 +258,7 @@ export default function TtSortTool() {
   const { run, statusOf, errorOf } = useItemStatus();
 
   async function downloadRecord(rec) {
-    await run(statusKey(rec.id), async () => {
-      const url = rec.hd_url || rec.download_url || rec.video; // always highest quality
-      if (!url) throw new Error("sem URL de vídeo");
-      await requireOk({
-        type: "FBW_DL_MEDIA",
-        kind: "video",
-        url,
-        filename: filenameFor(rec, extFromUrl(url, "video")),
-      });
-    });
+    await run(statusKey(rec.id), () => ttSaveMedia(rec, baseNameFor, requireOk));
   }
 
   // Own status key ("<id>:thumb") so a cover failure marks THIS button instead of
@@ -280,11 +273,13 @@ export default function TtSortTool() {
     );
   }
 
-  async function downloadAll() {
-    for (const rec of sorted) {
-      await downloadRecord(rec);
-      await new Promise((r) => setTimeout(r, 400));
-    }
+  // The list you see, filters and order included. Bound to the page so a result does
+  // not follow you to the next profile.
+  const zip = useBulkZip();
+  const zipKey = `sort:${view}`;
+  const zipMine = zip.key === zipKey;
+  function downloadAll() {
+    startBulkZip(zipKey, sorted, `tt-${surfaceFileTag(view)}-${new Date().toISOString().slice(0, 10)}.zip`);
   }
 
   // Ask the PAGE to scroll so TikTok paginates. The pacing lives there (scrollGapMs
@@ -507,13 +502,13 @@ export default function TtSortTool() {
           disabled={!sorted.length}
         />
         <ActionButton
-          icon={Download}
-          label="Tudo"
-          hint="Baixar todos os vídeos listados"
+          icon={zipMine && zip.running ? Square : Download}
+          label={(zipMine && zip.label) || "Tudo"}
+          hint={zipMine && zip.running ? "Parar e salvar no ZIP o que já baixou" : (zipMine && zip.error) || "Baixar todos os vídeos e fotos listados em um ZIP"}
           variant="secondary"
           className="basis-0 grow"
           onClick={downloadAll}
-          disabled={!sorted.length}
+          disabled={!sorted.length || (zip.running && !zipMine)}
         />
       </ToolBar>
 
@@ -613,7 +608,7 @@ export default function TtSortTool() {
                   >
                     <Bookmark className={"size-3.5 " + (savedIds[c.id] ? "fill-amber text-amber" : "")} />
                   </IconBtn>
-                  <IconBtn title={statusTitle("Baixar vídeo", st, errorOf(statusKey(c.id)))} onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
+                  <IconBtn title={statusTitle(rec.images ? "Baixar fotos" : "Baixar vídeo", st, errorOf(statusKey(c.id)))} onClick={() => downloadRecord(rec)} disabled={st === "downloading"}>
                     <Download className={"size-3.5 " + (st === "done" ? "text-good" : st === "error" ? "text-danger" : "")} />
                   </IconBtn>
                   <IconBtn

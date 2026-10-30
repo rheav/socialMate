@@ -18,9 +18,10 @@ beforeAll(async () => {
   blob.textContent = JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.updated-items": [item("7681916289874414869")] } });
   document.head.append(blob);
   window.postMessage = (m) => posted.push(m);
-  window.fetch = async () => new Response(JSON.stringify({
-    batchStoryItemLists: [{ AuthorId: "1", itemList: [item("7700000000000000001", "storyteller")] }, { AuthorId: "2" }],
-  }));
+  window.fetch = async (url) => new Response(JSON.stringify(/story/.test(url)
+    ? { batchStoryItemLists: [{ AuthorId: "1", itemList: [item("7700000000000000001", "storyteller")] }, { AuthorId: "2" }] }
+    : { itemList: [{ ...item("7683724573904243988"), video: { id: "7683724573904243988", cover: "https://p16.tiktokcdn.com/c.jpg" },
+        imagePost: { images: [1, 2].map((n) => ({ imageURL: { urlList: [`https://p16-common-sign.tiktokcdn.com/${n}.jpeg`, `https://p19-common-sign.tiktokcdn.com/${n}.jpeg`] } })) } }] }));
   await import("./tt-capture.js");
   await new Promise((r) => setTimeout(r, 150));
 });
@@ -28,6 +29,14 @@ beforeAll(async () => {
 it("captures the For You feed's server-rendered videos, media included", () => {
   const r = captured().find((x) => x.id === "7681916289874414869");
   expect(r).toMatchObject({ play_count: 10, video: "https://v16-webapp-prime.tiktok.com/a.mp4" });
+});
+
+it("reads a photo post's slides, first mirror of each", async () => {
+  await window.fetch("https://www.tiktok.com/api/post/item_list/?count=16");
+  await new Promise((r) => setTimeout(r, 50));
+  const r = captured().find((x) => x.id === "7683724573904243988");
+  expect(r.images).toEqual(["https://p16-common-sign.tiktokcdn.com/1.jpeg", "https://p16-common-sign.tiktokcdn.com/2.jpeg"]);
+  expect(r.video).toBeNull();
 });
 
 it("captures the batched stories as stories of their author", async () => {

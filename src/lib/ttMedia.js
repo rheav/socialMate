@@ -139,11 +139,8 @@ export function thumbFilenameFor(rec, ext) {
   return downloadPath("thumb", name);
 }
 
-export function extFromUrl(url, kind) {
-  const m = String(url || "").match(/\.(mp4|mov|webm|jpg|jpeg|png|webp|gif)(\?|$)/i);
-  if (m) { const e = m[1].toLowerCase(); return e === "jpeg" ? "jpg" : e; }
-  return kind === "video" ? "mp4" : "jpg";
-}
+// One definition, in shared/ttItems.js: the page's rail needs it too.
+export { ttExt as extFromUrl } from "./shared/ttItems.js";
 
 // Scope captured records to a surface. TikTok's fetch capture also picks up
 // recommended/related items while you browse, so a raw surface match still leaks

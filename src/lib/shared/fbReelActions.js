@@ -11,18 +11,6 @@ export function fbReelEntry(rec) {
     videoKind: 'reel', takenAt: rec.taken_at ?? null, durationS: rec.duration ?? null, followers: rec.followers ?? null };
 }
 
-// One reel at a time, in list order: `save` resolves when the reel is stored, so the
-// list paces itself. One failure skips one reel.
-export async function fbBulkDownload(list, save, stopped, onStep) {
-  let done = 0, failed = 0, error = null;
-  for (const rec of list) {
-    if (stopped()) break;
-    onStep(done + failed + 1);
-    try { await save(rec); done++; } catch (e) { failed++; error = e.message; }
-  }
-  return { done, failed, error };
-}
-
 export function fbAuthorSlug(name) {
   return (name || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
 }

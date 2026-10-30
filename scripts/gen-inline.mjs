@@ -39,6 +39,7 @@ const TARGETS = {
     "src/lib/shared/fbReelsData.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/txLang.js",
+    "src/lib/shared/bulkDownload.js",
     "src/lib/shared/fbReelActions.js",
     "src/lib/shared/fmt.js",
     "src/lib/shared/fbQuery.js",

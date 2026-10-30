@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { fbAuthorSlug, fbBulkDownload, fbReelEntry, fbReelJob } from './fbReelActions.js';
+import { fbAuthorSlug, fbReelEntry, fbReelJob } from './fbReelActions.js';
 import { FB_QUERY_FIELDS, fbEngagement } from './fbQuery.js';
 import { applyQuery } from './feedQuery.js';
 const rec = {id:'2030018604348103',views:4400,likes:125,comments:32,shares:16,taken_at:1790877335,duration:87.167,
@@ -19,15 +19,6 @@ it('refuses absent media and does not invent metrics for sorting', () => {
   expect(fbEngagement({...rec,likes:null})).toBeNull();
   expect(fbEngagement({...rec,likes:0,comments:0,shares:0})).toBe(0);
   expect(applyQuery([{...rec,id:'a',likes:null}, {...rec,id:'b',likes:0}],{filters:[],sorts:[{key:'likes',dir:'asc'}]},FB_QUERY_FIELDS).map(r=>r.id)).toEqual(['b','a']);
-});
-it('bulk download keeps going past a failed reel and stops when asked', async () => {
-  const saved=[];
-  const save=async r=>{if(r.id==='b')throw new Error('403');saved.push(r.id);};
-  expect(await fbBulkDownload([{id:'a'},{id:'b'},{id:'c'}],save,()=>false,()=>{})).toEqual({done:2,failed:1,error:'403'});
-  expect(saved).toEqual(['a','c']);
-  const steps=[];
-  expect(await fbBulkDownload([{id:'x'},{id:'y'}],async()=>{},()=>steps.length>0,n=>steps.push(n))).toEqual({done:1,failed:0,error:null});
-  expect(steps).toEqual([1]);
 });
 it('names a ZIP and its reels from the same safe author', () => {
   expect(fbAuthorSlug('A/B: Café!')).toBe('AB Café');

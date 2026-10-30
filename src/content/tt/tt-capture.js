@@ -190,6 +190,49 @@ function ttItemsIn(obj) {
   return [];
 }
 
+/**
+ * A photo post's slides at full size, or null for a video. A photo post and a photo
+ * story look the same: no playAddr, imagePost.images[].imageURL.urlList. The list
+ * holds mirrors of one file, so the first is enough.
+ */
+function ttImages(it) {
+  const slides = it.imagePost && it.imagePost.images;
+  if (!Array.isArray(slides)) return null;
+  const urls = slides.map((s) => s && s.imageURL && s.imageURL.urlList && s.imageURL.urlList[0]).filter(Boolean);
+  return urls.length ? urls : null;
+}
+
+/** What a post downloads as: its slides, or the best video it has. */
+function ttMediaList(rec) {
+  if (rec.images && rec.images.length) return rec.images.map((url) => ({ url, kind: "image" }));
+  const url = rec.hd_url || rec.download_url || rec.video;
+  return url ? [{ url, kind: "video" }] : [];
+}
+
+function ttExt(url, kind) {
+  const m = String(url || "").match(/\.(mp4|mov|webm|jpg|jpeg|png|webp|gif)(\?|$)/i);
+  if (m) { const e = m[1].toLowerCase(); return e === "jpeg" ? "jpg" : e; }
+  return kind === "video" ? "mp4" : "jpg";
+}
+
+/**
+ * Save one post. A single file lands as itself; several (a carousel) become one ZIP
+ * instead of a dozen loose images. `send` rejects on failure.
+ */
+async function ttSaveMedia(rec, nameOf, send) {
+  const media = ttMediaList(rec);
+  if (!media.length) throw new Error("sem mídia para baixar");
+  if (media.length === 1) {
+    const { url, kind } = media[0];
+    return send({ type: "FBW_DL_MEDIA", platform: "tiktok", kind, url, filename: nameOf(rec, ttExt(url, kind)) });
+  }
+  const jobId = crypto.randomUUID();
+  const zipName = nameOf(rec, "zip");
+  for (const [i, m] of media.entries())
+    await send({ type: "FBW_ZIP_ADD", jobId, zipName, url: m.url, filename: nameOf(rec, ttExt(m.url, m.kind), i + 1) });
+  return send({ type: "FBW_ZIP_FINISH", jobId, zipName });
+}
+
 /** The aweme id out of a /video/<id> or /photo/<id> permalink, or null. */
 function ttIdFromHref(href) {
   const m = typeof href === "string" && href.match(/\/(?:video|photo)\/(\d+)/);
@@ -354,6 +397,7 @@ function ttLiteItem(it) {
     collect_count: ttNum(s.collectCount),
     repost_count: ttNum(s.repostCount),
     video: v.playAddr || null,
+    images: ttImages(it),
     // Highest-quality URL for downloads. downloadAddr is missing on roughly half
     // the search results (measured), so the gear ladder leads and playAddr is the
     // floor — it is present on every item seen.
