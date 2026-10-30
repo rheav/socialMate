@@ -11,8 +11,8 @@ export function fbReelEntry(rec) {
     videoKind: 'reel', takenAt: rec.taken_at ?? null, durationS: rec.duration ?? null, followers: rec.followers ?? null };
 }
 
-// One reel at a time, in list order. `save` resolves when the file is on disk
-// (FBW_DL_MEDIA waits for it), so the list paces itself. One failure skips one reel.
+// One reel at a time, in list order: `save` resolves when the reel is stored, so the
+// list paces itself. One failure skips one reel.
 export async function fbBulkDownload(list, save, stopped, onStep) {
   let done = 0, failed = 0, error = null;
   for (const rec of list) {
@@ -23,10 +23,13 @@ export async function fbBulkDownload(list, save, stopped, onStep) {
   return { done, failed, error };
 }
 
+export function fbAuthorSlug(name) {
+  return (name || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
+}
+
 export function fbReelJob(rec, action, language = 'en') {
   if (!/^\d{6,}$/.test(rec?.id || '')) throw new Error('Reel indisponível. Recarregue a página.');
-  const name = (rec.authorName || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
-  const base = `${name}-fb-${rec.id}`;
+  const base = `${fbAuthorSlug(rec.authorName)}-fb-${rec.id}`;
   if (action === 'download' || action === 'thumb') {
     const url = fbMediaUrl(action === 'thumb' ? fullResThumb(rec.thumb) : rec.progressive);
     if (!url) throw new Error('Mídia ainda indisponível. Abra o reel e tente novamente.');

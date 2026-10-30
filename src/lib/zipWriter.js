@@ -81,7 +81,9 @@ export class ZipBuilder {
     return this.offset;
   }
 
-  add(name, bytes) {
+  // `keep` is the same bytes as a Blob: the archive then holds that instead of the
+  // array, so a large one can spill to disk. Such a builder ends in new Blob(parts).
+  add(name, bytes, keep) {
     const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
     if (this.entries.length >= ZIP_MAX_ENTRIES) throw new Error("ZIP cheio: máximo de 65535 arquivos");
     if (this.offset + data.length > ZIP_MAX_BYTES) throw new Error("ZIP cheio: máximo de 4 GB");
@@ -104,7 +106,7 @@ export class ZipBuilder {
     header.set(nameBytes, 30);
 
     this.entries.push({ nameBytes, crc, size: data.length, offset: this.offset });
-    this.parts.push(header, data);
+    this.parts.push(header, keep || data);
     this.offset += header.length + data.length;
     return this;
   }

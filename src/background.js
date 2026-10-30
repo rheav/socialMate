@@ -1706,6 +1706,15 @@ async function downloadViaOffscreen(msg, filename) {
 }
 
 
+// A finished ZIP part. Awaited so the caller hears about a failed write; the worker
+// stays up meanwhile, and with it the map that keeps the offscreen document open.
+async function saveZipPart({ blobUrl, part }, zipName) {
+  const name = part > 1 ? zipName.replace(/\.zip$/, `-parte${part}.zip`) : zipName;
+  const id = await chrome.downloads.download({ url: blobUrl, filename: resolveDownloadPath({ filename: name }, name) });
+  blobUrlByDownloadId.set(id, blobUrl);
+  await waitForDownload(id);
+}
+
 // Voice extraction is a download job; it never writes to the transcript library.
 const voiceJobs = createVoiceJobs({
   ensureOffscreen,
@@ -2294,6 +2303,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // panel → bg: download IG media. video = direct URL; image = fetched with our
     // host permissions (bypasses page CORS) and saved from a blob: URL minted in
     // the offscreen document, TikTok excepted. Carousels arrive one msg/child.
+    // content → bg → offscreen: a ZIP built one file per message (lib/zipJobs.js).
+    case "FBW_ZIP_ADD":
+    case "FBW_ZIP_FINISH": {
+      (async () => {
+        try {
+          await ensureOffscreen();
+          const res = await callOffscreen(msg.type === "FBW_ZIP_ADD"
+            ? { action: "zipAdd", jobId: msg.jobId, name: msg.filename, url: msg.url }
+            : { action: "zipFinish", jobId: msg.jobId });
+          if (!res?.success) throw new Error(res?.error || "falha no ZIP");
+          if (res.blobUrl) await saveZipPart(res, msg.zipName);
+          sendResponse({ ok: true });
+        } catch (e) {
+          sendResponse({ ok: false, error: e.message });
+        }
+      })();
+      return true; // async
+    }
     case "FBW_DL_MEDIA": {
       (async () => {
         try {

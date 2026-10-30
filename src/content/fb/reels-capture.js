@@ -753,8 +753,8 @@ function fbReelEntry(rec) {
     videoKind: 'reel', takenAt: rec.taken_at ?? null, durationS: rec.duration ?? null, followers: rec.followers ?? null };
 }
 
-// One reel at a time, in list order. `save` resolves when the file is on disk
-// (FBW_DL_MEDIA waits for it), so the list paces itself. One failure skips one reel.
+// One reel at a time, in list order: `save` resolves when the reel is stored, so the
+// list paces itself. One failure skips one reel.
 async function fbBulkDownload(list, save, stopped, onStep) {
   let done = 0, failed = 0, error = null;
   for (const rec of list) {
@@ -765,10 +765,13 @@ async function fbBulkDownload(list, save, stopped, onStep) {
   return { done, failed, error };
 }
 
+function fbAuthorSlug(name) {
+  return (name || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
+}
+
 function fbReelJob(rec, action, language = 'en') {
   if (!/^\d{6,}$/.test(rec?.id || '')) throw new Error('Reel indisponível. Recarregue a página.');
-  const name = (rec.authorName || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
-  const base = `${name}-fb-${rec.id}`;
+  const base = `${fbAuthorSlug(rec.authorName)}-fb-${rec.id}`;
   if (action === 'download' || action === 'thumb') {
     const url = fbMediaUrl(action === 'thumb' ? fullResThumb(rec.thumb) : rec.progressive);
     if (!url) throw new Error('Mídia ainda indisponível. Abra o reel e tente novamente.');
@@ -1595,7 +1598,7 @@ function fbPlayerMatches(record, video, routeId) {
     if (area === 'local' && c.fbw_saved) savedIds = new Set(Object.keys(c.fbw_saved.newValue || {}));
   });
 
-  async function performReelAction(id, action, language) {
+  async function performReelAction(id, action, language, extra) {
     const scope = currentSurface();
     collect();
     if (!id || !(scope === `reel:${id}` || (scope?.startsWith('profile:') && tiles.has(id))))
@@ -1624,7 +1627,7 @@ function fbPlayerMatches(record, video, routeId) {
     }
     const key = `${id}:${action}`;
     if (jobs.get(key)?.busy) throw new Error('Este trabalho já está em andamento.');
-    const msg = fbReelJob(rec, action, language || await getTxLang());
+    const msg = { ...fbReelJob(rec, action, language || await getTxLang()), ...extra };
     jobs.set(key,{busy:true});
     try {
       const res = await chrome.runtime.sendMessage(msg);
@@ -1672,32 +1675,47 @@ function fbPlayerMatches(record, video, routeId) {
     }
   }
 
-  // "Vídeos", beside inject.js's "Miniaturas" in the sort bar. Grid records already
-  // carry the MP4 (hydration and every pagination page, 50/50 measured 2026-10-30),
-  // so no reel is opened. A second click stops; a later one resumes, because
-  // finished reels stay marked in `jobs`. Follows the panel's filters and sort.
+  // "Vídeos", beside inject.js's "Miniaturas" in the sort bar: every reel in one ZIP.
+  // Grid records already carry the MP4 (hydration and every pagination page, 50/50
+  // measured 2026-10-30), so no reel is opened. A click while collecting ends the
+  // collection and moves on; a click while fetching saves the ZIP with what it has.
+  // The next run skips what is in a saved ZIP and follows the panel's filters and sort.
   // One harvest stops at 80 rounds (~800 reels, 10 a round): "tem mais" says so,
   // and the next click scrolls on from there.
-  const VIDEOS_TITLE = 'Baixar todos os vídeos dos reels';
+  const VIDEOS_TITLE = 'Baixar todos os vídeos dos reels em um ZIP';
   let videosBtn = null;
-  let videosRunning = false;
+  let videosPhase = null; // 'collect' | 'fetch' | 'save'
   let harvestEnded = false;
+  const zipped = new Set();
   async function downloadAllVideos() {
     const span = videosBtn.querySelector('span');
-    if (videosRunning) { cancelFlag = true; span.textContent = 'Parando…'; return; }
+    if (videosPhase === 'save') return;
+    if (videosPhase) { cancelFlag = true; span.textContent = videosPhase === 'collect' ? 'Encerrando coleta…' : 'Parando…'; return; }
     if (harvesting) return; // the panel's "Coletar tudo" owns the scroll
-    videosRunning = true;
+    videosPhase = 'collect';
     videosBtn.dataset.busy = '1';
     delete videosBtn.dataset.error;
-    videosBtn.title = 'Parar';
+    videosBtn.title = 'Parar a coleta e baixar o que já veio';
     const scope = currentSurface();
     try {
       await harvest(() => { if (!cancelFlag) span.textContent = `Coletando… ${tiles.size}`; });
-      const list = applyQuery(collect(), sorter.getQuery(), FB_QUERY_FIELDS).filter(r => !jobs.get(`${r.id}:download`)?.done);
-      const { done, failed, error } = await fbBulkDownload(list, r => performReelAction(r.id, 'download'),
+      cancelFlag = false; // stopping the collection only moves on to the download
+      videosPhase = 'fetch';
+      videosBtn.title = 'Parar e salvar no ZIP o que já baixou';
+      const list = applyQuery(collect(), sorter.getQuery(), FB_QUERY_FIELDS).filter(r => !zipped.has(r.id));
+      const zip = { type: 'FBW_ZIP_ADD', jobId: crypto.randomUUID(), zipName: `${fbAuthorSlug(ownerName())}-fb-reels-${fmtDate(Date.now() / 1000)}.zip` };
+      const added = [];
+      const { done, failed, error } = await fbBulkDownload(list,
+        async r => { await performReelAction(r.id, 'download', null, zip); added.push(r.id); },
         () => cancelFlag || disabled || currentSurface() !== scope,
         n => { if (!cancelFlag) span.textContent = `Baixando ${n}/${list.length}`; });
-      span.textContent = `${cancelFlag ? 'Parado:' : '✓'} ${done} de ${list.length}${harvestEnded ? '' : ' · tem mais'}`;
+      const stopped = cancelFlag;
+      videosPhase = 'save';
+      span.textContent = 'Gerando ZIP…';
+      const res = await chrome.runtime.sendMessage({ type: 'FBW_ZIP_FINISH', jobId: zip.jobId, zipName: zip.zipName });
+      if (!res?.ok) throw new Error(res?.error || 'Falha ao salvar o ZIP');
+      added.forEach(id => zipped.add(id)); // only now: a ZIP that failed must not cost its reels
+      span.textContent = `${stopped ? 'Parado:' : '✓'} ${done} de ${list.length}${harvestEnded ? '' : ' · tem mais'}`;
       videosBtn.title = VIDEOS_TITLE;
       if (failed) { videosBtn.dataset.error = '1'; videosBtn.title = `${failed} falharam: ${error}`; }
     } catch (e) {
@@ -1705,7 +1723,7 @@ function fbPlayerMatches(record, video, routeId) {
       videosBtn.title = e.message || 'Falha ao baixar vídeos';
       span.textContent = 'Falha ao baixar';
     } finally {
-      videosRunning = false;
+      videosPhase = null;
       delete videosBtn.dataset.busy;
     }
   }

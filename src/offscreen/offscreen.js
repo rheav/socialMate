@@ -15,6 +15,7 @@ import { createVoiceSeparator } from "./voiceSeparation.js";
 import { whisperTranscriptLanguage } from "@/lib/transcriptionLanguage.js";
 import { txProgressPercent, whisperInferRatio } from "@/lib/transcriptionProgress.js";
 import { cleanChunks } from "@/lib/transcriptJobs.js";
+import { createZipJobs } from "@/lib/zipJobs.js";
 
 // Whisper runs in a dedicated module worker (transcribe.worker.js) so its heavy WASM
 // compute stays OFF the shared extension main thread — otherwise it freezes the side
@@ -431,17 +432,22 @@ function unpinBlobUrl(blobUrl) {
   if (liveBlobUrls.delete(blobUrl)) URL.revokeObjectURL(blobUrl);
 }
 
-async function fetchToBlobUrl(url, fallbackUrl) {
-  let r = await fetch(url).catch(() => null);
-  if ((!r || !r.ok) && fallbackUrl) r = await fetch(fallbackUrl).catch(() => null);
-  if (!r || !r.ok) throw new Error("fetch failed " + (r ? r.status : "network"));
-  const blobUrl = URL.createObjectURL(await r.blob());
+function pinBlobUrl(blobUrl) {
   liveBlobUrls.add(blobUrl);
   pinnedBlobUrls.add(blobUrl);
   // Backstop: a download that never reports back (worker torn down mid-write) must
   // not pin the runtimes forever.
   setTimeout(() => unpinBlobUrl(blobUrl), 5 * 60 * 1000);
-  return { blobUrl };
+  return blobUrl;
+}
+
+const zips = createZipJobs({ mint: (blob) => pinBlobUrl(URL.createObjectURL(blob)) });
+
+async function fetchToBlobUrl(url, fallbackUrl) {
+  let r = await fetch(url).catch(() => null);
+  if ((!r || !r.ok) && fallbackUrl) r = await fetch(fallbackUrl).catch(() => null);
+  if (!r || !r.ok) throw new Error("fetch failed " + (r ? r.status : "network"));
+  return { blobUrl: pinBlobUrl(URL.createObjectURL(await r.blob())) };
 }
 
 // ---- idle release ----------------------------------------------------------
@@ -462,8 +468,9 @@ let idleTimer = null;
 
 function releaseRuntimes() {
   if (inFlight > 0) return;
-  // Defer while a download still holds one of our blob URLs — releasing revokes it.
-  if (pinnedBlobUrls.size > 0) return scheduleIdleRelease();
+  // Defer while a download still holds one of our blob URLs — releasing revokes it —
+  // and while a ZIP is being assembled, which lives only in this document.
+  if (pinnedBlobUrls.size > 0 || zips.active()) return scheduleIdleRelease();
   voiceSeparator.release();
   try { txWorker?.terminate(); } catch { /* ignore */ }
   // @private
@@ -577,6 +584,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.action === "fetchToBlobUrl") {
     job(sendResponse, () => fetchToBlobUrl(msg.url, msg.fallbackUrl));
+    return true;
+  }
+  if (msg.action === "zipAdd") {
+    job(sendResponse, () => zips.add(msg.jobId, msg.name, msg.url));
+    return true;
+  }
+  if (msg.action === "zipFinish") {
+    job(sendResponse, () => zips.finish(msg.jobId));
     return true;
   }
   // The SW asks for this once its download has left in_progress, so a bulk photo

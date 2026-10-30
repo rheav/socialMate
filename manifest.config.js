@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.22.0",
+  version: "1.23.0",
   // @private
   version_name:
-    "1.22.0 — Reels do Facebook: botão Vídeos baixa todos os reels do perfil",
+    "1.23.0 — Reels do Facebook: Vídeos gera um ZIP e a coleta pode parar para baixar o que já veio",
   // @end-private
   icons: ICONS,
   action: {

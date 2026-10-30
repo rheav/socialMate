@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { fbBulkDownload, fbReelEntry, fbReelJob } from './fbReelActions.js';
+import { fbAuthorSlug, fbBulkDownload, fbReelEntry, fbReelJob } from './fbReelActions.js';
 import { FB_QUERY_FIELDS, fbEngagement } from './fbQuery.js';
 import { applyQuery } from './feedQuery.js';
 const rec = {id:'2030018604348103',views:4400,likes:125,comments:32,shares:16,taken_at:1790877335,duration:87.167,
@@ -28,4 +28,9 @@ it('bulk download keeps going past a failed reel and stops when asked', async ()
   const steps=[];
   expect(await fbBulkDownload([{id:'x'},{id:'y'}],async()=>{},()=>steps.length>0,n=>steps.push(n))).toEqual({done:1,failed:0,error:null});
   expect(steps).toEqual([1]);
+});
+it('names a ZIP and its reels from the same safe author', () => {
+  expect(fbAuthorSlug('A/B: Café!')).toBe('AB Café');
+  expect(fbAuthorSlug('')).toBe('facebook');
+  expect(fbReelJob({...rec,authorName:'A/B'},'download').filename).toBe(`AB-fb-${rec.id}.mp4`);
 });

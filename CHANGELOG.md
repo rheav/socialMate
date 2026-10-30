@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.23.0] — 2026-10-30
+
+### Changed
+- **"Vídeos" saves one ZIP instead of loose files.** The reels of a run go into `<perfil>-fb-reels-<data>.zip`, filed with the other archives. The tile's own download button still saves a single MP4. The archive is built in the offscreen document, one reel per message (`FBW_ZIP_ADD`, `FBW_ZIP_FINISH`, `src/lib/zipJobs.js`), so the content script keeps the pace, the progress and the stop button. Each file stays a Blob, which Chrome can spill to disk. An archive closes at 2 GiB and the next one opens as `-parte2`. Checked with a real run of 50 reels (79.9 MB, `unzip -t` clean) and a 2 GiB blob through `chrome.downloads`.
+- **A click while collecting ends the collection and downloads what came.** A click while downloading saves the ZIP with what it already has. The next run leaves out only what is in a saved ZIP, so a failed archive costs nothing, and a reel saved on its own from the tile is included.
+
 ## [1.22.0] — 2026-10-30
 
 ### Added
