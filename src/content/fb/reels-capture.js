@@ -753,6 +753,18 @@ function fbReelEntry(rec) {
     videoKind: 'reel', takenAt: rec.taken_at ?? null, durationS: rec.duration ?? null, followers: rec.followers ?? null };
 }
 
+// One reel at a time, in list order. `save` resolves when the file is on disk
+// (FBW_DL_MEDIA waits for it), so the list paces itself. One failure skips one reel.
+async function fbBulkDownload(list, save, stopped, onStep) {
+  let done = 0, failed = 0, error = null;
+  for (const rec of list) {
+    if (stopped()) break;
+    onStep(done + failed + 1);
+    try { await save(rec); done++; } catch (e) { failed++; error = e.message; }
+  }
+  return { done, failed, error };
+}
+
 function fbReelJob(rec, action, language = 'en') {
   if (!/^\d{6,}$/.test(rec?.id || '')) throw new Error('Reel indisponível. Recarregue a página.');
   const name = (rec.authorName || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
@@ -1547,11 +1559,12 @@ function fbPlayerMatches(record, video, routeId) {
   }
   window.addEventListener('message', e => {
     if (disabled || e.source !== window || e.data?.type !== '__fbwReelRecords' || !Array.isArray(e.data.rows)) return;
-    for (const r of e.data.rows.slice(0,1000)) {
+    // 2000: "Vídeos" collects in rounds, and later rounds must not evict the first reels' MP4s.
+    for (const r of e.data.rows.slice(0,2000)) {
       if (!/^\d{6,}$/.test(r?.id || '')) continue;
       captured.set(r.id, mergeFbReel(captured.get(r.id), r));
     }
-    while (captured.size > 1000) captured.delete(captured.keys().next().value);
+    while (captured.size > 2000) captured.delete(captured.keys().next().value);
   });
   function collect() {
     if (!currentSurface()?.startsWith('profile:')) return [];
@@ -1630,7 +1643,7 @@ function fbPlayerMatches(record, video, routeId) {
   // Auto-scroll the lazy grid to the bottom until it stops growing, then collect
   // every tile. FB's grid is scroll-driven, so this is the only way to get the
   // full reel list (the initial DOM holds ~20).
-  async function harvest() {
+  async function harvest(onRound) {
     // FB appends the next batch after a network round-trip, which lags a short
     // poll — so wait generously per step and require several consecutive
     // no-growth reads before calling it done (a single slow batch mustn't end it).
@@ -1648,13 +1661,67 @@ function fbPlayerMatches(record, video, routeId) {
         const n = document.querySelectorAll('a[href*="/reel/"]').length;
         stable = n === prev ? stable + 1 : 0;
         prev = n;
+        onRound?.();
       }
+      harvestEnded = stable >= 5;
       if (currentSurface() === harvestSurface) window.scrollTo({ top: startY });
       await new Promise((r) => setTimeout(r, 400));
       return collect();
     } finally {
       harvesting = false;
     }
+  }
+
+  // "Vídeos", beside inject.js's "Miniaturas" in the sort bar. Grid records already
+  // carry the MP4 (hydration and every pagination page, 50/50 measured 2026-10-30),
+  // so no reel is opened. A second click stops; a later one resumes, because
+  // finished reels stay marked in `jobs`. Follows the panel's filters and sort.
+  // One harvest stops at 80 rounds (~800 reels, 10 a round): "tem mais" says so,
+  // and the next click scrolls on from there.
+  const VIDEOS_TITLE = 'Baixar todos os vídeos dos reels';
+  let videosBtn = null;
+  let videosRunning = false;
+  let harvestEnded = false;
+  async function downloadAllVideos() {
+    const span = videosBtn.querySelector('span');
+    if (videosRunning) { cancelFlag = true; span.textContent = 'Parando…'; return; }
+    if (harvesting) return; // the panel's "Coletar tudo" owns the scroll
+    videosRunning = true;
+    videosBtn.dataset.busy = '1';
+    delete videosBtn.dataset.error;
+    videosBtn.title = 'Parar';
+    const scope = currentSurface();
+    try {
+      await harvest(() => { if (!cancelFlag) span.textContent = `Coletando… ${tiles.size}`; });
+      const list = applyQuery(collect(), sorter.getQuery(), FB_QUERY_FIELDS).filter(r => !jobs.get(`${r.id}:download`)?.done);
+      const { done, failed, error } = await fbBulkDownload(list, r => performReelAction(r.id, 'download'),
+        () => cancelFlag || disabled || currentSurface() !== scope,
+        n => { if (!cancelFlag) span.textContent = `Baixando ${n}/${list.length}`; });
+      span.textContent = `${cancelFlag ? 'Parado:' : '✓'} ${done} de ${list.length}${harvestEnded ? '' : ' · tem mais'}`;
+      videosBtn.title = VIDEOS_TITLE;
+      if (failed) { videosBtn.dataset.error = '1'; videosBtn.title = `${failed} falharam: ${error}`; }
+    } catch (e) {
+      videosBtn.dataset.error = '1';
+      videosBtn.title = e.message || 'Falha ao baixar vídeos';
+      span.textContent = 'Falha ao baixar';
+    } finally {
+      videosRunning = false;
+      delete videosBtn.dataset.busy;
+    }
+  }
+  function ensureVideosBtn() {
+    const bar = document.getElementById(PS_BAR_ID);
+    if (!bar || videosBtn?.isConnected) return;
+    if (!videosBtn) {
+      videosBtn = document.createElement('button');
+      videosBtn.type = 'button';
+      videosBtn.className = 'fbw-thumbbtn ps-full';
+      videosBtn.title = VIDEOS_TITLE;
+      videosBtn.setAttribute('aria-label', VIDEOS_TITLE);
+      videosBtn.innerHTML = `${overlayIcon('dl')}<span>Vídeos</span>`;
+      videosBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); downloadAllVideos(); });
+    }
+    bar.appendChild(videosBtn);
   }
 
   // Spy reel count: the worker asks for one page at a time; the MAIN-world
@@ -1834,6 +1901,7 @@ function fbPlayerMatches(record, video, routeId) {
     if(scope&&Date.now()-lastSweep>3500){lastSweep=Date.now();window.postMessage({type:'__fbwReelRecordsSweep'},location.origin);}
     const list=collect();
     sorter.applyNow();
+    ensureVideosBtn();
     if(!scope||!overlayOn){document.querySelectorAll('.sw-fbr').forEach(removeReelUi);return;}
     if(scope.startsWith('profile:')) {
       const byId=new Map(list.map(r=>[r.id,r]));

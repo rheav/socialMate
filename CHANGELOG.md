@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.22.0] — 2026-10-30
+
+### Added
+- **"Vídeos" in the Facebook Reels sort bar.** Next to "Miniaturas": one click scrolls the grid to the end and downloads every reel, one at a time, to the usual videos folder. Nothing is opened: the grid's records already carry the MP4, in the page's own data and in every pagination page (50 of 50 reels measured on `/lovethelawofattraction/reels/`). Files are 720x1280 H.264 + AAC, the progressive rendition Facebook serves. A second click stops; the next one resumes and skips what this page already saved. It follows the panel's filters and sort. One click collects up to 80 scroll rounds (about 800 reels at the 10 per round measured); the button then reads "tem mais" and the next click scrolls on from there. `src/content/fb/reels-capture.js`, `fbBulkDownload` in `src/lib/shared/fbReelActions.js`.
+
+### Changed
+- **The reel record stores hold 2000 reels, up from 1000** (`video-capture.js`, `reels-capture.js`), so a long collection does not evict the MP4 of the first reels before they are downloaded.
+
 ## [1.21.0] — 2026-10-28
 
 ### Added

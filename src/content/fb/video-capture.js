@@ -387,7 +387,7 @@ function reelsPageResult(text) {
       if (JSON.stringify(reels.get(row.id)) === JSON.stringify(next)) continue;
       reels.delete(row.id); reels.set(row.id, next); fresh.push(next);
     }
-    while (reels.size > 1000) reels.delete(reels.keys().next().value);
+    while (reels.size > 2000) reels.delete(reels.keys().next().value);
     if (fresh.length) window.postMessage({ type: "__fbwReelRecords", rows: fresh }, location.origin);
   }
   const records = new Map();

@@ -144,7 +144,7 @@ helpers it replaced did neither, so a failed download reported success.
 ### background → offscreen (all carry `target:"offscreen"`)
 `transcribeFromAudioUrl`, `relevanceScore`, `muxDownload`.
 
-Facebook reels: `FBW_FB_REELS_LIST` returns profile records and action/voice states; `FBW_FB_REELS_HARVEST` / `FBW_FB_REELS_STOP` control collection; `FBW_FB_REEL_ACTION` routes exact-ID actions to the current surface. Library writes and media jobs reuse the existing worker contracts.
+Facebook reels: `FBW_FB_REELS_LIST` returns profile records and action/voice states; `FBW_FB_REELS_HARVEST` / `FBW_FB_REELS_STOP` control collection; `FBW_FB_REEL_ACTION` routes exact-ID actions to the current surface. Library writes and media jobs reuse the existing worker contracts. The sort bar's "Vídeos" button stays in the content script: `harvest()`, then `performReelAction(id, 'download')` per reel through `FBW_DL_MEDIA`, which answers only when the file is on disk, so the run paces itself.
 
 ### Same-page window events / postMessage
 - Relay: `__fbwFbPh` / `__fbwFbPhReq` (FB photos), `__fbwIg` / `__fbwIgReq`,
