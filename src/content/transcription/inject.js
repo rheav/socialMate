@@ -1625,11 +1625,7 @@ function reelIdFromHref(href) {
       .fbw-actbtn.err{color:#f87171;border-color:rgba(248,113,113,.6)}
       /* .fbw-lang-badge / .fbw-lang-menu live in src/lib/shared/txLang.js, which
          injects its own <style> — the same rules now serve IG and TikTok too. */
-      @keyframes fbw-spin{to{transform:rotate(360deg)}}
-      #sw-psort .fbw-thumbbtn{display:flex;align-items:center;gap:6px;white-space:nowrap}
-      #sw-psort .fbw-thumbbtn[data-busy="1"]{color:#88c0d0}
-      #sw-psort .fbw-thumbbtn[data-error="1"]{color:#fb7185}
-      #sw-psort[data-min="1"] .fbw-thumbbtn{display:none}`;
+      @keyframes fbw-spin{to{transform:rotate(360deg)}}`;
     (document.head || document.documentElement).appendChild(s);
   }
 
@@ -2388,93 +2384,6 @@ function reelIdFromHref(href) {
     }
     if (btnObserver) observeForBtns();
   }
-  // ---- Facebook-only bulk thumbnails action inside the sorting bar ----
-  // Restores the old panel feature on-page, where it's contextually relevant.
-  // Only shows on a profile's Reels tab (not the /reel/<id> player, not the feed).
-  let thumbBtn = null;
-  function onReelsTab() {
-    // Used to test `pathname + search` against /reels(\/|$)/, which missed the
-    // shape a numeric profile actually gets — /profile.php?id=…&sk=owner_reels —
-    // so this button never appeared there. isReelsGridUrl knows all three shapes.
-    if (!isReelsGridUrl(location.href)) return false;
-    return document.querySelectorAll('a[href*="/reel/"] img').length >= 4;
-  }
-  function ensureThumbBtn() {
-    const bar = document.getElementById("sw-psort");
-    if (!onReelsTab() || !bar) {
-      if (thumbBtn) { thumbBtn.remove(); thumbBtn = null; }
-      return;
-    }
-    if (thumbBtn?.isConnected) return;
-    ensureBtnStyle();
-    thumbBtn = document.createElement("button");
-    thumbBtn.type = "button";
-    thumbBtn.className = "fbw-thumbbtn ps-full";
-    thumbBtn.title = "Baixar miniaturas dos reels";
-    thumbBtn.setAttribute("aria-label", thumbBtn.title);
-    thumbBtn.innerHTML = `${btnIcon("dl", 15)}<span>Miniaturas</span>`;
-    thumbBtn.addEventListener("click", async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const button = e.currentTarget;
-      if (button.dataset.busy) return;
-      button.dataset.busy = "1";
-      delete button.dataset.error;
-      const span = button.querySelector("span");
-      const startUrl = location.href, startY = window.scrollY;
-      const stillHere = () => button.isConnected && location.href === startUrl;
-      try {
-      const seen = new Map();
-      const harvest = () => {
-        for (const a of document.querySelectorAll('a[href*="/reel/"]')) {
-          const id = reelIdFromHref(a.getAttribute("href"));
-          const img = a.querySelector("img");
-          // Store the NATIVE 1080x1920 URL, not the 540x960 the grid paints.
-          if (id && img && img.src) seen.set(id, fullResThumb(img.currentSrc || img.src));
-        }
-      };
-      // lazy grid → scroll to the bottom until it stops growing
-      harvest();
-      let stable = 0;
-      for (let i = 0; i < 40 && stable < 3 && stillHere(); i++) {
-        const before = seen.size;
-        window.scrollTo({ top: document.body.scrollHeight });
-        span.textContent = `Coletando… ${seen.size}`;
-        await new Promise((r) => setTimeout(r, 1200));
-        if (!stillHere()) return;
-        harvest();
-        stable = seen.size === before ? stable + 1 : 0;
-      }
-      if (!stillHere()) return;
-      window.scrollTo({ top: startY });
-      const author = sanitFb(reelGridOwner()) || "page";
-      let done = 0;
-      for (const [id, url] of seen) {
-        if (!stillHere()) return;
-        const result = await chrome.runtime.sendMessage({
-          type: "FBW_DL_MEDIA", platform: "facebook", kind: "image", folder: "thumb", url,
-          // Was a hardcoded "socialMate-thumbs/" folder (note the stray capital M),
-          // then a per-author sub-folder. Flat now, like every other download this
-          // extension makes: the name already carries the profile, so the folder
-          // only added a directory to click through. downloadPath puts it in
-          // social-mate/imagens/ and sanitises the name.
-          filename: `fb-${author}-${id}.jpg`,
-        });
-        if (!result?.ok) throw new Error(result?.error || "Falha ao baixar miniatura");
-        span.textContent = `Baixando ${++done}/${seen.size}`;
-      }
-      span.textContent = `✓ ${seen.size} miniaturas`;
-      } catch (err) {
-        button.dataset.error = "1";
-        button.title = err.message || "Falha ao baixar miniaturas";
-        span.textContent = "Falha ao baixar";
-      } finally {
-        delete button.dataset.busy;
-        setTimeout(() => { if (button.isConnected) { span.textContent = "Miniaturas"; button.title = "Baixar miniaturas dos reels"; } }, 3000);
-      }
-    });
-    bar.appendChild(thumbBtn);
-  }
-
   // An extension reload re-injects this script but leaves the previous
   // context's rails in the DOM with dead listeners — strip them so the fresh
   // pass doesn't stack a second rail next to a zombie one.
@@ -2489,8 +2398,8 @@ function reelIdFromHref(href) {
     btnTimer = setTimeout(() => {
       if (fbwDisabled) return;
       if (typeof requestIdleCallback === "function")
-        requestIdleCallback(() => { decorateMedia(); syncOverlayRails(); ensureThumbBtn(); }, { timeout: 700 });
-      else { decorateMedia(); syncOverlayRails(); ensureThumbBtn(); }
+        requestIdleCallback(() => { decorateMedia(); syncOverlayRails(); }, { timeout: 700 });
+      else { decorateMedia(); syncOverlayRails(); }
     }, 350);
   }
   btnObserver = new MutationObserver(scheduleDecorate);

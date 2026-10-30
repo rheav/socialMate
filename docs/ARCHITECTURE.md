@@ -65,7 +65,7 @@ story opened; TT collections need the playlist opened; etc.).
 | Platform | Types |
 |---|---|
 | FB photos | `FBW_FBPHOTOS_CONTEXT` (5 s), `_STATE` (1 s), `_SCRAPE`, `_STOP`, `_CLEAR` |
-| FB reels | `FBW_FB_REELS_LIST` (3 s), `FBW_FB_REELS_HARVEST` |
+| FB reels | `FBW_FB_REELS_LIST` (3 s, carries `bulk`), `FBW_FB_REELS_HARVEST`, `FBW_FB_REELS_BULK` |
 | IG | `FBW_IG_LIST` (2.5 s), `FBW_IG_REELS`, `FBW_IG_COMMENTS` (2.5 s, `since`/`unchanged` like TT; carries `collect`, the "Coletar todos" job), `FBW_IG_COMMENTS_COLLECT` / `FBW_IG_COMMENTS_COLLECT_STOP` (the post open in the tab; the bridge relays `__fbwIgCollectStart` / `Stop` to the MAIN world, which reads the thread through the REST endpoints in `lib/shared/igCommentPages.js` and reports `__fbwIgCollect`), `FBW_IG_CLEAR` (also empties the comment store) |
 | TT | `FBW_TT_LIST` (2.5 s), `FBW_TT_COMMENTS`, `FBW_TT_STORIES`, `FBW_TT_LISTS`, `FBW_TT_CLEAR` |
 | Pin | `FBW_PIN_CONTEXT` (5 s), `FBW_PIN_STATE` (1 s), `FBW_PIN_HARVEST`, `FBW_PIN_CLEAR`, `FBW_PIN_RESOLVE` |
@@ -144,7 +144,7 @@ helpers it replaced did neither, so a failed download reported success.
 ### background → offscreen (all carry `target:"offscreen"`)
 `transcribeFromAudioUrl`, `relevanceScore`, `muxDownload`.
 
-Facebook reels: `FBW_FB_REELS_LIST` returns profile records and action/voice states; `FBW_FB_REELS_HARVEST` / `FBW_FB_REELS_STOP` control collection; `FBW_FB_REEL_ACTION` routes exact-ID actions to the current surface. Library writes and media jobs reuse the existing worker contracts. The sort bar's "Vídeos" button stays in the content script: `harvest()`, then one `FBW_ZIP_ADD` per reel (through `performReelAction`) and a final `FBW_ZIP_FINISH`. The worker relays them to the offscreen document (`zipAdd`, `zipFinish`, `lib/zipJobs.js`), the only context that can fetch fbcdn and mint a blob URL, and saves each finished part. An open ZIP holds the idle release; a run nobody finished is dropped after 10 minutes without an add.
+Facebook reels: `FBW_FB_REELS_LIST` returns profile records and action/voice states; `FBW_FB_REELS_HARVEST` / `FBW_FB_REELS_STOP` control collection; `FBW_FB_REEL_ACTION` routes exact-ID actions to the current surface. Library writes and media jobs reuse the existing worker contracts. The bulk ZIPs ("Vídeos" and "Miniaturas" in the sort bar, their links in the panel through `FBW_FB_REELS_BULK`) are one run in the content script, `runBulk`: `harvest()`, then one `FBW_ZIP_ADD` per reel (through `performReelAction`) and a final `FBW_ZIP_FINISH`. A second call stops it. The worker relays them to the offscreen document (`zipAdd`, `zipFinish`, `lib/zipJobs.js`), the only context that can fetch fbcdn and mint a blob URL, and saves each finished part. An open ZIP holds the idle release; a run nobody finished is dropped after 10 minutes without an add.
 
 ### Same-page window events / postMessage
 - Relay: `__fbwFbPh` / `__fbwFbPhReq` (FB photos), `__fbwIg` / `__fbwIgReq`,

@@ -49,6 +49,7 @@ export default function FbReelsTool() {
   const [jobStates,setJobStates]=useState({});
   const [voiceStates,setVoiceStates]=useState({});
   const [harvesting, setHarvesting] = useState(false);
+  const [bulk, setBulk] = useState(null);
   const { link, noTab, fixing, send, revive, openTab } = useContentLink("facebook");
 
   // Saved-ids mirror (yellow-filled bookmark), live via storage.onChanged.
@@ -75,6 +76,7 @@ export default function FbReelsTool() {
     setHarvesting(!!res.harvesting);
     setJobStates(res.jobs || {});
     setVoiceStates(res.voices || {});
+    if (res.bulk) setBulk(res.bulk);
   }, []);
 
   const listFromTab = useCallback(async () => {
@@ -124,11 +126,13 @@ export default function FbReelsTool() {
     );
   }
 
-  async function downloadAllThumbs() {
-    for (const rec of sorted) {
-      await downloadThumb(rec);
-      await new Promise((r) => setTimeout(r, 300));
-    }
+  // The run lives in the page (reels-capture.js), next to the grid it scrolls, and
+  // the sort bar shows it too. A second click stops it, as there.
+  async function bulkZip(action) {
+    setActionError(null);
+    const res = await send({ type: "FBW_FB_REELS_BULK", action }, { userAction: true, action: "baixar o ZIP" });
+    if (!res?.ok) return setActionError(res?.error || "Não foi possível iniciar o ZIP");
+    listFromTab();
   }
 
   // Toggle: first tap saves the reel to the shared Library, second removes.
@@ -208,13 +212,18 @@ export default function FbReelsTool() {
         <span className="min-w-0 break-words">
           {sorted.length} reels{owner ? ` · ${owner}` : ""}
         </span>
-        <button
-          className="shrink-0 underline disabled:opacity-50"
-          onClick={downloadAllThumbs}
-          disabled={!sorted.length}
-        >
-          baixar todas as miniaturas
-        </button>
+        <span className="flex shrink-0 gap-2">
+          {[["download", "baixar todos os vídeos", "vídeos"], ["thumb", "baixar todas as miniaturas", "miniaturas"]].map(([action, idle, name]) => (
+            <button
+              key={action}
+              className="underline disabled:opacity-50"
+              onClick={() => bulkZip(action)}
+              disabled={!sorted.length || (bulk?.running && bulk.running !== action)}
+            >
+              {bulk?.labels?.[action] ? `${name}: ${bulk.labels[action]}` : idle}
+            </button>
+          ))}
+        </span>
       </div>
 
       {!onReelsTab && (

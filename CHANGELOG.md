@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.24.0] — 2026-10-30
+
+### Changed
+- **"Miniaturas" works like "Vídeos".** The covers of a run go into `<perfil>-fb-miniaturas-<data>.zip` at 1080x1920, instead of loose files. A click while collecting ends the collection and downloads what came; a click while downloading saves the ZIP with what it has. The button moved from `inject.js` to `reels-capture.js`, where the collection and the records live, so both buttons are one code path (`runBulk`) and only one runs at a time.
+- **The panel's links run the same ZIP.** "baixar todas as miniaturas" used to save only the reels already loaded, as loose files, with no way to stop. It now starts the page's run (`FBW_FB_REELS_BULK`), and "baixar todos os vídeos" is new beside it. A second click stops, and the links show the same progress as the bar, every 3 s.
+
 ## [1.23.0] — 2026-10-30
 
 ### Changed

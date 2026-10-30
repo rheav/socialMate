@@ -1555,6 +1555,7 @@ function fbPlayerMatches(record, video, routeId) {
         for (const a of document.querySelectorAll(TILE_LINK)) previousTiles.set(a,reelIdFromHref(a.getAttribute('href')));
       }
       surface = next; routeChangedAt = Date.now(); tiles.clear();
+      if (!bulkRun) Object.keys(BULK).forEach(a => bulkSay(a, null)); // a result belongs to its profile
       document.querySelectorAll('.sw-fbr').forEach(removeReelUi);
       window.postMessage({ type: '__fbwReelRecordsRequest' }, location.origin);
     }
@@ -1562,7 +1563,7 @@ function fbPlayerMatches(record, video, routeId) {
   }
   window.addEventListener('message', e => {
     if (disabled || e.source !== window || e.data?.type !== '__fbwReelRecords' || !Array.isArray(e.data.rows)) return;
-    // 2000: "Vídeos" collects in rounds, and later rounds must not evict the first reels' MP4s.
+    // 2000: the bulk ZIPs collect in rounds, and later rounds must not evict the first reels' URLs.
     for (const r of e.data.rows.slice(0,2000)) {
       if (!/^\d{6,}$/.test(r?.id || '')) continue;
       captured.set(r.id, mergeFbReel(captured.get(r.id), r));
@@ -1675,71 +1676,84 @@ function fbPlayerMatches(record, video, routeId) {
     }
   }
 
-  // "Vídeos", beside inject.js's "Miniaturas" in the sort bar: every reel in one ZIP.
-  // Grid records already carry the MP4 (hydration and every pagination page, 50/50
-  // measured 2026-10-30), so no reel is opened. A click while collecting ends the
-  // collection and moves on; a click while fetching saves the ZIP with what it has.
-  // The next run skips what is in a saved ZIP and follows the panel's filters and sort.
-  // One harvest stops at 80 rounds (~800 reels, 10 a round): "tem mais" says so,
-  // and the next click scrolls on from there.
-  const VIDEOS_TITLE = 'Baixar todos os vídeos dos reels em um ZIP';
-  let videosBtn = null;
-  let videosPhase = null; // 'collect' | 'fetch' | 'save'
+  // "Vídeos" and "Miniaturas" in the sort bar, and their links in the panel: every
+  // reel, or every cover, in one ZIP. Grid records already carry both URLs (hydration
+  // and every pagination page, 50/50 measured 2026-10-30), so no reel is opened.
+  // A second call while collecting ends the collection and moves on; while fetching,
+  // it saves the ZIP with what it has. The next run skips what is in a saved ZIP and
+  // follows the panel's filters and sort. One harvest stops at 80 rounds (~800 reels,
+  // 10 a round): "tem mais" says so, and the next run scrolls on from there.
+  const BULK = {
+    download: { idle: 'Vídeos', title: 'Baixar todos os vídeos dos reels em um ZIP', zip: 'reels' },
+    thumb: { idle: 'Miniaturas', title: 'Baixar todas as miniaturas dos reels em um ZIP', zip: 'miniaturas' },
+  };
+  const BULK_STOP = { collect: 'Parar a coleta e baixar o que já veio', fetch: 'Parar e salvar no ZIP o que já baixou' };
+  const bulkBtns = {};
+  const bulkLabels = {}; // what the panel's links show, the same words as the bar
+  let bulkRun = null; // { action, phase: 'collect' | 'fetch' | 'save' }
   let harvestEnded = false;
   const zipped = new Set();
-  async function downloadAllVideos() {
-    const span = videosBtn.querySelector('span');
-    if (videosPhase === 'save') return;
-    if (videosPhase) { cancelFlag = true; span.textContent = videosPhase === 'collect' ? 'Encerrando coleta…' : 'Parando…'; return; }
+  function bulkSay(action, label, error) {
+    bulkLabels[action] = label;
+    const btn = bulkBtns[action];
+    if (!btn) return;
+    btn.querySelector('span').textContent = label ?? BULK[action].idle;
+    btn.title = error || BULK_STOP[bulkRun?.phase] || BULK[action].title;
+    btn.dataset.busy = bulkRun?.action === action ? '1' : '';
+    btn.dataset.error = error ? '1' : '';
+  }
+  async function runBulk(action) {
+    if (bulkRun) {
+      if (bulkRun.action !== action || bulkRun.phase === 'save') return;
+      cancelFlag = true;
+      bulkSay(action, bulkRun.phase === 'collect' ? 'Encerrando coleta…' : 'Parando…');
+      return;
+    }
     if (harvesting) return; // the panel's "Coletar tudo" owns the scroll
-    videosPhase = 'collect';
-    videosBtn.dataset.busy = '1';
-    delete videosBtn.dataset.error;
-    videosBtn.title = 'Parar a coleta e baixar o que já veio';
+    bulkRun = { action, phase: 'collect' };
+    bulkSay(action, `Coletando… ${tiles.size}`);
     const scope = currentSurface();
     try {
-      await harvest(() => { if (!cancelFlag) span.textContent = `Coletando… ${tiles.size}`; });
+      await harvest(() => { if (!cancelFlag) bulkSay(action, `Coletando… ${tiles.size}`); });
       cancelFlag = false; // stopping the collection only moves on to the download
-      videosPhase = 'fetch';
-      videosBtn.title = 'Parar e salvar no ZIP o que já baixou';
-      const list = applyQuery(collect(), sorter.getQuery(), FB_QUERY_FIELDS).filter(r => !zipped.has(r.id));
-      const zip = { type: 'FBW_ZIP_ADD', jobId: crypto.randomUUID(), zipName: `${fbAuthorSlug(ownerName())}-fb-reels-${fmtDate(Date.now() / 1000)}.zip` };
+      bulkRun.phase = 'fetch';
+      const key = r => `${action}:${r.id}`;
+      const list = applyQuery(collect(), sorter.getQuery(), FB_QUERY_FIELDS).filter(r => !zipped.has(key(r)));
+      const zip = { type: 'FBW_ZIP_ADD', jobId: crypto.randomUUID(), zipName: `${fbAuthorSlug(ownerName())}-fb-${BULK[action].zip}-${fmtDate(Date.now() / 1000)}.zip` };
       const added = [];
       const { done, failed, error } = await fbBulkDownload(list,
-        async r => { await performReelAction(r.id, 'download', null, zip); added.push(r.id); },
+        async r => { await performReelAction(r.id, action, null, zip); added.push(key(r)); },
         () => cancelFlag || disabled || currentSurface() !== scope,
-        n => { if (!cancelFlag) span.textContent = `Baixando ${n}/${list.length}`; });
+        n => { if (!cancelFlag) bulkSay(action, `Baixando ${n}/${list.length}`); });
       const stopped = cancelFlag;
-      videosPhase = 'save';
-      span.textContent = 'Gerando ZIP…';
+      bulkRun.phase = 'save';
+      bulkSay(action, 'Gerando ZIP…');
       const res = await chrome.runtime.sendMessage({ type: 'FBW_ZIP_FINISH', jobId: zip.jobId, zipName: zip.zipName });
       if (!res?.ok) throw new Error(res?.error || 'Falha ao salvar o ZIP');
-      added.forEach(id => zipped.add(id)); // only now: a ZIP that failed must not cost its reels
-      span.textContent = `${stopped ? 'Parado:' : '✓'} ${done} de ${list.length}${harvestEnded ? '' : ' · tem mais'}`;
-      videosBtn.title = VIDEOS_TITLE;
-      if (failed) { videosBtn.dataset.error = '1'; videosBtn.title = `${failed} falharam: ${error}`; }
+      added.forEach(k => zipped.add(k)); // only now: a ZIP that failed must not cost its reels
+      bulkRun = null;
+      bulkSay(action, `${stopped ? 'Parado:' : '✓'} ${done} de ${list.length}${harvestEnded ? '' : ' · tem mais'}`, failed ? `${failed} falharam: ${error}` : null);
     } catch (e) {
-      videosBtn.dataset.error = '1';
-      videosBtn.title = e.message || 'Falha ao baixar vídeos';
-      span.textContent = 'Falha ao baixar';
-    } finally {
-      videosPhase = null;
-      delete videosBtn.dataset.busy;
+      bulkRun = null;
+      bulkSay(action, 'Falha ao baixar', e.message || 'Falha ao baixar');
     }
   }
-  function ensureVideosBtn() {
+  function ensureBulkBtns() {
     const bar = document.getElementById(PS_BAR_ID);
-    if (!bar || videosBtn?.isConnected) return;
-    if (!videosBtn) {
-      videosBtn = document.createElement('button');
-      videosBtn.type = 'button';
-      videosBtn.className = 'fbw-thumbbtn ps-full';
-      videosBtn.title = VIDEOS_TITLE;
-      videosBtn.setAttribute('aria-label', VIDEOS_TITLE);
-      videosBtn.innerHTML = `${overlayIcon('dl')}<span>Vídeos</span>`;
-      videosBtn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); downloadAllVideos(); });
+    if (!bar) return;
+    for (const action of Object.keys(BULK)) {
+      if (bulkBtns[action]?.isConnected) continue;
+      if (!bulkBtns[action]) {
+        const btn = bulkBtns[action] = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fbw-thumbbtn ps-full';
+        btn.title = BULK[action].title;
+        btn.setAttribute('aria-label', BULK[action].title);
+        btn.innerHTML = `${overlayIcon('dl')}<span>${BULK[action].idle}</span>`;
+        btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); runBulk(action); });
+      }
+      bar.appendChild(bulkBtns[action]);
     }
-    bar.appendChild(videosBtn);
   }
 
   // Spy reel count: the worker asks for one page at a time; the MAIN-world
@@ -1781,8 +1795,14 @@ function fbPlayerMatches(record, video, routeId) {
         harvesting,
         jobs: Object.fromEntries(jobs),
         voices: Object.fromEntries(voices),
+        bulk: { running: bulkRun?.action || null, labels: bulkLabels },
       });
       return; // sync
+    }
+    if (msg?.type === "FBW_FB_REELS_BULK") {
+      runBulk(msg.action);
+      sendResponse({ ok: true });
+      return; // sync: the panel reads the progress from FBW_FB_REELS_LIST
     }
     if (msg?.type === "FBW_FB_REELS_HARVEST") {
       // Two presses used to drive two concurrent ~112s scroll loops over the same
@@ -1827,6 +1847,10 @@ function fbPlayerMatches(record, video, routeId) {
 .sw-fbr-stats{position:absolute;right:6px;bottom:30px;display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding:5px 6px;background:rgba(17,20,32,.85);border:1px solid rgba(150,185,255,.3);border-radius:7px;pointer-events:auto;max-width:100px}
 .sw-fbr-stats span{display:flex;align-items:center;gap:4px;white-space:nowrap}.sw-fbr-stats svg{width:12px;height:12px;flex-shrink:0}
 .sw-fbr-player .sw-fbr-stats{bottom:55px;right:10px}
+#sw-psort .fbw-thumbbtn{display:flex;align-items:center;gap:6px;white-space:nowrap}
+#sw-psort .fbw-thumbbtn[data-busy="1"]{color:#88c0d0}
+#sw-psort .fbw-thumbbtn[data-error="1"]{color:#fb7185}
+#sw-psort[data-min="1"] .fbw-thumbbtn{display:none}
 `;
   document.getElementById(uiStyle.id)?.remove();
   document.documentElement.appendChild(uiStyle);
@@ -1919,7 +1943,7 @@ function fbPlayerMatches(record, video, routeId) {
     if(scope&&Date.now()-lastSweep>3500){lastSweep=Date.now();window.postMessage({type:'__fbwReelRecordsSweep'},location.origin);}
     const list=collect();
     sorter.applyNow();
-    ensureVideosBtn();
+    ensureBulkBtns();
     if(!scope||!overlayOn){document.querySelectorAll('.sw-fbr').forEach(removeReelUi);return;}
     if(scope.startsWith('profile:')) {
       const byId=new Map(list.map(r=>[r.id,r]));
