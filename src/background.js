@@ -235,6 +235,9 @@ async function ensureTiktokReferer() {
           },
           condition: {
             requestDomains: ["tiktokcdn.com", "tiktokcdn-us.com", "tiktokv.com", "tiktok.com", "muscdn.com", "ibytedtos.com"],
+            // Only our own fetches. Without this, the first download rewrote the
+            // Referer and Origin of TikTok's own API calls until the browser closed.
+            excludedInitiatorDomains: ["tiktok.com"],
             resourceTypes: ["media", "xmlhttprequest", "other", "image"],
           },
         },

@@ -334,6 +334,11 @@ restored empty on every navigation until `serializeLedger`/`restoreLedger`
   `taken_at` within ±2 s, scoped to the active media's container.
 
 **TikTok**
+- For You opens server-rendered: its first videos are in `webapp.updated-items` of the SSR blob, then `/api/recommend/item_list/` takes over (`/api/preload/item_list/` played no part in 9 videos measured). Its cards hold no `/video/` link; the open video's id is on the player wrapper, `xgwrapper-<n>-<id>`.
+- Stories load through `/api/story/batch/item_list/` (`batchStoryItemLists[].itemList`), one list per followed account.
+- The CDN Referer rule must exclude `tiktok.com` as an initiator. `tiktok.com` has to stay in `requestDomains` because video hosts live under it, and without the exclusion the rule rewrites the site's own API calls.
+- A photo post has no `/video/` link and no media in its record: no rail, no download.
+- Don't drive a logged-in session from a headless Chrome: a second load got the slider captcha. Test the new `tt-capture.js` and `tt-relay.js` on the real page by injecting them in one tab over CDP; the relay's takeover retires the installed one there.
 - `bitrateInfo[0]` is **not** best quality (it's the ~720p default) — score by
   resolution area then bitrate.
 - `reply_id === "0"` means top-level, not a real parent.

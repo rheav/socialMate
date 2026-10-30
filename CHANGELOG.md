@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.24.2] — 2026-10-30
+
+### Fixed
+- **TikTok: the first download no longer alters the site's own API calls.** The session rule that adds a Referer for the CDN also matched `www.tiktok.com`, so from the first download until the browser closed every API call of the page left with `Referer: https://www.tiktok.com/` instead of its real page. It now excludes requests the site itself starts (`excludedInitiatorDomains`). Checked in the real browser: the page's Referer is intact on 20 of 20 calls, and the extension's own fetch still gets 206 from the video CDN, where it gets 403 with no rule.
+- **TikTok: the rail is back on For You.** The player's card no longer holds a `/video/` link, so the open video had no id and the rail silently never appeared. The id now comes from the player's wrapper (`xgwrapper-<n>-<id>`). Checked on the real feed: 4 of 4 videos, with TikTok's own numbers.
+- **TikTok: the first videos of For You are captured.** They now arrive server-rendered in `webapp.updated-items` and no API response carries them, so the first three videos had no record and nothing to download. Read at document_start with the rest of the blob, 1080p included.
+- **TikTok: Stories capture again.** The site now loads them in one call for the accounts you follow (`/api/story/batch/item_list/`), which the capture did not recognise, so the tab stayed empty. 19 stories from 10 accounts on the real feed. Photo stories keep their cover but have no media to download.
+
 ## [1.24.1] — 2026-10-30
 
 ### Fixed

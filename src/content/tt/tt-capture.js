@@ -30,7 +30,7 @@
   const SEARCH_RE = /\/api\/search\/(?:general|item|video)\/(?:full|preview)\b/;
   const USER_RE = /\/api\/(?:search\/user\/full|user\/detail)\b/; // creator stats
   const MIX_RE = /\/api\/(?:mix|collection)\/item_list\b/; // playlist / collection videos
-  const STORY_RE = /\/api\/story\/item_list\b/;
+  const STORY_RE = /\/api\/story\/(?:batch\/)?item_list\b/;
   const LISTMETA_RE = /\/api\/user\/(?:playlist|collection_list)\b/; // playlist/collection metadata
   const COMMENT_RE = /\/api\/comment\/list\b/;
   const interesting = (u) =>
@@ -182,6 +182,9 @@ function ttItemsIn(obj) {
   if (!obj || typeof obj !== "object") return [];
   const direct = obj.itemList || obj.item_list || obj.items;
   if (Array.isArray(direct)) return direct.filter(Boolean);
+  // Stories arrive in one list per followed account (/api/story/batch/item_list/).
+  if (Array.isArray(obj.batchStoryItemLists))
+    return obj.batchStoryItemLists.flatMap((b) => (b && b.itemList) || []).filter(Boolean);
   if (Array.isArray(obj.data))
     return obj.data.map((d) => (d && typeof d === "object" ? d.item || null : null)).filter(Boolean);
   return [];
@@ -637,6 +640,16 @@ const ttSurface = makeSurfaceTracker(ttSurfaceKey);
           allVid.set(r.id, r);
           out.push(r);
         }
+      }
+      // The For You feed opens server-rendered too: its first videos sit here as full
+      // item structs, and no API response ever carries them (measured 2026-10-30).
+      const feed = scope["webapp.updated-items"];
+      for (const item of Array.isArray(feed) ? feed : []) {
+        const r = ttLiteItem(item);
+        if (!r) continue;
+        r.__surface = ttSurface.stamp();
+        allVid.set(r.id, r);
+        out.push(r);
       }
       // A profile page renders its owner the same way — that is the follower
       // count for every video listed on it.

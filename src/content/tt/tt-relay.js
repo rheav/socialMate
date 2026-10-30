@@ -554,6 +554,9 @@ function ttItemsIn(obj) {
   if (!obj || typeof obj !== "object") return [];
   const direct = obj.itemList || obj.item_list || obj.items;
   if (Array.isArray(direct)) return direct.filter(Boolean);
+  // Stories arrive in one list per followed account (/api/story/batch/item_list/).
+  if (Array.isArray(obj.batchStoryItemLists))
+    return obj.batchStoryItemLists.flatMap((b) => (b && b.itemList) || []).filter(Boolean);
   if (Array.isArray(obj.data))
     return obj.data.map((d) => (d && typeof d === "object" ? d.item || null : null)).filter(Boolean);
   return [];
@@ -1016,6 +1019,9 @@ function recordReachTier(rec) {
     if (v) {
       let el = v;
       for (let i = 0; i < 8 && el; i++) {
+        // The feed's cards hold no permalink; the player's wrapper carries the id.
+        const w = (el.id || "").match(/^xgwrapper-\d+-(\d+)$/);
+        if (w) return w[1];
         const a = el.querySelector?.('a[href*="/video/"]');
         const mm = a && (a.getAttribute("href") || "").match(/\/video\/(\d+)/);
         if (mm) return mm[1];
