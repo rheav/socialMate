@@ -364,9 +364,9 @@ function fbCaptionFor(record, language) {
 //      element and silently drops the count.
 const COUNT_RE = /^\d[\d.,]*\s?(mil|k|m|mi|rb|jt|tis)?$/i;
 const COUNT_LBL = {
-  like: /^(like|curtir|gostei|me gusta|j'aime|mi piace|gefällt mir)$/i,
-  comment: /leave a comment|comentar|coment[áa]rio|escrever|kommentar|commenter|commenta/i,
-  share: /^(share|compartilhar|compartir|partager|teilen|condividi)$/i,
+  like: /^(like|curtir|gostei|me gusta|j'aime|mi piace|gefällt mir)(,|$)/i,
+  comment: /leave a comment|^comment(,| on |$)|comentar|coment[áa]rio|escrever|kommentar|commenter|commenta/i,
+  share: /^(share|compartilhar|compartir|partager|teilen|condividi)(,|$)/i,
 };
 
 function actionControls(root) {

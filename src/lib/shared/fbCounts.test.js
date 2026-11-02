@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { readPostCounts, readCountsByControl } from "./fbCounts.js";
+import { COUNT_LBL, readPostCounts, readCountsByControl } from "./fbCounts.js";
 
 // Fixtures mirror the live reel rail (pt-BR UI, verified 2026-08-01 on
 // facebook.com/reel/…): three action controls, each with its count as a sibling,
@@ -152,6 +152,26 @@ describe("readCountsByControl", () => {
       comment: null,
       share: "2",
     });
+  });
+
+  it("reads the feed row with its post-named labels", () => {
+    // Live en, 2026-11-02: feed, search and hashtag all render these.
+    const html = `<div>
+      <div role="button" aria-label="React with Like to Ana's post" data-x="1013"><span data-x="1027">152</span></div>
+      <div role="button" aria-label="React to Ana's post" data-x="1040"></div>
+      <div role="button" aria-label="Comment on Ana's post, 6 comments" data-x="1065"><span data-x="1079">6</span></div>
+      <div role="button" aria-label="Share, send this to friends or post it on your profile." data-x="1117"><span data-x="1131">5</span></div>
+      <div role="button" aria-label="Like: 150 people" data-x="1300"></div>
+    </div>`;
+    expect(readCountsByControl(withGeometry(unit(html)))).toEqual({ like: "152", comment: "6", share: "5" });
+  });
+
+  it("recognises the labels that carry a count, and not the composer's", () => {
+    expect(COUNT_LBL.like.test("Like, 6.8K reactions")).toBe(true);
+    expect(COUNT_LBL.comment.test("Comment, 431 comments")).toBe(true);
+    expect(COUNT_LBL.share.test("Share, 1.7K shares")).toBe(true);
+    expect(COUNT_LBL.like.test("Like: 12 people")).toBe(false);
+    expect(COUNT_LBL.comment.test("Comment with a GIF")).toBe(false);
   });
 
   it("still reads the row once the account has reacted", () => {

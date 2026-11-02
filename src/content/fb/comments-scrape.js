@@ -337,7 +337,7 @@ function dedupeKey(rec) {
   async function ensureCommentsOpen() {
     if (allCommentArticles().length) return true;
     const btn = [...document.querySelectorAll('[role="button"],[aria-label]')].find((b) =>
-      /^(comentar|comment|coment[áa]rios?|comments?)$/i.test((b.getAttribute("aria-label") || "").trim()),
+      /^(comentar|comment|coment[áa]rios?|comments?)(,|\s+(on|n[ao]|em)\s|$)/i.test((b.getAttribute("aria-label") || "").trim()),
     );
     if (btn) { btn.click(); await sleep(1500); }
     return allCommentArticles().length > 0;

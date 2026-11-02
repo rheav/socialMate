@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.26.1",
+  version: "1.26.2",
   // @private
   version_name:
-    "1.26.1 — Facebook: Reels voltam a achar Curtir e Comentar nos rótulos novos",
+    "1.26.2 — Facebook: feed, busca e contadores acompanham os rótulos novos",
   // @end-private
   icons: ICONS,
   action: {

@@ -987,7 +987,23 @@ import {
     "ya no me gusta",
     "je n’aime plus",
     "non mi piace più",
+    // Other reactions, same template as "remove like". Not measured live.
+    "remove love",
+    "remove care",
+    "remove haha",
+    "remove wow",
+    "remove sad",
+    "remove angry",
+    "remover amei",
+    "remover força",
+    "remover haha",
+    "remover uau",
+    "remover triste",
+    "remover grr",
   ];
+  // Feed posts append the author: "Remove Like from Ana's post".
+  const fbIsUnlikeLabel = (a) =>
+    FB_UNLIKE_WORDS.some((w) => a === w || a.startsWith(`${w} `));
   const FB_CHANGE_PREFIX = [
     "change like reaction",
     "alterar reação",
@@ -1005,25 +1021,30 @@ import {
     const a = fbAria(el);
     return (
       FB_LIKE_WORDS.includes(a) ||
-      FB_UNLIKE_WORDS.includes(a) ||
+      fbIsUnlikeLabel(a) ||
       FB_CHANGE_PREFIX.some((w) => a.startsWith(w))
     );
   }
   function fbIsLikedBtn(el) {
     if (!el) return false;
     const a = fbAria(el);
-    return (
-      FB_UNLIKE_WORDS.includes(a) ||
-      FB_CHANGE_PREFIX.some((w) => a.startsWith(w))
-    );
+    return fbIsUnlikeLabel(a) || FB_CHANGE_PREFIX.some((w) => a.startsWith(w));
   }
   // The like control inside a post — re-query after a click, since FB relabels/
   // replaces the node when the like state flips.
+  // Feed posts tag their controls. The attribute is not a translated string, unlike
+  // "React with Like to Ana's post", and the like tag stays once the post is liked.
+  const fbRoleBtn = (root, role) =>
+    root
+      .querySelector(`[data-ad-rendering-role="${role}"]`)
+      ?.closest('[role="button"]') || null;
   function fbBarLikeBtn(root) {
     return (
+      fbRoleBtn(root, "like_button") ||
       Array.from(root.querySelectorAll('[role="button"][aria-label]')).find(
         fbIsLikeBtn,
-      ) || null
+      ) ||
+      null
     );
   }
   // FB's 7 reactions. [VERIFIED live pt-br 2026-07-12]: hovering the like control
@@ -1144,9 +1165,11 @@ import {
     // Re-query the like control — FB's windowed hydration can swap a post's
     // inner nodes between enumeration and use, leaving p.likeBtn detached.
     const likeBtn = fbBarLikeBtn(p.root) || p.likeBtn;
-    const cb = Array.from(
-      p.root.querySelectorAll('[role="button"][aria-label]'),
-    ).find((b) => FB_COMMENT_WORDS.includes(fbAria(b)));
+    const cb =
+      fbRoleBtn(p.root, "comment_button") ||
+      Array.from(p.root.querySelectorAll('[role="button"][aria-label]')).find((b) =>
+        FB_COMMENT_WORDS.includes(fbAria(b)),
+      );
     return {
       likes: parseCountOrZero(likeBtn && likeBtn.innerText),
       comments: parseCountOrZero(cb && cb.innerText),

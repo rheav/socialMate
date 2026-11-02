@@ -16,6 +16,18 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.26.2] — 2026-11-02
+
+### Fixed
+- **Facebook feed, search and hashtag: Like found again.** Posts now read
+  `React with Like to X's post` and `Remove Like from X's post`, which matched
+  nothing, so inline comment "Like" buttons could be picked instead. Like and
+  Comment now anchor on `data-ad-rendering-role`, which is not a translated string.
+  Liked labels match by prefix. Checked live in en; other reactions not measured.
+- **Facebook counts read the new labels.** `COUNT_LBL` accepts the count suffix and
+  `Comment on X's post`; the feed row returned `null` before. The comment scraper's
+  opener accepts the same forms.
+
 ## [1.26.1] — 2026-11-02
 
 ### Fixed
