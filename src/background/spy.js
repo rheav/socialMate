@@ -617,6 +617,8 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       avatar: avatarThumb || undefined,
       verified: parsed.verified !== null && parsed.verified !== undefined ? (parsed.verified ? 1 : 0) : undefined,
       storyRef: parsed.storyRef || undefined,
+      bio: parsed.bio || undefined,
+      externalUrl: parsed.externalUrl || undefined,
       at: now,
     };
 
@@ -628,7 +630,7 @@ async function collectFbProfile(profile, source, fetchImpl, force) {
       let state = r[SPY_STATE_KEY] || emptySpyState(now);
 
       queue = queueSnapshot(queue, snapshot);
-      if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef) {
+      if (parsed.name || avatarThumb || parsed.userId || parsed.storyRef || parsed.bio || parsed.externalUrl) {
         queue = queueProfile(queue, profilePatch);
       }
       // Newest reels: the hub keeps each once and counts them as the posts.

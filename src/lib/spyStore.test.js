@@ -405,7 +405,14 @@ describe("reels, reading-state and readings queue", () => {
     q = queueReels(q, "facebook:1", [{ id: "100001", createdAt: 1, views: 5 }, { id: "100002", createdAt: 2 }]);
     q = queueReels(q, "facebook:1", [{ id: "100001", createdAt: 1, views: 9 }]);
     expect(Object.keys(q.reels)).toEqual(["facebook:1|100001", "facebook:1|100002"]);
-    expect(q.reels["facebook:1|100001"]).toEqual({ profileId: "facebook:1", id: "100001", createdAt: 1, duration: null, views: 9 });
+    expect(q.reels["facebook:1|100001"]).toEqual({ profileId: "facebook:1", id: "100001", createdAt: 1, duration: null, views: 9,
+      likes: null, comments: null, shares: null, caption: null, aiLabel: null, audio: null, audioOriginal: null });
+    q = queueReels(q, "facebook:1", [{ id: "100001", createdAt: 1, views: 9, likes: 37469, comments: 4269, shares: 2400, caption: "Comment 777",
+      aiLabel: "PAIGM_CLASSIFIER", audio: "Gabi · Original audio", audioOriginal: true, thumbUrl: "https://x/t.jpg" }]);
+    expect(q.reels["facebook:1|100001"]).toEqual({ profileId: "facebook:1", id: "100001", createdAt: 1, duration: null, views: 9,
+      likes: 37469, comments: 4269, shares: 2400, caption: "Comment 777", aiLabel: "PAIGM_CLASSIFIER", audio: "Gabi · Original audio", audioOriginal: true });
+    q = queueReels(q, "facebook:1", [{ id: "100001", likes: -2, comments: 1.5, audioOriginal: "yes", caption: "" }]);
+    expect(q.reels["facebook:1|100001"]).toMatchObject({ likes: null, comments: null, audioOriginal: null, caption: null });
     q = queueReelsStatus(q, "facebook:1", "running", 10);
     q = queueReelsStatus(q, "facebook:1", "done", 20);
     expect(q.reelsStatus["facebook:1"]).toEqual({ profileId: "facebook:1", status: "done", at: 20 });

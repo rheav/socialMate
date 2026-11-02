@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "./spyParse.js";
+import { fbStatusText, parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "./spyParse.js";
 
 const fixturesDir = path.join(__dirname, "__fixtures__", "spy");
 const nasaFixture = fs.readFileSync(path.join(fixturesDir, "fb_nasa_without_story.json"), "utf8");
@@ -210,5 +210,26 @@ describe("parseFbReelsHtml", () => {
   it("answers an empty first page without failing", () => {
     expect(parseFbReelsHtml(html(page([], false)))).toEqual({ reels: [], hasNext: false, cursor: "CUR" });
     expect(parseFbReelsHtml("<html></html>")).toEqual({ reels: [], hasNext: null, cursor: null });
+  });
+});
+
+describe("fbStatusText", () => {
+  // Shape measured on a live reels tab (2026-11-02): the intro text under the name, the link inside it.
+  const page = (status) => `<script type="application/json">{"x":{"profile_status":null,"profile_status_text":${JSON.stringify(status)},"id":"1"}}</script>`;
+  const text = "✨ Just a girl who believes\n🦋 Good energy\n🌙 Your next chapter starts here👇\n\nhttps://0rly4u0.s.gy/Elisemanifest";
+
+  it("reads the bio without the link, and the link", () => {
+    // Code points: each emoji counts one, as Facebook counts them.
+    const at = Array.from(text.slice(0, text.indexOf("https://"))).length;
+    expect(fbStatusText(page({ text, ranges: [{ offset: at, length: Array.from(text).length - at,
+      entity: { __typename: "ExternalUrl", url: "https://l.facebook.com/l.php?u=x", external_url: "https://0rly4u0.s.gy/Elisemanifest" } }] })))
+      .toEqual({ bio: "✨ Just a girl who believes\n🦋 Good energy\n🌙 Your next chapter starts here👇", externalUrl: "https://0rly4u0.s.gy/Elisemanifest" });
+  });
+
+  it("keeps a bio without a link, and answers nothing without a bio", () => {
+    expect(fbStatusText(page({ text: "change your mind {braces} \"quoted\"", ranges: [] })))
+      .toEqual({ bio: "change your mind {braces} \"quoted\"", externalUrl: null });
+    expect(fbStatusText("<html></html>")).toEqual({ bio: null, externalUrl: null });
+    expect(fbStatusText('<script>{"profile_status_text":null}</script>')).toEqual({ bio: null, externalUrl: null });
   });
 });

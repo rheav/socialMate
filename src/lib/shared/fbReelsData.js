@@ -37,7 +37,7 @@ export function parseFbReels(input, activeId = null) {
   }) : Array.isArray(input) ? input : [input];
   const records = new Map(), videos = new Map(), edgeIds = new Map();
   const empty = id => ({ id, views: null, likes: null, comments: null, shares: null,
-    taken_at: null, created_at: null, duration: null, caption: null, authorName: null,
+    taken_at: null, created_at: null, duration: null, caption: null, aiLabel: null, audioTitle: null, audioOriginal: null, authorName: null,
     authorId: null, authorUrl: null, thumb: null, progressive: null, audio: null, captions: [],
     sourceUrl: `https://www.facebook.com/reel/${id}`, media_type: 'video' });
   function put(id, row) {
@@ -62,6 +62,8 @@ export function parseFbReels(input, activeId = null) {
       const actor = o.actors?.[0];
       put(media.id, { taken_at: Number.isFinite(o.creation_time) ? o.creation_time : null,
         caption: o.message?.text || null, authorName: actor?.name || null,
+        // Meta's AI mark (NONE, PAIGM_CLASSIFIER, PROVENANCE_…), kept as Facebook sends it.
+        aiLabel: o.ai_generated_detected_info?.gen_ai_transparency_type || null,
         authorId: actor?.id || null, authorUrl: actor?.id ? `https://www.facebook.com/profile.php?id=${actor.id}` : null });
     }
     const id = fbReelUrlId(o.url);
@@ -73,6 +75,8 @@ export function parseFbReels(input, activeId = null) {
         created_at: Number.isFinite(o.created_time) ? o.created_time : null,
         duration: delivery?.durationS || null, thumb: delivery?.thumbs?.[0] || null,
         progressive: delivery?.progressive || null, audio: delivery?.audio || null, captions: delivery?.captions || [],
+        audioTitle: typeof o.track_title === 'string' ? o.track_title : null,
+        audioOriginal: typeof o.is_original_audio_on_facebook === 'boolean' ? o.is_original_audio_on_facebook : null,
         authorName: o.owner?.name || null, authorId: o.owner?.id || null,
         authorUrl: o.owner?.id ? `https://www.facebook.com/profile.php?id=${o.owner.id}` : null,
       }));

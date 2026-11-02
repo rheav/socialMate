@@ -152,7 +152,10 @@ export function parseFbProfileHtml(html, responseUrl = "") {
     }
   }
 
-  // 8. User ID
+  // 8. Bio and link: the intro text under the name, with the link Facebook marks in it.
+  const { bio, externalUrl } = fbStatusText(html);
+
+  // 9. User ID
   let userId = null;
   const actorIdMatch = html.match(/"actors"\s*:\s*\[\s*\{[\s\S]*?"id"\s*:\s*"(\d+)"/);
   if (actorIdMatch) {
@@ -173,7 +176,46 @@ export function parseFbProfileHtml(html, responseUrl = "") {
     name,
     avatarUrl,
     userId,
+    bio,
+    externalUrl,
   };
+}
+
+/** The JSON object right after the first `"key":{` in the page's inline JSON, parsed; null when there is none. */
+function jsonObjectAfter(html, key) {
+  const needle = `"${key}":{`;
+  for (let at = html.indexOf(needle); at !== -1; at = html.indexOf(needle, at + 1)) {
+    const start = at + needle.length - 1;
+    let depth = 0, inString = false;
+    for (let j = start; j < html.length && j < start + 50_000; j++) {
+      const c = html[j];
+      if (inString) { if (c === "\\") j++; else if (c === '"') inString = false; continue; }
+      if (c === '"') inString = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        try { return JSON.parse(html.slice(start, j + 1)); } catch { break; }
+      }
+    }
+  }
+  return null;
+}
+
+/** profile_status_text: the bio, minus the link it carries, and that link. */
+export function fbStatusText(html) {
+  const status = jsonObjectAfter(html, "profile_status_text");
+  const text = typeof status?.text === "string" ? status.text : "";
+  const linkRange = (Array.isArray(status?.ranges) ? status.ranges : [])
+    .find((r) => typeof r?.entity?.external_url === "string" && /^https?:\/\//.test(r.entity.external_url));
+  const externalUrl = linkRange ? linkRange.entity.external_url : null;
+  // Facebook's offsets count code points (an emoji is one), not UTF-16 units.
+  const chars = Array.from(text);
+  const { offset, length } = linkRange || {};
+  const inRange = Number.isInteger(offset) && Number.isInteger(length) && offset >= 0 && offset + length <= chars.length;
+  const cut = !externalUrl ? text
+    : inRange ? chars.slice(0, offset).join("") + chars.slice(offset + length).join("")
+    : text.replace(externalUrl, "");
+  const bio = cut.trim() || null;
+  return { bio, externalUrl };
 }
 
 export function parseIgProfile(json) {
@@ -240,14 +282,16 @@ const JSON_SCRIPT_RE = /<script type="application\/json"[^>]*>([\s\S]*?)<\/scrip
 
 /**
  * The reels tab HTML ships its first page (10 newest reels) as
- * aggregated_fb_shorts inside <script type="application/json"> blocks.
+ * aggregated_fb_shorts inside <script type="application/json"> blocks; each
+ * reel's likes, comments, shares and AI mark come in blocks of their own.
  * Returns the reels plus the paging state for a later continuation.
  */
+const REEL_BLOCK_RE = /aggregated_fb_shorts|ai_generated_detected_info|fb_reel_react_button/;
 export function parseFbReelsHtml(html) {
   if (typeof html !== "string") return { reels: [], hasNext: null, cursor: null };
   const blocks = [];
   for (const m of html.matchAll(JSON_SCRIPT_RE)) {
-    if (!m[1].includes("aggregated_fb_shorts")) continue;
+    if (!REEL_BLOCK_RE.test(m[1])) continue;
     try { blocks.push(JSON.parse(m[1])); } catch { /* not this block */ }
   }
   const start = reelsStart(blocks);

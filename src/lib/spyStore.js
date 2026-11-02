@@ -372,8 +372,12 @@ export function queueReels(queue, profileId, reels) {
   const next = { ...q.reels };
   for (const r of reels || []) {
     if (!profileId || !/^\d{6,}$/.test(r?.id || "")) continue;
+    const count = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : null);
+    const text = (v) => (typeof v === "string" && v ? v : null);
     next[`${profileId}|${r.id}`] = {
       profileId, id: r.id, createdAt: finite(r.createdAt), duration: finite(r.duration), views: finite(r.views),
+      likes: count(r.likes), comments: count(r.comments), shares: count(r.shares), caption: text(r.caption),
+      aiLabel: text(r.aiLabel), audio: text(r.audio), audioOriginal: typeof r.audioOriginal === "boolean" ? r.audioOriginal : null,
     };
   }
   return { ...q, reels: next };

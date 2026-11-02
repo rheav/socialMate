@@ -16,6 +16,25 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.27.0] — 2026-11-02
+
+### Added
+- **Spy, Facebook: bio and link.** The daily reels-tab reading now sends the
+  intro text under the name (`profile_status_text`) and the link Facebook marks in
+  it. The link is cut out of the bio by Facebook's offsets, which count code points
+  (an emoji is one), not UTF-16 units. Hub fields `bio` / `externalUrl`.
+- **Spy, Facebook: each reel's numbers, AI mark and audio.** Reels sent to the hub
+  carry likes and comments (exact), shares (abbreviated), the caption, Meta's AI
+  mark (`ai_generated_detected_info.gen_ai_transparency_type`, raw: NONE,
+  PAIGM_CLASSIFIER, PROVENANCE_…) and the audio (`track_title`,
+  `is_original_audio_on_facebook`). Needs hub 0.99.0.
+
+### Fixed
+- **First reels page lost its numbers.** The reels-tab HTML ships likes, comments,
+  shares and the AI mark in other blocks than the reels list, and only the list was
+  read. `parseFbReelsHtml` now reads those blocks too and `reelsStart` keeps only
+  the profile's reels. Checked on two live profiles: 10 of 10 reels complete.
+
 ## [1.26.2] — 2026-11-02
 
 ### Fixed
