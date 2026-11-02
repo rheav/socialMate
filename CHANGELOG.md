@@ -16,6 +16,21 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.26.1] — 2026-11-02
+
+### Fixed
+- **Facebook Reels: Like and Comment found again.** The reel rail now appends a
+  count to its labels (`Like, 6.8K reactions`, `Remove Like, 6.8K reactions`,
+  `Comment, 431 comments`), so the exact-membership checks matched nothing and
+  `fbActiveReelContainer` lost the active reel. `fbAria` now keeps only the part
+  before the comma. Checked live on an English account, on an unliked and a liked
+  reel; pt-br labels not measured.
+
+### Known issue
+- The feed changed its labels too (`React with Like to X's post`,
+  `Comment on X's post, N comments`) and is not covered here. Neither are the rail
+  labels in `COUNT_LBL` (`src/lib/shared/fbCounts.js`).
+
 ## [1.26.0] — 2026-10-30
 
 ### Added

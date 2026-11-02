@@ -1,5 +1,6 @@
 import { franc } from "franc-min";
 import { parseCount } from "./lib/shared/counts.js";
+import { fbActionName } from "./lib/fbLabels.js";
 import {
   serializeLedger,
   restoreLedger,
@@ -999,8 +1000,7 @@ import {
     "acciones para esta publicación",
     "plus d’actions sur cette publication",
   ];
-  const fbAria = (el) =>
-    (el.getAttribute("aria-label") || "").trim().toLowerCase();
+  const fbAria = (el) => fbActionName(el.getAttribute("aria-label"));
   function fbIsLikeBtn(el) {
     const a = fbAria(el);
     return (
