@@ -772,36 +772,6 @@ const ttSurface = makeSurfaceTracker(ttSurfaceKey);
   setInterval(scanTileProps, 700);
   document.addEventListener("visibilitychange", scanTileProps);
 
-  // ---- the Spy's own tab (socialMate 1.29) ----
-  //
-  // The one exception to "passive". The Spy reads a saved profile in a background
-  // tab, and a background tab never paints, so TikTok never asks for the grid there
-  // (measured 2026-11-02: 0 requests in 15 s, with or without a faked visibility).
-  // Only in that tab (#socialmate-spy) we make the request the page itself makes
-  // when it is visible, through the page's own fetch so the tee above reads it like
-  // any other (measured: 200, 19 items, tab hidden). One grid page per reading, and
-  // the stories only when the profile says one is up.
-  if (location.hash.includes("socialmate-spy")) {
-    let spyUser = null;
-    const grabUser = () => {
-      if (spyUser) return;
-      try {
-        const el = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
-        const u = el && JSON.parse(el.textContent).__DEFAULT_SCOPE__["webapp.user-detail"].userInfo.user;
-        if (u && u.secUid) spyUser = u;
-      } catch (_) { /* not a profile page */ }
-    };
-    document.addEventListener("DOMContentLoaded", grabUser, { once: true });
-    window.addEventListener("load", () => setTimeout(async () => {
-      grabUser();
-      if (!spyUser) return;
-      const base = { aid: "1988", app_name: "tiktok_web", device_platform: "web_pc" };
-      const get = (path, params) => window.fetch(path + "?" + new URLSearchParams({ ...base, ...params }), { credentials: "include" }).catch(() => null);
-      await get("/api/post/item_list/", { secUid: spyUser.secUid, count: "16", cursor: "0", coverFormat: "2" });
-      if (spyUser.UserStoryStatus === 1) await get("/api/story/item_list/", { authorId: String(spyUser.id), count: "4", cursor: "0" });
-    }, 1500), { once: true });
-  }
-
   // The isolated bridge attaches at document_idle — after we start capturing. It
   // asks us to replay everything buffered (videos + comments + creators).
   window.addEventListener("message", (e) => {

@@ -43,6 +43,7 @@ import {
   syncSettings,
 } from "./lib/syncClient.js";
 import { SYNC_QUEUE_KEY, SYNC_STATE_KEY, isSyncReady, pingSync, postSync } from "./lib/syncClient.js";
+import { FONTES_BASE, FONTES_BASE_KEY, sendToFontes } from "./background/fontes.js";
 // @end-private
 // @public
 // No server in this build: the Spy's hub runs in this worker (hub-local/, sql.js + IndexedDB).
@@ -76,8 +77,6 @@ import {
   pauseInstagram,
   receiveIgPosts,
   receiveTtPosts,
-  readTtStoriesTab,
-  takeTtStories,
   recoverSpySync,
   scheduleSpy,
   serializeIg,
@@ -180,8 +179,7 @@ const storiesPass = createStoriesPass({
   serialize: serializeIg,
   flush: () => flushSpy(),
   makePoster: (url) => storyPoster(url),
-  // TikTok (socialMate 1.29): its stories come from a tab, its CDN wants its Referer.
-  readTiktokStories: (profile) => readTtStoriesTab(profile),
+  // TikTok (socialMate 1.29): its CDN wants its Referer.
   prepareMedia: async (url) => { if (isTiktokCdn(url)) await ensureTiktokReferer(); },
 });
 useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
@@ -2032,12 +2030,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     }
     case "FBW_SPY_TT_STORIES": {
-      if (takeTtStories(msg, sender)) { sendResponse({ ok: true, taken: true }); return false; }
       storiesPass.receiveTiktok(msg).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     case "FBW_SPY_TT_POSTS": {
-      receiveTtPosts(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
+      receiveTtPosts(msg).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     // panel → bg: Spy area operations
@@ -2383,6 +2380,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true; // async
     }
+    // @private
+    // fontes-button.js → bg: a photo for ugc-factory's Fontes de look (background/fontes.js).
+    case "FBW_FONTES_SEND": {
+      chrome.storage.local
+        .get(FONTES_BASE_KEY)
+        .then((s) => sendToFontes(msg, {
+          base: s[FONTES_BASE_KEY] || FONTES_BASE,
+          prepare: async (url) => { if (isTiktokCdn(url)) await ensureTiktokReferer(); },
+        }))
+        .then(sendResponse, (e) => sendResponse({ ok: false, error: "server", message: e?.message ?? null }));
+      return true; // async
+    }
+    // @end-private
     default:
       return false;
   }

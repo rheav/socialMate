@@ -11,6 +11,8 @@ const FORBIDDEN = [
   /rheav/, /X-Sync-Token/, /\/api\/sync/, /ws\/socialmate/, /FBW_SYNC_/, /Trackear no Hub/,
   // Instagram Scraper backend
   /ingest\/socialmate/, /extension-relay/, /localhost:3001/,
+  // "Fontes" button (ugc-factory)
+  /x-ugc-fontes/, /FBW_FONTES_/,
   // warm engine
   /FBW_START/, /FBW_RELEVANCE/, /fbw_session/, /aquec/i, /Aquecer/,
 ];

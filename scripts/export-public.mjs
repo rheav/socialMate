@@ -40,6 +40,9 @@ const PRIVATE_FILES = [
   "src/lib/igDestinations.js", "src/lib/igExportFormat.js", "src/lib/igExportFormat.test.js", "src/lib/useIgDestinations.js",
   // The Spy's collection tested against a mocked hub server (the public build answers in process; see src/hub-local/test/).
   "src/background.spy.test.js", "src/background/spyStories.test.js",
+  // "Fontes" button → ugc-factory on localhost
+  "src/content/fontes/fontes-button.js", "src/background/fontes.js", "src/background/fontes.test.js",
+  "src/lib/shared/fontesPick.js", "src/lib/shared/fontesPick.test.js",
 ];
 // The repo's own leak check and this script are about the private repo.
 const PRIVATE_PREFIXES = ["scripts/verify-public.mjs", "scripts/export-public.mjs"];
@@ -62,7 +65,7 @@ const SCRUB = [
 
 // Strings that must not appear anywhere in the exported tree.
 const LEAKS = [
-  /rheav/i, /X-Sync-Token/, /\/api\/sync/, /ingest\/socialmate/, /extension-relay/, /localhost:3001/,
+  /rheav/i, /X-Sync-Token/, /\/api\/sync/, /ingest\/socialmate/, /extension-relay/, /localhost:3001/, /x-ugc-fontes/, /FBW_FONTES_/,
   /~\/Code/, /FBW_START\b/, /FBW_RELEVANCE/, /fbw_session/, /Aquecer/, /aquecedor/i, /aquecimento/i,
   ...SCRUB.map(([real]) => new RegExp(real.replace(/[.]/g, "\\."), "i")),
 ];

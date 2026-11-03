@@ -121,6 +121,9 @@ const TARGETS = {
     "src/lib/shared/gridSort.js",
     "src/lib/shared/pageSorter.js",
   ],
+  // @private
+  "src/content/fontes/fontes-button.js": ["src/lib/shared/fontesPick.js"],
+  // @end-private
 };
 
 const BEGIN = (mod) => `// <<< inline:${mod}`;

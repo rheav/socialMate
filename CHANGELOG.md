@@ -16,6 +16,21 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.30.0] — 2026-11-02
+
+### Added
+- **"Fontes" button (private build).** Over any photo on Instagram or TikTok, a pill
+  sends it to ugc-factory's "Fontes de look" library: the biggest file the page has
+  for it (the widest srcset entry, else its own src — on Instagram's feed the src is
+  already the 1080–1440 px original), with the post link and the network. The worker
+  fetches it (TikTok through its Referer rule) and posts it to
+  `127.0.0.1:3210/api/flow/sources` with the `x-ugc-fontes` header; anything but
+  JPG/PNG/WebP becomes a JPEG 95 first. The pill answers "Nas Fontes", "Já estava nas
+  Fontes" (the app dedupes by content) or "Abra o UGC Factory" when nothing answers.
+  Instagram lays a transparent layer over its photos, so the photo under the pointer
+  comes from `elementsFromPoint`. `fbw_fontes_base` in storage points the worker at
+  another address. Left out of the public build and its export.
+
 ## [1.29.0] — 2026-11-02
 
 ### Added
