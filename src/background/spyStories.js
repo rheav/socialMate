@@ -1,4 +1,4 @@
-// The stories pass (service-worker side). For every tracked Instagram profile:
+// The stories pass (service-worker side). For every tracked Instagram or Facebook profile:
 // fetch the stories page with the session (no tab, no click, so nothing is
 // marked as seen), reduce the new items, and send each one to the hub —
 // metadata first, then the poster, then the whole media, one story in memory
@@ -8,7 +8,7 @@
 //
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
-import { emptyStoriesState, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { emptyStoriesState, parseFbStoriesHtml, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceFbStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
 import { SPY_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, autoOn, emptySpyQueue, queueReading } from "../lib/spyStore.js";
 // @private
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
@@ -44,7 +44,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
  * @param {() => Promise<object>} deps.readSyncSettings
  * @param {(platform, tone, text) => Promise} deps.logSpy   the Spy panel's history, plain language
  * @param {(platform, code, profileId, reading) => Promise} deps.blockPlatform
- * @param {(now) => boolean} deps.isBlockedNow  Instagram paused by an earlier 429/login
+ * @param {(now, platform) => boolean} deps.isBlockedNow  the platform (default Instagram) paused by an earlier 429/login
  * @param {(work) => Promise} deps.serialize    the Spy's Instagram serialization (one thing at a time)
  * @param {() => Promise} deps.flush            spy.js flushSpy: sends the queue, answers the hub's reply
  * @param {(url) => Promise<Blob>} deps.makePoster
@@ -68,6 +68,19 @@ export function createStoriesPass(deps) {
       headers: { accept: "text/html,application/xhtml+xml" },
       signal: AbortSignal.timeout?.(PAGE_TIMEOUT_MS),
     });
+    const error = outcomeOf(r);
+    if (error) return { error };
+    return { html: await r.text() };
+  }
+
+  /** Facebook: the stories page of the profile's bucket (its storyRef); `null` html = no bucket known. */
+  async function fetchFbPage(storyRef) {
+    const r = await fetchImpl(`https://www.facebook.com/stories/${encodeURIComponent(storyRef)}/`, {
+      credentials: "include",
+      headers: { accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout?.(PAGE_TIMEOUT_MS),
+    });
+    if (/\/login|\/checkpoint\//.test(String(r.url || ""))) return { error: "login_required" };
     const error = outcomeOf(r);
     if (error) return { error };
     return { html: await r.text() };
@@ -97,6 +110,7 @@ export function createStoriesPass(deps) {
    */
   async function readProfile(profile, settings) {
     void settings;
+    if (profile.platform === "facebook") return readFbProfile(profile);
     let reel;
     try {
       const page = await fetchPage(profile.key);
@@ -120,11 +134,42 @@ export function createStoriesPass(deps) {
     return { ok: true, items, reelId: reel.reelId };
   }
 
+  /** Facebook: no storyRef yet (the daily reading saw no story bucket) = no story to read. */
+  async function readFbProfile(profile) {
+    if (!profile.storyRef) return { ok: true, items: [], reelId: null };
+    let bucket;
+    try {
+      const page = await fetchFbPage(profile.storyRef);
+      if (page.error) return { ok: false, error: page.error };
+      if (/id="login_form"|name="login"/.test(page.html)) return { ok: false, error: "login_required" };
+      bucket = parseFbStoriesHtml(page.html, { bucketId: profile.storyRef, userId: profile.userId || profile.key });
+    } catch {
+      return { ok: false, error: "network" };
+    }
+    if (!bucket) return { ok: false, error: "no_reel" };
+    const known = new Set(profile.storyPks || []);
+    const items = [];
+    for (const node of bucket.items) {
+      const reduced = reduceFbStory(node, bucket.reelId);
+      if (reduced && !known.has(reduced.input.id)) items.push(reduced);
+    }
+    return { ok: true, items, reelId: bucket.reelId };
+  }
+
   // ---- the pass: a persisted job, one profile per step ----
 
   const now = () => (deps.now ? deps.now() : Date.now());
   const random = deps.random ?? Math.random;
-  const log = (tone, text) => deps.logSpy("instagram", tone, text);
+  const log = (tone, text, platform = "instagram") => deps.logSpy(platform, tone, text);
+  /** "@key" on Instagram; the page name on Facebook, whose key may be a number. */
+  const who = (p) => (p.platform === "facebook" ? p.name || p.key : `@${p.key}`);
+  const SITE = { instagram: "o Instagram", facebook: "o Facebook" };
+  /** Every platform of these profiles paused by an earlier 429/login. */
+  const allBlocked = async (profiles, at) => {
+    const platforms = [...new Set(profiles.map((p) => p.platform))];
+    for (const platform of platforms) if (!(await deps.isBlockedNow(at, platform))) return false;
+    return platforms.length > 0;
+  };
   // Callbacks of the pass in progress (the hub's command): memory only, so a
   // worker restart loses them; the pass itself goes on and the hub still gets
   // the next progress message or times out.
@@ -149,7 +194,7 @@ export function createStoriesPass(deps) {
     await deps.storage.set({ [SPY_STATE_KEY]: { ...state, stories } });
   }
   const trackedProfiles = (spy, ids) => Object.values(spy.profiles || {})
-    .filter((p) => p && p.platform === "instagram" && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
+    .filter((p) => p && (p.platform === "instagram" || p.platform === "facebook") && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
 
   function armAlarm(when) {
     deps.alarms?.create?.(STORIES_ALARM, { when });
@@ -231,14 +276,18 @@ export function createStoriesPass(deps) {
       const profile = spy.profiles?.[job.profileIds[job.index]];
       let added = 0;
       let failed = 0;
-      if (profile && profile.removedAt == null && profile.trackStories) {
+      if (profile && profile.removedAt == null && profile.trackStories && await deps.isBlockedNow(now(), profile.platform)) {
+        // Its platform is paused (an earlier 429/login): the other platform's profiles go on.
+        await log("info", `Stories de ${who(profile)}: pulado, ${SITE[profile.platform]} está em pausa`, profile.platform);
+      } else if (profile && profile.removedAt == null && profile.trackStories) {
         const source = job.source === "manual" ? "manual" : "pass";
         const read = await readProfile(profile, settings);
         if (!read.ok && (read.error === "login_required" || read.error === "rate_limited")) {
-          await deps.blockPlatform("instagram", read.error, profile.id, { kind: "stories", source });
+          await deps.blockPlatform(profile.platform, read.error, profile.id, { kind: "stories", source });
+          const site = SITE[profile.platform];
           await log("warn", read.error === "rate_limited"
-            ? "Stories: parou, o Instagram limitou a leitura · tenta de novo na próxima passada"
-            : "Stories: parou, o Instagram pediu login · abra o Instagram no Chrome");
+            ? `Stories: parou, ${site} limitou a leitura · tenta de novo na próxima passada`
+            : `Stories: parou, ${site} pediu login · abra ${site} no navegador`, profile.platform);
           await finish(job, { error: read.error });
           return;
         }
@@ -249,13 +298,13 @@ export function createStoriesPass(deps) {
             else failed += 1;
           }
           await log(read.items.length ? "ok" : "info", read.items.length
-            ? `Stories de @${profile.key}: +${added}${failed ? ` · ${plural(failed, "falha", "falhas")}` : ""}`
-            : `Stories de @${profile.key}: sem story agora`);
+            ? `Stories de ${who(profile)}: +${added}${failed ? ` · ${plural(failed, "falha", "falhas")}` : ""}`
+            : `Stories de ${who(profile)}: sem story agora`, profile.platform);
         } else {
           failed += 1;
           await log("warn", read.error === "no_reel"
-            ? `Stories de @${profile.key}: a página não trouxe os stories`
-            : `Stories de @${profile.key}: a leitura falhou (${read.error})`);
+            ? `Stories de ${who(profile)}: a página não trouxe os stories`
+            : `Stories de ${who(profile)}: a leitura falhou (${read.error})`, profile.platform);
         }
         const reading = { profileId: profile.id, at: now(), kind: "stories", source, ok: read.ok, ...(read.ok ? {} : { error: read.error }), reelsAdded: added };
         const r = await deps.storage.get(SPY_QUEUE_KEY);
@@ -263,7 +312,7 @@ export function createStoriesPass(deps) {
         await deps.flush();
       }
       const next = { ...job, index: job.index + 1, added: job.added + added, failed: job.failed + failed };
-      listeners.report?.({ done: next.index, total: next.profileIds.length, added: next.added, failed: next.failed, current: profile?.key ?? null });
+      listeners.report?.({ done: next.index, total: next.profileIds.length, added: next.added, failed: next.failed, current: profile ? (profile.platform === "facebook" ? profile.name || profile.key : profile.key) : null });
       if (next.index >= next.profileIds.length) { await finish(next); return; }
       next.nextAt = now() + STEP_MIN_MS + Math.floor(random() * STEP_SPREAD_MS);
       const latest = await readAll();
@@ -307,7 +356,7 @@ export function createStoriesPass(deps) {
     }
     if (!(await routinesOn())) return { ran: false, reason: "off" };
     if (!trackedProfiles(spy).length) return { ran: false, reason: "nothing_tracked" };
-    if (await deps.isBlockedNow(at)) { armAlarm(at + 3_600_000); return { ran: false, reason: "blocked" }; }
+    if (await allBlocked(trackedProfiles(spy), at)) { armAlarm(at + 3_600_000); return { ran: false, reason: "blocked" }; }
     const passes = state.storiesSettings.passesPerDay;
     const due = passDue(state.stories, passes, at, random);
     await writeStories(state.stories); // keeps the jitter drawn for this slot
@@ -322,7 +371,7 @@ export function createStoriesPass(deps) {
 
   // ---- one story: metadata, poster, media, one in memory at a time ----
 
-  const handleOf = (profileId) => `@${String(profileId).split(":")[1] || profileId}`;
+  const handleOf = (profileId) => (String(profileId).startsWith("facebook:") ? String(profileId).split(":")[1] : `@${String(profileId).split(":")[1] || profileId}`);
 
   /**
    * The poster, then the media, for one story whose metadata the hub already
@@ -400,8 +449,8 @@ export function createStoriesPass(deps) {
     const settings = await deps.readSyncSettings();
     if (!isSyncConfigured(settings)) { reply.result(false, { error: "acervo não configurado" }); return; }
     if (!(await routinesOn())) { reply.result(false, { error: "rotinas desligadas" }); return; }
-    if (await deps.isBlockedNow(now())) { reply.result(false, { error: "rate_limited" }); return; }
     const profileIds = Array.isArray(msg?.profileIds) && msg.profileIds.length ? msg.profileIds.map(String) : null;
+    if (await allBlocked(trackedProfiles((await readAll()).spy, profileIds), now())) { reply.result(false, { error: "rate_limited" }); return; }
     const out = await runPass({
       source: "manual",
       profileIds,

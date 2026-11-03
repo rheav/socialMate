@@ -170,9 +170,9 @@ const storiesPass = createStoriesPass({
   readSyncSettings,
   logSpy,
   blockPlatform,
-  isBlockedNow: async (now) => {
+  isBlockedNow: async (now, platform = "instagram") => {
     const r = await chrome.storage.local.get(SPY_STATE_KEY_FOR_STORIES);
-    return spyIsBlocked(r[SPY_STATE_KEY_FOR_STORIES], "instagram", now);
+    return spyIsBlocked(r[SPY_STATE_KEY_FOR_STORIES], platform, now);
   },
   serialize: serializeIg,
   flush: () => flushSpy(),

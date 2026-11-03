@@ -334,3 +334,73 @@ describe("routines switch", () => {
     expect(await pass.tick()).toEqual({ ran: false, reason: "off" });
   });
 });
+
+// Facebook (socialMate 1.28): the bucket page of the profile's storyRef, shape measured 2026-11-02.
+describe("Facebook stories", () => {
+  const card = (id, extra = {}) => ({
+    id: `UzpfSVND${id}`, creation_time: 1793635587,
+    story_card_info: { story_card_id: id, reply_thread_expiration_time: 1793721987, feedback_summary: { total_reaction_count: 6 } },
+    story_overlays: [{ __typename: "StoryOverlayMusicSticker" }, { link_sticker_style: "URL_ONLY", link_sticker_url: "https://0rly4u0.s.gy/gabimanifest" }],
+    media_attribution_elements: [{ song_title: "Under The Same Rain", artist_name: "cloud cover" }],
+    attachments: [{ media: { __typename: "Video", id: "2190627314826906", original_width: 1080, original_height: 1920,
+      playable_url: "https://scontent.fbcdn.net/sd.mp4", previewImage: { uri: "https://scontent.fbcdn.net/cover.jpg" },
+      videoDeliveryResponseFragment: { videoDeliveryResponseResult: {
+        progressive_urls: [{ progressive_url: "https://scontent.fbcdn.net/sd.mp4", metadata: { quality: "SD" } }, { progressive_url: "https://scontent.fbcdn.net/hd.mp4", metadata: { quality: "HD" } }],
+        dash_manifests: [{ manifest_xml: '<MPD mediaPresentationDuration="PT15.019S"></MPD>' }] } } } }],
+    ...extra,
+  });
+  const bucket = (id, owner, cards) => ({ id, story_bucket_owner: { id: owner }, unified_stories_with_notes: { edges: cards.map((node) => ({ node })) } });
+  const page = (...buckets) => `<html><script type="application/json">${JSON.stringify({ require: [[{ __bbox: { result: { data: { nodes: buckets } } } }]] })}</script></html>`;
+  const fb = (over = {}) => ({ id: "facebook:61594402285534", platform: "facebook", key: "61594402285534", name: "It’s Gabriela Rivera",
+    userId: "61594402285534", storyRef: "122095683255480076", removedAt: null, trackStories: true, storyPks: [], ...over });
+  const fbHtml = (body) => html(body, "https://www.facebook.com/stories/122095683255480076/");
+
+  it("reads the profile's bucket only, once per card, with its link, music, duration and reactions", async () => {
+    const own = bucket("122095683255480076", "61594402285534", [card("2250705252993106")]);
+    const fetchImpl = fetchStub([["/stories/122095683255480076/", fbHtml(page(own, bucket("4344988748879049", "100001038990070", [card("1111")]), own))]]);
+    const pass = createStoriesPass({ ...deps, fetchImpl });
+    const read = await pass.readProfile(fb());
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://www.facebook.com/stories/122095683255480076/");
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({ credentials: "include" });
+    expect(read).toMatchObject({ ok: true, reelId: "122095683255480076" });
+    expect(read.items).toHaveLength(1);
+    expect(read.items[0]).toEqual({
+      input: { id: "2250705252993106", reelId: "122095683255480076", mediaType: 2, takenAt: 1793635587000, expiringAt: 1793721987000,
+        durationMs: 15019, width: 1080, height: 1920, caption: null, links: [{ url: "https://0rly4u0.s.gy/gabimanifest", text: "0rly4u0.s.gy" }],
+        music: { title: "Under The Same Rain", artist: "cloud cover" }, mentions: [], aiLabel: false, reactions: 6, mediaMime: "video/mp4" },
+      cover: "https://scontent.fbcdn.net/cover.jpg",
+      media: { url: "https://scontent.fbcdn.net/hd.mp4", mime: "video/mp4" },
+    });
+    expect((await pass.readProfile(fb({ storyPks: ["2250705252993106"] }))).items).toEqual([]);
+  });
+
+  it("answers no story without a storyRef or without the bucket, and a failure on a page without any", async () => {
+    const fetchImpl = fetchStub([["/stories/122095683255480076/", fbHtml(page(bucket("999", "1", [card("1111")])))], ["/stories/7/", fbHtml(EMPTY_PAGE)]]);
+    const pass = createStoriesPass({ ...deps, fetchImpl });
+    expect(await pass.readProfile(fb({ storyRef: null }))).toEqual({ ok: true, items: [], reelId: null });
+    expect(await pass.readProfile(fb())).toMatchObject({ ok: true, items: [] });
+    expect(await pass.readProfile(fb({ storyRef: "7" }))).toEqual({ ok: false, error: "no_reel" });
+    const login = createStoriesPass({ ...deps, fetchImpl: fetchStub([["/stories/", html("<html></html>", "https://www.facebook.com/login/?next=x")]]) });
+    expect(await login.readProfile(fb())).toEqual({ ok: false, error: "login_required" });
+  });
+
+  it("skips the profiles of a paused platform and goes on with the others", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = fetchStub([["/stories/natgeo/", html(fixture)]]);
+    await seed(deps.storage, [fb(), tracked("natgeo")]);
+    const pass = createStoriesPass({ ...deps, fetchImpl, isBlockedNow: (_at, platform) => platform === "facebook" });
+    await pass.runPass({ source: "manual" });
+    await vi.runAllTimersAsync();
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual(["https://www.instagram.com/stories/natgeo/"]);
+    expect(history()).toContain("Stories de It’s Gabriela Rivera: pulado, o Facebook está em pausa");
+  });
+
+  it("blocks Facebook, not Instagram, on a Facebook login wall", async () => {
+    const fetchImpl = fetchStub([["/stories/", html("<html></html>", "https://www.facebook.com/checkpoint/1/")]]);
+    await seed(deps.storage, [fb()]);
+    const pass = createStoriesPass({ ...deps, fetchImpl });
+    await pass.runPass({ source: "manual" });
+    expect(deps.blockPlatform).toHaveBeenCalledWith("facebook", "login_required", "facebook:61594402285534", { kind: "stories", source: "manual" });
+    expect(history().at(-1)).toBe("Stories: parou, o Facebook pediu login · abra o Facebook no navegador");
+  });
+});

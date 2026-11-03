@@ -202,3 +202,104 @@ export function queueStory(queue, profileId, input) {
   if (!profileId || !input?.id) return queue;
   return { ...queue, stories: { ...(queue.stories || {}), [input.id]: { profileId, ...input } } };
 }
+
+// ---- Facebook (socialMate 1.28) ----
+//
+// Measured 2026-11-02: `GET /stories/<bucket id>/` (the profile's storyRef) with
+// the session's cookies carries the bucket in a <script type="application/json">
+// blob, under `unified_stories_with_notes.edges`, next to other accounts' buckets
+// from the tray. Fetching the HTML runs no script, so nothing is marked as seen.
+
+const FB_BUCKETS_KEY = "unified_stories_with_notes";
+
+function findBuckets(root, out, depth = 0) {
+  if (!root || typeof root !== "object" || depth > 90) return;
+  if (root[FB_BUCKETS_KEY] && Array.isArray(root[FB_BUCKETS_KEY].edges)) out.push(root);
+  for (const value of Array.isArray(root) ? root : Object.values(root)) findBuckets(value, out, depth + 1);
+}
+
+/**
+ * The profile's bucket on its stories page: null when the page carries no
+ * bucket at all (changed, or a login wall); an empty `items` when the tray is
+ * there but the profile has no story now.
+ */
+export function parseFbStoriesHtml(html, { bucketId, userId } = {}) {
+  if (typeof html !== "string") return null;
+  const buckets = [];
+  for (const match of html.matchAll(SCRIPT_RE)) {
+    if (!match[1].includes(FB_BUCKETS_KEY)) continue;
+    try { findBuckets(JSON.parse(match[1]), buckets); } catch { /* not this block */ }
+  }
+  if (!buckets.length) return null;
+  const own = buckets.find((b) => (bucketId && String(b.id) === String(bucketId))
+    || (userId && String(b.story_bucket_owner?.id) === String(userId)));
+  if (!own) return { reelId: bucketId ? String(bucketId) : null, items: [] };
+  // The tray repeats a bucket; one node per story card.
+  const items = new Map();
+  for (const b of buckets.filter((x) => String(x.id) === String(own.id))) {
+    for (const edge of b[FB_BUCKETS_KEY].edges) {
+      const id = edge?.node?.story_card_info?.story_card_id;
+      if (edge?.node && id && !items.has(String(id))) items.set(String(id), edge.node);
+    }
+  }
+  return { reelId: String(own.id), items: [...items.values()] };
+}
+
+const DURATION_RE = /mediaPresentationDuration="PT(?:(\d+)H)?(?:(\d+)M)?([\d.]+)S"/;
+
+/** One Facebook story card → the same `{ input, cover, media }` as an Instagram item, plus its reactions. */
+export function reduceFbStory(node, bucketId) {
+  if (!node || typeof node !== "object") return null;
+  const id = String(node.story_card_info?.story_card_id ?? "");
+  const takenAt = num(node.creation_time);
+  const media = node.attachments?.find?.((a) => a?.media)?.media;
+  const isVideo = media?.__typename === "Video";
+  if (!/^\d{1,30}$/.test(id) || takenAt == null || !media || (!isVideo && media.__typename !== "Photo")) return null;
+  // Facebook keeps a story 24 h; the reply thread closes with it.
+  const expiringAt = num(node.story_card_info?.reply_thread_expiration_time) ?? takenAt + 86_400;
+
+  const result = media.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
+  const progressive = (result?.progressive_urls || []).filter((p) => typeof p?.progressive_url === "string");
+  const videoUrl = isVideo ? (progressive.find((p) => /hd/i.test(p.metadata?.quality || "")) ?? progressive[0])?.progressive_url
+    ?? (typeof media.playable_url === "string" ? media.playable_url : null) : null;
+  const manifest = (result?.dash_manifests || []).map((m) => m?.manifest_xml).find((x) => typeof x === "string") || "";
+  const d = manifest.match(DURATION_RE);
+  const durationMs = d ? Math.round(((Number(d[1] || 0) * 60 + Number(d[2] || 0)) * 60 + Number(d[3])) * 1000) : null;
+  // shortcut: photo stories were not measured live (only video), the image is read as on reels; check one when it shows up.
+  const cover = media.previewImage?.uri ?? media.preferred_thumbnail?.image?.uri ?? media.image?.uri ?? null;
+  const file = isVideo ? (videoUrl ? { url: videoUrl, mime: "video/mp4" } : null) : (cover ? { url: cover, mime: "image/jpeg" } : null);
+
+  const links = [];
+  for (const overlay of Array.isArray(node.story_overlays) ? node.story_overlays : []) {
+    const url = overlay?.link_sticker_url;
+    if (typeof url !== "string" || !/^https?:\/\//.test(url) || links.some((l) => l.url === url)) continue;
+    let text = "";
+    try { text = new URL(url).hostname; } catch { /* keep the url */ }
+    links.push(text ? { url, text } : { url });
+  }
+  const song = (Array.isArray(node.media_attribution_elements) ? node.media_attribution_elements : [])
+    .find((m) => typeof m?.song_title === "string" && m.song_title);
+  const reactions = node.story_card_info?.feedback_summary?.total_reaction_count;
+
+  return {
+    input: {
+      id,
+      reelId: bucketId != null ? String(bucketId) : null,
+      mediaType: isVideo ? 2 : 1,
+      takenAt: takenAt * 1000,
+      expiringAt: expiringAt * 1000,
+      durationMs,
+      width: num(media.original_width) ?? num(media.width),
+      height: num(media.original_height) ?? num(media.height),
+      caption: typeof node.message?.text === "string" && node.message.text ? node.message.text : null,
+      links,
+      music: song ? { title: song.song_title, ...(typeof song.artist_name === "string" && song.artist_name ? { artist: song.artist_name } : {}) } : null,
+      mentions: [],
+      aiLabel: false,
+      reactions: Number.isSafeInteger(reactions) && reactions >= 0 ? reactions : null,
+      mediaMime: file?.mime ?? (isVideo ? "video/mp4" : "image/jpeg"),
+    },
+    cover,
+    media: file,
+  };
+}

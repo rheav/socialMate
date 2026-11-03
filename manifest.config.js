@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.27.0",
+  version: "1.28.0",
   // @private
   version_name:
-    "1.27.0 — Spy do Facebook: bio, link e os números, a marca de IA e o áudio de cada reel",
+    "1.28.0 — Stories do Facebook no arquivo de stories, com link do adesivo, música e reações",
   // @end-private
   icons: ICONS,
   action: {

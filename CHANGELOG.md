@@ -16,6 +16,20 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.28.0] — 2026-11-02
+
+### Added
+- **Spy, Facebook stories.** The stories pass now reads the tracked Facebook
+  profiles too: `GET /stories/<storyRef>/` with the session (no tab, so nothing is
+  marked as seen) carries the profile's bucket under `unified_stories_with_notes`.
+  Each card becomes a story like an Instagram item: video (HD progressive, length
+  from the DASH manifest) or photo, time, expiry (`reply_thread_expiration_time`),
+  link sticker, music and the reactions at capture. A profile without a storyRef
+  has no story to read. Photo stories were not measured live. Needs hub 1.0.0.
+- **A paused platform no longer stops the other.** The pass skips the profiles of
+  a platform paused by an earlier 429/login and goes on with the rest; a Facebook
+  login wall pauses Facebook, not Instagram.
+
 ## [1.27.0] — 2026-11-02
 
 ### Added
