@@ -16,6 +16,19 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.30.1] — 2026-11-02
+
+### Fixed
+- **TikTok Spy: no tab of ours, and the record says so.** 1.29.0 opened each saved
+  TikTok profile in a background tab to read its videos. Measured that evening: a
+  background tab never paints, so TikTok never asks for the grid there (0 requests
+  in 15 s, with or without a faked visibility), and asking for it ourselves through
+  the page's fetch got empty answers after a few tries. The tab and the request
+  were taken out in the 1.30.0 tree (shipped with the Fontes button). Now: the
+  daily reading gets the exact numbers from the profile page alone; the videos and
+  stories come when a saved profile is open in a visible tab, or its stories show
+  up in the story tray. 1.30.0's name still said 1.29.0.
+
 ## [1.30.0] — 2026-11-02
 
 ### Added

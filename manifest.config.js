@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.30.0",
+  version: "1.30.1",
   // @private
   version_name:
-    "1.29.0 — TikTok no Spy: perfil exato, vídeos com todos os números e stories",
+    "1.30.1 — TikTok no Spy: números todo dia; vídeos e stories quando você abre o perfil",
   // @end-private
   icons: ICONS,
   action: {
