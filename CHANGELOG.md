@@ -16,6 +16,21 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.32.0] — 2026-11-02
+
+### Added
+- **The Hub button on TikTok and Facebook.** Instagram's "Trackear no Hub" mark now
+  sits on a TikTok profile right after the "…" (a 44 px circle in the neighbours'
+  colour) and on a Facebook profile right after the name (measured: a 32 px
+  `span[dir=auto]`, no h1). Same states and the same `FBW_SPY_SAVE`; your own
+  profile gets none (TikTok: the nav's profile link; Facebook: the `c_user` id,
+  so an own profile under a vanity name still shows it). The profile-URL rules
+  moved to `lib/shared/spyProfileUrl.js` so the pages and the panel share them.
+- **A sky dot that pings, so the button is noticed.** Not tracked yet, the button
+  carries a sky dot where the green one goes once tracked, and the dot pings three
+  times when the button appears, then rests. On all three networks; nothing moves
+  with reduced motion on.
+
 ## [1.31.0] — 2026-11-02
 
 ### Added

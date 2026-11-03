@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
 import { expect, it } from 'vitest';
+import { stripRegions } from '../../build/stripRegions.js';
 
 it('excludes previous-profile DOM during query-only navigation and retains filtered current tiles', () => {
   const document = new Window().document;
@@ -10,7 +11,7 @@ it('excludes previous-profile DOM during query-only navigation and retains filte
   const chrome={runtime:{id:'test',onMessage:{addListener:f=>listeners.push(f)},sendMessage:async()=>({})},storage:{local:{get:async()=>({}),set:async()=>({})},onChanged:{addListener:()=>{}}}};
   Object.defineProperty(document,'visibilityState',{value:'hidden'});
   const tile=id=>{const a=document.createElement('a');a.href='/reel/'+id;a.innerHTML='<img src="https://scontent.fbcdn.net/a.jpg"><span>44</span>';a.getBoundingClientRect=()=>({width:150,height:200,top:0});document.body.append(a);return a;};
-  new Function('window','document','location','chrome','setInterval','setTimeout','clearInterval','clearTimeout',readFileSync('src/content/fb/reels-capture.js','utf8'))({postMessage:()=>{},addEventListener:()=>{}},document,location,chrome,()=>1,()=>1,()=>{},()=>{});
+  new Function('window','document','location','chrome','setInterval','setTimeout','clearInterval','clearTimeout',stripRegions(readFileSync('src/content/fb/reels-capture.js','utf8'),'public'))({postMessage:()=>{},addEventListener:()=>{}},document,location,chrome,()=>1,()=>1,()=>{},()=>{});
   const list=()=>{let res;listeners.at(-1)({type:'FBW_FB_REELS_LIST'},{},r=>{res=r;});return res.records.map(r=>r.id);};
   const a=tile('11111111');expect(list()).toEqual(['11111111']);
   tile('11111112'); // Pagination may append an old-profile tile between ticks.

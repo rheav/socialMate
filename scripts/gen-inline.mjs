@@ -48,6 +48,9 @@ const TARGETS = {
     "src/lib/shared/pageSorter.js",
     "src/lib/shared/overlayUi.js",
     "src/lib/shared/fbReelsDom.js",
+    // The Hub button after the profile's name (socialMate 1.32).
+    "src/lib/shared/spyProfileUrl.js",
+    "src/lib/shared/igHubButton.js",
   ],
   "src/content/fb/feed-filter.js": [
     "src/lib/shared/counts.js",
@@ -120,6 +123,9 @@ const TARGETS = {
     "src/lib/shared/ttQuery.js",
     "src/lib/shared/gridSort.js",
     "src/lib/shared/pageSorter.js",
+    // The Hub button after the profile's "…" (socialMate 1.32).
+    "src/lib/shared/spyProfileUrl.js",
+    "src/lib/shared/igHubButton.js",
   ],
   // @private
   "src/content/fontes/fontes-button.js": ["src/lib/shared/fontesPick.js"],
