@@ -187,7 +187,7 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_ig_overlay` / `sw_pin_overlay` / `sw_fb_overlay` | IgSortTool / pin-api / FbReelsTool | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
 | `sw_ig_query` / `sw_tt_query` / `sw_fb_query` | IgSortTool / TtSortTool / FbReelsTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
 | `fbw_dl` | Opções modal | `{ folder, flat }` — download folder + bucketing; cached synchronously by `lib/downloadPath.js` in BOTH the panel and the worker |
-| `sw_ovl_style` | Opções modal | look of the IG/TikTok rails: `"cartao"` (default) or `"faixa"` (`shared/railTheme.js`); bridge and relay repaint on change |
+| `sw_ovl_style` | Opções modal | look of every page rail (IG, TikTok, Facebook reels + feed videos, Pinterest): `"cartao"` (default) or `"faixa"` (`shared/railTheme.js`); each script repaints on change |
 | `fbw_fontes_base` | nobody (set by hand) | ugc-factory's address for the Fontes button; unset = `http://127.0.0.1:3210` |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |

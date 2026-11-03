@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setOverlayBtnState } from "./overlayUi.js";
 import { RAIL_CSS, railActsClass, railLabel, railSay, railStatsClass, railStatsHTML, railStyleOf } from "./railTheme.js";
 
 describe("rail style", () => {
@@ -63,5 +64,13 @@ describe("button label", () => {
     expect(b.querySelector(".sw-rb-lbl").textContent).toBe("Nas Fontes");
     vi.advanceTimersByTime(1000);
     expect([b.hasAttribute("data-flash"), b.querySelector(".sw-rb-lbl").textContent]).toEqual([false, "outro nome"]);
+  });
+
+  it("keeps the label when a state swaps the glyph (Pinterest)", () => {
+    const b = document.createElement("button");
+    b.dataset.kind = "dl";
+    railLabel(b, "Baixar");
+    setOverlayBtnState(b, "ok");
+    expect([b.querySelector("svg") != null, b.querySelector(".sw-rb-lbl")?.textContent]).toEqual([true, "Baixar"]);
   });
 });

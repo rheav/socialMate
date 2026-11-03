@@ -78,7 +78,9 @@ export function setOverlayBtnState(btn, state) {
   if (state === "busy" || state === "ok" || state === "err") btn.classList.add(state);
   const kind = btn.dataset.kind;
   if (!kind) return;
+  const label = btn.querySelector(":scope > .sw-rb-lbl"); // the rail's name tag outlives the glyph
   btn.innerHTML = overlayIcon(state === "ok" || state === "err" ? state : kind);
+  if (label) btn.appendChild(label);
 }
 
 /**

@@ -1,11 +1,13 @@
-// How the page rails LOOK on Instagram and TikTok: the button capsule and the
-// stats card. INLINED into content scripts — see this dir's README before editing
+// How the page rails LOOK on Instagram, TikTok, Facebook and Pinterest: the
+// button capsule and the stats card. INLINED into content scripts — see this dir's README before editing
 // (the only import allowed is a sibling, and every target inlines it first).
 //
 // Two styles, picked in Opções → Sobreposições (RAIL_STYLE_KEY):
 //   "cartao" — the stats in a small card at the tile's corner; buttons always shown.
 //   "faixa"  — the stats straight on the photo over a dark gradient at its foot;
 //              on grid tiles the buttons only appear while the tile is hovered.
+// Each platform keeps its own state vocabulary (classes on IG/TikTok/Pinterest,
+// data-state / data-saved on Facebook's reels), so the state rules list them all.
 // Positions stay each platform's business (tile corners, the player layer);
 // this file is skin, markup and the label beside each button.
 //
@@ -59,7 +61,11 @@ export function railStatsHTML({ hero, reach, rows = [] }) {
   return `<div class="sw-rs-hero">${v}${chip}</div>${list ? `<div class="sw-rs-rows">${list}</div>` : ""}`;
 }
 
-/** The class list of an action capsule; tile capsules hide until hovered in "faixa". */
+/**
+ * The class list of an action capsule; tile capsules hide until hovered in "faixa".
+ * A capsule against the window's right edge (Pinterest's closeup) adds sw-ra-left
+ * itself so its labels open leftward.
+ */
 export function railActsClass(style, { player = false } = {}) {
   return `sw-ra${!player && railStyleOf(style) === "faixa" ? " sw-ra-hover" : ""}`;
 }
@@ -108,19 +114,19 @@ export function railSep() {
   return s;
 }
 
-const FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif';
-const SURF = "rgba(34,39,50,.86)";
-const LINE = "rgba(217,224,238,.16)";
-const LIFT = "inset 0 1px 0 rgba(255,255,255,.07),0 6px 18px rgba(0,0,0,.32),0 1px 3px rgba(0,0,0,.3)";
+const RAIL_FONT = '-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif';
+const RAIL_SURF = "rgba(34,39,50,.86)";
+const RAIL_LINE = "rgba(217,224,238,.16)";
+const RAIL_LIFT = "inset 0 1px 0 rgba(255,255,255,.07),0 6px 18px rgba(0,0,0,.32),0 1px 3px rgba(0,0,0,.3)";
 
 // No backticks inside: this is one template literal.
 export const RAIL_CSS = `
-.sw-ra{display:flex;flex-direction:column;gap:2px;padding:3px;border-radius:16px;background:${SURF};
-  border:1px solid ${LINE};box-shadow:${LIFT};font-family:${FONT};
+.sw-ra{display:flex;flex-direction:column;gap:2px;padding:3px;border-radius:16px;background:${RAIL_SURF};
+  border:1px solid ${RAIL_LINE};box-shadow:${RAIL_LIFT};font-family:${RAIL_FONT};
   transition:opacity .18s ease-out,transform .18s cubic-bezier(.2,.8,.2,1)}
 :not(:hover)>.sw-ra-hover:not(:has(.busy,.sw-voice-running,[data-flash])){opacity:0;transform:translateX(-4px);
   pointer-events:none;transition:opacity .12s ease-in,transform .12s ease-in}
-.sw-ra-sep{height:1px;margin:2px 6px;background:${LINE}}
+.sw-ra-sep{height:1px;margin:2px 6px;background:${RAIL_LINE}}
 .sw-rb{position:relative;display:grid;place-items:center;width:30px;height:30px;min-width:0;margin:0;padding:0;border:0;
   border-radius:12px;background:transparent;box-shadow:none;color:#eceff4;cursor:pointer;font-family:inherit;
   font-size:10px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;transition:background-color .12s,color .12s}
@@ -128,31 +134,33 @@ export const RAIL_CSS = `
 .sw-rb:focus-visible{outline:2px solid #8ecae6;outline-offset:1px}
 .sw-rb svg{display:block;width:16px;height:16px}
 .sw-rb.sw-accent{color:#8ecae6}
-.sw-rb:is(.sw-saved,.on){color:#f2cf94}
-.sw-rb:is(.sw-saved,.on) svg{fill:currentColor}
+.sw-rb:is(.sw-saved,.on,.sw-pin-saved,[data-saved="1"]){color:#f2cf94}
+.sw-rb:is(.sw-saved,.on,.sw-pin-saved,[data-saved="1"]) svg{fill:currentColor}
 .sw-rb.sw-voice-running{color:#8ecae6}
-.sw-rb:is(.ok,[data-flash="ok"]){color:#b2dba4}
-.sw-rb:is(.err,[data-flash="err"]){color:#e79aa4}
+.sw-rb:is(.ok,[data-flash="ok"],[data-state="done"]){color:#b2dba4}
+.sw-rb:is(.err,[data-flash="err"],[data-state="error"]){color:#e79aa4}
 .sw-rb[data-flash="warn"]{color:#f2cf94}
 .sw-rb[data-flash="dim"]{color:#aeb9cd}
-.sw-rb.busy svg{display:none}
-.sw-rb.busy::before{content:"";width:13px;height:13px;border-radius:50%;border:2px solid currentColor;
-  border-right-color:transparent;animation:sw-rb-spin .7s linear infinite}
+.sw-rb:is(.busy,[data-state="busy"]){color:#8ecae6;cursor:progress}
+.sw-rb:is(.busy,[data-state="busy"])>svg{display:none}
+.sw-rb:is(.busy,[data-state="busy"]):has(>svg)::before{content:"";width:13px;height:13px;border-radius:50%;
+  border:2px solid currentColor;border-right-color:transparent;animation:sw-rb-spin .7s linear infinite}
 @keyframes sw-rb-spin{to{transform:rotate(360deg)}}
-.sw-rb .fbw-lang-badge{right:1px;bottom:2px;min-width:0;height:auto;padding:1.5px 2.5px;border:0;border-radius:4px;
-  background:#8ecae6;color:#232833;font-size:7.5px;letter-spacing:.02em}
-.sw-rb-lbl{position:absolute;left:calc(100% + 12px);top:50%;z-index:1;transform:translate(-4px,-50%);opacity:0;
-  pointer-events:none;white-space:nowrap;padding:7px 10px;border-radius:9px;background:rgba(35,40,51,.97);
-  border:1px solid ${LINE};box-shadow:${LIFT};color:#eceff4;font:600 12px/1 ${FONT};letter-spacing:0;text-shadow:none;
+.sw-rb-lbl,.sw-rb[data-tip]::after{position:absolute;left:calc(100% + 12px);top:50%;z-index:1;transform:translate(-4px,-50%);
+  opacity:0;pointer-events:none;white-space:nowrap;padding:7px 10px;border-radius:9px;background:rgba(35,40,51,.97);
+  border:1px solid ${RAIL_LINE};box-shadow:${RAIL_LIFT};color:#eceff4;font:600 12px/1 ${RAIL_FONT};letter-spacing:0;text-shadow:none;
   transition:opacity .1s ease-in,transform .1s ease-in}
-.sw-rb:is(:hover,:focus-visible,[data-flash]) .sw-rb-lbl{opacity:1;transform:translate(0,-50%);
-  transition:opacity .16s ease-out,transform .16s cubic-bezier(.2,.8,.2,1)}
+.sw-rb[data-tip]::after{content:attr(data-tip)}
+.sw-rb:is(:hover,:focus-visible,[data-flash]) .sw-rb-lbl,.sw-rb[data-tip]:is(:hover,:focus-visible)::after{opacity:1;
+  transform:translate(0,-50%);transition:opacity .16s ease-out,transform .16s cubic-bezier(.2,.8,.2,1)}
+.sw-ra-left .sw-rb-lbl,.sw-ra-left .sw-rb[data-tip]::after{left:auto;right:calc(100% + 12px);transform:translate(4px,-50%)}
+.sw-ra-left .sw-rb:is(:hover,:focus-visible,[data-flash]) .sw-rb-lbl,.sw-ra-left .sw-rb[data-tip]:is(:hover,:focus-visible)::after{transform:translate(0,-50%)}
 .sw-rb[data-flash="ok"] .sw-rb-lbl{color:#b2dba4}
 .sw-rb[data-flash="warn"] .sw-rb-lbl{color:#f2cf94}
 .sw-rb[data-flash="err"] .sw-rb-lbl{color:#e79aa4}
 .sw-rb[data-flash="dim"] .sw-rb-lbl{color:#aeb9cd}
 
-.sw-rs{z-index:5;pointer-events:none;color:#eceff4;font-family:${FONT};line-height:1;text-align:left}
+.sw-rs{z-index:5;pointer-events:none;color:#eceff4;font-family:${RAIL_FONT};line-height:1;text-align:left}
 .sw-rs b{font-weight:inherit}
 .sw-rs svg{display:block;flex:none}
 .sw-rs-tier{display:none}
@@ -164,8 +172,8 @@ export const RAIL_CSS = `
 .sw-rs-r svg{width:12px;height:12px}
 .sw-rs-v{display:flex;align-items:center;font-variant-numeric:tabular-nums;white-space:nowrap}
 
-.sw-rs-cartao{position:absolute;right:8px;bottom:8px;padding:9px 11px 9px 10px;border-radius:13px;background:${SURF};
-  border:1px solid ${LINE};box-shadow:${LIFT}}
+.sw-rs-cartao{position:absolute;right:8px;bottom:8px;padding:9px 11px 9px 10px;border-radius:13px;background:${RAIL_SURF};
+  border:1px solid ${RAIL_LINE};box-shadow:${RAIL_LIFT}}
 .sw-rs-cartao .sw-rs-hero{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
 .sw-rs-cartao .sw-rs-v{gap:5px;font-size:15px;font-weight:650;letter-spacing:-.01em}
 .sw-rs-cartao .sw-rs-v svg{width:15px;height:15px;color:#aeb9cd}

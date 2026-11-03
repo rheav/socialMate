@@ -16,6 +16,22 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.35.0] — 2026-11-03
+
+### Changed
+- **Facebook and Pinterest get the new rail look too**, following the same Cartão /
+  Faixa choice in Opções (now titled just "Estilo"). Facebook: the reels tab's tiles
+  and the reel player (`fb/reels-capture.js`) and the feed videos' and photos'
+  buttons (`transcription/inject.js`) share one capsule; the reel stats lead with
+  views and the reach chip (graded on the same tiers, `ttFormat.js` now inlined
+  there). Narrow reel tiles (the reels tab runs ~140 px) get the short numbers in one
+  column, so the card stays clear of the buttons; under Faixa, Facebook's and
+  TikTok's own view counts at a tile's foot are hidden, since the strip prints the
+  same number. Pinterest's pin buttons and the open pin's stack use the capsule as
+  well, the latter with labels opening leftward. A glyph swap (Pinterest's ✓/✗)
+  keeps the button's label (`setOverlayBtnState`). The BR/EN menu and its badge use
+  the same palette everywhere.
+
 ## [1.34.0] — 2026-11-02
 
 ### Changed

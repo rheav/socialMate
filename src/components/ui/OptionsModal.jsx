@@ -238,7 +238,7 @@ export function NumberRow({ id, label, hint, value, min, max, onSave }) {
   );
 }
 
-// How the Instagram and TikTok rails look (railTheme.js). A picture of each
+// How the page rails look on every platform (railTheme.js). A picture of each
 // instead of a name: "cartão" and "faixa" mean nothing until you have seen them.
 // The pages follow the stored value live, so a pick shows on an open tab at once.
 const RAIL_STYLE_CHOICES = [
@@ -269,8 +269,8 @@ function RailStylePicker() {
   };
   return (
     <div className="pt-2 pb-1">
-      <span className="text-sm text-foreground">Estilo no Instagram e TikTok</span>
-      <div role="radiogroup" aria-label="Estilo no Instagram e TikTok" className="mt-2 grid grid-cols-2 gap-2">
+      <span className="text-sm text-foreground">Estilo</span>
+      <div role="radiogroup" aria-label="Estilo das sobreposições" className="mt-2 grid grid-cols-2 gap-2">
         {RAIL_STYLE_CHOICES.map(({ value, label, hint }) => (
           <button
             key={value}

@@ -61,15 +61,17 @@ export function txLangMenuPos(rect, view) {
 
 export const TX_LANG_CSS = `
 .fbw-lang-host{position:relative}
-.fbw-lang-badge{position:absolute;right:-5px;bottom:-5px;min-width:18px;height:14px;padding:0 3px;border-radius:5px;
-  display:grid;place-items:center;background:rgba(15,23,42,.96);color:#dbeafe;border:1px solid rgba(150,185,255,.55);
-  font:800 8px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;pointer-events:none}
-.fbw-lang-menu{position:fixed;z-index:2147483600;display:grid;gap:4px;width:${TX_LANG_MENU_W}px;padding:6px;border-radius:9px;
-  background:rgba(17,24,44,.98);border:1px solid rgba(150,185,255,.42);box-shadow:0 8px 24px rgba(0,0,0,.45);
-  font:600 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#fff}
-.fbw-lang-menu button{height:30px;border:0;border-radius:6px;background:transparent;color:#e5e7eb;text-align:left;
-  padding:0 8px;cursor:pointer;font:inherit}
-.fbw-lang-menu button:hover,.fbw-lang-menu button.active{background:rgba(59,130,246,.24);color:#fff}`;
+.fbw-lang-badge{position:absolute;right:1px;bottom:2px;padding:1.5px 2.5px;border-radius:4px;display:grid;place-items:center;
+  background:#8ecae6;color:#232833;font:800 7.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:.02em;pointer-events:none}
+.fbw-lang-menu{position:fixed;z-index:2147483600;display:grid;gap:2px;width:${TX_LANG_MENU_W}px;padding:4px;border-radius:12px;
+  background:rgba(35,40,51,.97);border:1px solid rgba(217,224,238,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 10px 28px rgba(0,0,0,.4);
+  font:600 12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif;color:#eceff4}
+.fbw-lang-menu button{height:28px;border:0;border-radius:8px;background:transparent;color:#aeb9cd;text-align:left;
+  padding:0 9px;cursor:pointer;font:inherit}
+.fbw-lang-menu button:hover{background:rgba(255,255,255,.08);color:#eceff4}
+.fbw-lang-menu button.active{background:rgba(142,202,230,.2);color:#8ecae6}`;
 
 // On <html>, not <body>: the menu itself is appended there (outside the page's
 // React root, which reconciles <body> children away), so its rules must survive

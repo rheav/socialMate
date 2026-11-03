@@ -3,6 +3,7 @@ import { buildSavedEntry } from "../../lib/shared/savedEntry.js";
 // The other overlays inline these (an import would turn them into loaders); this
 // script already imports, so it takes them the normal way — same code either way.
 import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shared/overlayUi.js";
+import { RAIL_CSS, RAIL_STYLE_KEY, railActsClass, railLabel, railStyleOf } from "../../lib/shared/railTheme.js";
 
 // Pinterest capture — the ONLY active-fetch platform in this extension.
 //
@@ -355,6 +356,7 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
   const MAX_TILES_PER_PASS = 48; // hard cap — Pinterest's grid mutates constantly
 
   let overlayOn = true;
+  let railStyle = "cartao"; // sw_ovl_style — "faixa" shows a tile's buttons only while it is hovered
   let ovlTimer = null;
   let layoutRetries = 0;
   // Mirror of fbw_saved's keys — drives the yellow "already saved" highlight,
@@ -368,19 +370,10 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     const s = document.createElement("style");
     s.id = "sw-pin-style";
     s.textContent = `
-      .sw-pin-acts{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:6px;z-index:6}
+      /* Where the capsules sit; how they look is RAIL_CSS (railTheme.js). */
+      .sw-pin-acts{position:absolute;top:8px;left:8px;z-index:6}
       .sw-pin-acts.sw-pin-closeup{position:fixed;top:84px;right:20px;left:auto;z-index:2147483000}
-      .sw-pinbtn{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;cursor:pointer;color:#fff;
-        background:rgba(0,0,0,.68);border:1px solid rgba(150,180,255,.4);box-shadow:0 0 8px rgba(70,130,255,.25);
-        transition:background .15s,color .15s}
-      .sw-pinbtn:hover{background:rgba(0,0,0,.82)}
-      .sw-pinbtn.busy{color:#93c5fd;cursor:default}
-      .sw-pinbtn.busy svg{animation:sw-pin-spin 1s linear infinite}
-      .sw-pinbtn.ok{color:#34d399;border-color:rgba(52,211,153,.6)}
-      .sw-pinbtn.err{color:#f87171;border-color:rgba(248,113,113,.6)}
-      .sw-pinbtn.sw-pin-saved{color:#facc15;border-color:rgba(250,204,21,.55);box-shadow:0 0 8px rgba(250,204,21,.3)}
-      .sw-pinbtn.sw-pin-saved svg{fill:#facc15}
-      @keyframes sw-pin-spin{to{transform:rotate(360deg)}}`;
+      ${RAIL_CSS}`;
     (document.head || document.documentElement).appendChild(s);
   }
 
@@ -489,10 +482,10 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
   function mkBtn(kind, title, onClick) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "sw-pinbtn";
+    b.className = "sw-pinbtn sw-rb";
     b.dataset.kind = kind;
-    b.title = title;
     b.innerHTML = overlayIcon(kind);
+    railLabel(b, title);
     // Only ever suppress the click ON THIS BUTTON — never a blanket capture that
     // could swallow clicks elsewhere on the tile.
     b.addEventListener("click", (ev) => {
@@ -503,9 +496,10 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     return b;
   }
 
-  function buildActs(id) {
+  function buildActs(id, closeup = false) {
     const wrap = document.createElement("div");
-    wrap.className = "sw-pin-acts";
+    // The closeup's stack hangs off the window's right edge, so its labels open leftward.
+    wrap.className = `sw-pin-acts ${railActsClass(railStyle, { player: closeup })}${closeup ? " sw-ra-left" : ""}`;
     wrap.appendChild(mkBtn("dl", "Baixar", (btn) => runDownload(id, btn)));
     const saveBtn = mkBtn("save", savedSet.has(id) ? "Salvo — toque para remover" : "Salvar", (btn) => runSave(id, btn));
     if (savedSet.has(id)) saveBtn.classList.add("sw-pin-saved");
@@ -526,10 +520,10 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     const open = document.querySelector('[data-test-id="closeup-body"]');
     const id = open ? closeupPinId() : null;
     if (!id) { existing?.remove(); return; }
-    const sig = savedSet.has(id) ? "1" : "0";
+    const sig = (savedSet.has(id) ? "1" : "0") + railStyle;
     if (existing && existing.dataset.pinId === id && existing.dataset.sig === sig) return; // unchanged
     existing?.remove();
-    const fresh = buildActs(id);
+    const fresh = buildActs(id, true);
     fresh.id = "sw-pin-closeup";
     fresh.classList.add("sw-pin-closeup");
     fresh.dataset.pinId = id;
@@ -557,7 +551,7 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     // stale id marker (or a saved-state flip) must trigger a rebuild, not a skip.
     const toBuild = [];
     for (const [tile, id] of pinTiles()) {
-      const sig = savedSet.has(id) ? "1" : "0";
+      const sig = (savedSet.has(id) ? "1" : "0") + railStyle;
       if (tile.dataset.swPinId === id && tile.dataset.swPinSig === sig && tile.querySelector(":scope > .sw-pin-acts")) continue;
       toBuild.push([tile, id, sig]);
     }
@@ -599,8 +593,9 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     }, 150);
   }
 
-  chrome.storage?.local?.get(["sw_pin_overlay", "fbw_saved"]).then((r) => {
+  chrome.storage?.local?.get(["sw_pin_overlay", "fbw_saved", RAIL_STYLE_KEY]).then((r) => {
     if (r?.sw_pin_overlay != null) overlayOn = !!r.sw_pin_overlay; // default ON when unset
+    railStyle = railStyleOf(r?.[RAIL_STYLE_KEY]);
     refreshSaved(r?.fbw_saved);
     scheduleRender();
   });
@@ -608,7 +603,8 @@ import { overlayIcon, setOverlayBtnState, flashOverlayBtn } from "../../lib/shar
     if (area !== "local") return;
     if (ch.sw_pin_overlay) overlayOn = !!ch.sw_pin_overlay.newValue;
     if (ch.fbw_saved) refreshSaved(ch.fbw_saved.newValue);
-    if (ch.sw_pin_overlay || ch.fbw_saved) scheduleRender();
+    if (ch[RAIL_STYLE_KEY]) railStyle = railStyleOf(ch[RAIL_STYLE_KEY].newValue);
+    if (ch.sw_pin_overlay || ch.fbw_saved || ch[RAIL_STYLE_KEY]) scheduleRender();
   });
   const ovlObserver = new MutationObserver(scheduleRender);
   // `document`, not `document.body`: Pinterest's boot script can call document.open()

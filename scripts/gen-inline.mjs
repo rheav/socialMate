@@ -42,11 +42,14 @@ const TARGETS = {
     "src/lib/shared/bulkDownload.js",
     "src/lib/shared/fbReelActions.js",
     "src/lib/shared/fmt.js",
+    // The reach tiers (views ÷ followers) the stats chip is graded on.
+    "src/lib/shared/ttFormat.js",
     "src/lib/shared/fbQuery.js",
     "src/lib/shared/feedQuery.js",
     "src/lib/shared/gridSort.js",
     "src/lib/shared/pageSorter.js",
     "src/lib/shared/overlayUi.js",
+    "src/lib/shared/railTheme.js",
     "src/lib/shared/fbReelsDom.js",
     // The Hub button after the profile's name (socialMate 1.32).
     "src/lib/shared/spyProfileUrl.js",
@@ -65,6 +68,9 @@ const TARGETS = {
     "src/lib/shared/txLang.js",
     "src/lib/shared/railTarget.js",
     "src/lib/shared/fbReelThumb.js",
+    // The feed video's button capsule shares the rails' look.
+    "src/lib/shared/overlayUi.js",
+    "src/lib/shared/railTheme.js",
   ],
   "src/content/fb/photos-scrape.js": ["src/lib/shared/fbPhotoIds.js"],
   "src/content/fb/video-capture.js": ["src/lib/shared/fbVideoMedia.js", "src/lib/shared/counts.js", "src/lib/shared/fbReelsData.js", "src/lib/shared/fbReelsPaging.js"],
