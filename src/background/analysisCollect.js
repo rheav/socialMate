@@ -23,8 +23,9 @@
 // persisted so a worker restart closes the tab it left behind.
 
 // @private
-import { downloadLimited, fetchEmbedVideo, isInstagramCdn, pickVideoVariant } from "../lib/analysisMedia.js";
+import { downloadLimited, fetchEmbedVideo, isInstagramCdn, isTiktokCdn, pickVideoVariant } from "../lib/analysisMedia.js";
 import { igCodeFromPk } from "../lib/shared/igCode.js";
+import { parseWebVtt } from "../lib/ttVtt.js";
 // @end-private
 import { IG_COMMENT_EXPAND_LIMITS } from "../lib/shared/igCommentExpand.js";
 
@@ -55,6 +56,8 @@ const idle = (nextAt = 0) => ({ taskId: null, tabId: null, code: null, startedAt
  * @param {{ blocked(): Promise<string|null>, busy(): Promise<boolean>, pause(code): Promise<void>, serialize(work): Promise }} deps.instagram
  *   the Spy's shared Instagram state (see background/spy.js)
  * @param {(req) => Promise<{status,text?,chunks?,language?,source?}|null>} [deps.transcribe]  the extension's Whisper job (private build)
+ * @param {{ blocked(): Promise<string|null>, readItem(url, id): Promise<object|null>, prepareMedia(url): Promise }} [deps.tiktok]
+ *   TikTok (private build, socialMate 1.31): its pause, one video's record read from its page, its CDN's Referer
  */
 export function createAnalysisCollect({
   chrome,
@@ -65,6 +68,7 @@ export function createAnalysisCollect({
   instagram,
   // @private
   transcribe,
+  tiktok,
   // @end-private
   now = Date.now,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -283,6 +287,7 @@ export function createAnalysisCollect({
    * what is happening right now (the panel's "Agora").
    */
   async function preparePost(task, { progress = () => {}, live = () => {} } = {}) {
+    if (String(task?.payload?.postKey || "").startsWith("tiktok:")) return prepareTiktok(task, { progress, live });
     const p = task?.payload || {};
     const code = p.code || (p.mediaPk && /^\d{1,25}$/.test(String(p.mediaPk)) ? igCodeFromPk(String(p.mediaPk)) : null);
     if (!task?.taskId || !task.leaseToken || !code || !CODE_RE.test(code)) return { ok: false, code: "bad_job" };
@@ -358,6 +363,87 @@ export function createAnalysisCollect({
     } finally {
       jobs.delete(job);
       if (touchedInstagram) await spaceNext();
+    }
+  }
+
+  /**
+   * One TikTok video (socialMate 1.31): its page in a small window of ours (TikTok
+   * hands the item over in the page itself), the video through TikTok's Referer,
+   * and TikTok's own captions file as the transcript, when the video has one.
+   * Never Whisper here: a transcript the Hub lacks is heard on the Mac.
+   */
+  async function prepareTiktok(task, { progress = () => {}, live = () => {} } = {}) {
+    const p = task?.payload || {};
+    const id = String(p.postKey).slice("tiktok:".length);
+    if (!task?.taskId || !task.leaseToken || !/^\d{6,25}$/.test(id) || !/^https:\/\/www\.tiktok\.com\//.test(p.sourceUrl || "")) return { ok: false, code: "bad_job" };
+    const settings = await hub();
+    if (!settings?.url || !settings?.token) return { ok: false, code: "hub_not_configured" };
+    if (!tiktok) return { ok: false, code: "tiktok_unavailable" };
+    const job = { taskId: task.taskId, leaseToken: task.leaseToken, code: null, tabId: null, stop: null, cancelled: false, live };
+    jobs.add(job);
+    try {
+      if (await tiktok.blocked()) return { ok: false, code: "tiktok_paused" };
+      const { nextAt } = await load();
+      if (nextAt > now()) {
+        live({ phase: "waiting_gap", detail: `${Math.round((nextAt - now()) / 1000)} s` });
+        await wait(nextAt - now(), job);
+      }
+      if (job.cancelled) return { ok: false, code: "cancelled" };
+      live({ phase: "opening" });
+      const rec = await tiktok.readItem(p.sourceUrl, id);
+      if (job.cancelled) return { ok: false, code: "cancelled" };
+      progress(rec ? "collect_page_read" : "collect_page_missing");
+
+      let video = { state: "missing", assetId: null, width: null, height: null };
+      if (p.reuseAssetId) video = { state: "available", assetId: p.reuseAssetId, width: null, height: null };
+      else if (rec && p.needs?.video && p.assetId) {
+        const url = rec.hd_url || rec.download_url || rec.video;
+        if (rec.duration != null && rec.duration > L.maxDurationS) video.state = "too_large";
+        else if (!url) video.state = "unavailable";
+        else {
+          await tiktok.prepareMedia(url);
+          live({ phase: "video_download", detail: rec.hd_res || null });
+          const got = await downloadLimited(url, { maxBytes: L.maxBytes, fetchImpl, timeoutMs: L.downloadMs, allowed: isTiktokCdn });
+          if (got.ok) {
+            live({ phase: "video_upload", detail: `${(got.data.byteLength / 1024 ** 2).toFixed(1).replace(".", ",")} MB` });
+            const state = await upload(settings, job, p.assetId, got);
+            if (state === "lease_lost") return { ok: false, code: "lease_lost" };
+            video = { state, assetId: state === "available" ? p.assetId : null, width: rec.width ?? null, height: rec.height ?? null };
+          } else video.state = got.code === "media_too_large" ? "too_large" : got.code === "url_expired" ? "expired" : "unavailable";
+        }
+        progress(video.state === "available" ? "collect_video_uploaded" : "collect_video_missing", video.state === "available" ? undefined : video.state);
+      }
+
+      let transcript;
+      if (p.needs?.transcript && isTiktokCdn(rec?.subtitle?.url) && !job.cancelled) {
+        live({ phase: "transcribing", detail: "legenda do TikTok" });
+        try {
+          await tiktok.prepareMedia(rec.subtitle.url);
+          const res = await fetchImpl(rec.subtitle.url, { signal: AbortSignal.timeout?.(30_000) });
+          const parsed = parseWebVtt(res.ok ? await res.text() : "");
+          transcript = parsed.text
+            ? { status: "done", text: parsed.text, chunks: parsed.chunks, language: rec.subtitle.lang ?? null, source: "tiktok_captions" }
+            : { status: "failed" };
+        } catch {
+          transcript = { status: "failed" };
+        }
+        progress(transcript.status === "done" ? "collect_transcribed" : "collect_transcript_failed");
+      }
+      if (job.cancelled) return { ok: false, code: "cancelled" };
+
+      const body = { taskId: job.taskId, video, observedAt: now() };
+      // TikTok's capture keeps a 500-character caption preview, like the Hub expects of socialMate.
+      if (rec) {
+        body.caption = { text: rec.desc ?? null, full: typeof rec.desc === "string" && rec.desc.length < 500 };
+        body.authors = rec.username ? [rec.username] : [];
+      }
+      if (transcript) body.transcript = transcript;
+      live({ phase: "filing" });
+      const filed = await fileEvidence(settings, job, body);
+      return filed.ok ? { ok: true, result: { evidenceHash: filed.hash } } : { ok: false, code: filed.code };
+    } finally {
+      jobs.delete(job);
+      await spaceNext();
     }
   }
   // @end-private

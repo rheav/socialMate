@@ -9,6 +9,7 @@
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
 import { emptyStoriesState, parseFbStoriesHtml, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceFbStory, reduceStory, reduceTtStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { parseTtProfileHtml } from "../lib/spyParse.js";
 import { SPY_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, autoOn, emptySpyQueue, queueReading } from "../lib/spyStore.js";
 // @private
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
@@ -111,6 +112,7 @@ export function createStoriesPass(deps) {
   async function readProfile(profile, settings) {
     void settings;
     if (profile.platform === "facebook") return readFbProfile(profile);
+    if (profile.platform === "tiktok") return readTtProfile(profile);
     let reel;
     try {
       const page = await fetchPage(profile.key);
@@ -156,6 +158,32 @@ export function createStoriesPass(deps) {
     return { ok: true, items, reelId: bucket.reelId };
   }
 
+  /**
+   * TikTok (socialMate 1.31): the profile page says whether a story is up; only
+   * then a small window of ours opens, because TikTok asks for the stories only
+   * while the page is on screen.
+   */
+  async function readTtProfile(profile) {
+    let records;
+    try {
+      const r = await fetchImpl(`https://www.tiktok.com/@${encodeURIComponent(profile.key)}`, {
+        credentials: "include", headers: { accept: "text/html,application/xhtml+xml" }, signal: AbortSignal.timeout?.(PAGE_TIMEOUT_MS),
+      });
+      const error = outcomeOf(r);
+      if (error) return { ok: false, error };
+      const page = parseTtProfileHtml(await r.text(), r.url || "");
+      if (!page.ok) return { ok: false, error: page.error === "login_required" ? "login_required" : "no_reel" };
+      if (!page.hasStory) return { ok: true, items: [], reelId: null };
+      records = await deps.readTiktokStories?.(profile);
+    } catch {
+      return { ok: false, error: "network" };
+    }
+    if (!records) return { ok: false, error: "no_reel" };
+    const known = new Set(profile.storyPks || []);
+    const items = records.map(reduceTtStory).filter((x) => x && !known.has(x.input.id));
+    return { ok: true, items, reelId: null };
+  }
+
   // ---- the pass: a persisted job, one profile per step ----
 
   const now = () => (deps.now ? deps.now() : Date.now());
@@ -196,8 +224,7 @@ export function createStoriesPass(deps) {
     await deps.storage.set({ [SPY_STATE_KEY]: { ...state, stories } });
   }
   const trackedProfiles = (spy, ids) => Object.values(spy.profiles || {})
-    // TikTok stories come from the browsing (receiveTiktok): a pass cannot make the page ask for them.
-    .filter((p) => p && (p.platform === "instagram" || p.platform === "facebook") && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
+    .filter((p) => p && ["instagram", "facebook", "tiktok"].includes(p.platform) && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
 
   function armAlarm(when) {
     deps.alarms?.create?.(STORIES_ALARM, { when });
@@ -466,8 +493,8 @@ export function createStoriesPass(deps) {
   }
 
   /**
-   * TikTok stories (FBW_SPY_TT_STORIES): what the browsing shows, on a saved
-   * profile's page or in the story tray. Kept for a tracked account, routines on.
+   * TikTok stories seen outside a pass (FBW_SPY_TT_STORIES): a visit, the story
+   * tray, the daily reading's window. Kept for a tracked account, routines on.
    */
   async function receiveTiktok(msg) {
     const key = String(msg?.key || "").toLowerCase();

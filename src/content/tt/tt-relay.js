@@ -1290,6 +1290,11 @@ function recordReachTier(rec) {
       sendResponse({ videos, current: lastCommentAweme || currentAwemeId(), version: ver.comments });
       return;
     }
+    // The Hub's analysis (socialMate 1.31): one video's record, read from this page.
+    if (msg?.type === "FBW_TT_ITEM") {
+      sendResponse({ record: byId.get(String(msg.id || "")) || null });
+      return;
+    }
     if (msg?.type === "FBW_TT_STORIES") {
       if (msg.since === ver.stories) { sendResponse({ unchanged: true, version: ver.stories }); return; }
       const out = [];

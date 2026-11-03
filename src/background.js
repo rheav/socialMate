@@ -77,6 +77,9 @@ import {
   pauseInstagram,
   receiveIgPosts,
   receiveTtPosts,
+  readTtStoriesWindow,
+  takeTtStories,
+  readTtItem,
   recoverSpySync,
   scheduleSpy,
   serializeIg,
@@ -133,6 +136,15 @@ const analysisCollect = createAnalysisCollect({
   },
   // @private
   transcribe: (req) => transcribeForAnalysis(req),
+  // TikTok videos (socialMate 1.31): read from their page in a small window of ours.
+  tiktok: {
+    blocked: async () => {
+      const state = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY];
+      return isBlocked(state, "tiktok") ? state.blockedReason?.tiktok || "rate_limited" : null;
+    },
+    readItem: (url, id) => readTtItem(url, id),
+    prepareMedia: async (url) => { if (isTiktokCdn(url)) await ensureTiktokReferer(); },
+  },
   // @end-private
 });
 // @private
@@ -179,7 +191,8 @@ const storiesPass = createStoriesPass({
   serialize: serializeIg,
   flush: () => flushSpy(),
   makePoster: (url) => storyPoster(url),
-  // TikTok (socialMate 1.29): its CDN wants its Referer.
+  // TikTok: its stories come from a small window of ours (1.31), its CDN wants its Referer.
+  readTiktokStories: (profile) => readTtStoriesWindow(profile),
   prepareMedia: async (url) => { if (isTiktokCdn(url)) await ensureTiktokReferer(); },
 });
 useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
@@ -2030,11 +2043,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     }
     case "FBW_SPY_TT_STORIES": {
+      if (takeTtStories(msg, sender)) { sendResponse({ ok: true, taken: true }); return false; }
       storiesPass.receiveTiktok(msg).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     case "FBW_SPY_TT_POSTS": {
-      receiveTtPosts(msg).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
+      receiveTtPosts(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     // panel → bg: Spy area operations
@@ -2398,5 +2412,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-export { scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs } from "./background/spy.js"; // test seam
+export { scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs } from "./background/spy.js"; // test seam
 

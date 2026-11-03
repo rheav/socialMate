@@ -16,6 +16,28 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.31.0] — 2026-11-02
+
+### Added
+- **TikTok videos and stories every day, in a small window of ours.** A hidden tab
+  never paints, so TikTok never asks for the grid there (1.30.1). A new unfocused
+  window (440×780, top left) is visible to the page: measured, TikTok asks for the
+  grid itself (200, 35 videos) and for the stories. The daily reading now opens
+  each saved TikTok profile in that window after the profile numbers, waits up to
+  45 s for the videos, and closes it; a page that brings no list is recorded as a
+  failed Reels reading. A stories pass opens the window only when the profile page
+  says a story is up (30 s). The owner's own visits still feed the Spy as before.
+- **TikTok videos in the Hub's analyses (Hub 1.2.0).** A Hub job for `tiktok:<id>`
+  opens the video's page in the same small window, takes the record the page
+  brings, downloads the video through TikTok's Referer (TikTok CDN only) and files
+  TikTok's own captions (WebVTT, `lib/ttVtt.js`) as the transcript, with timings.
+  No caption file means no transcript from here (no Whisper fallback for TikTok).
+  TikTok paused for the Spy → the job stops with `tiktok_paused`.
+
+### Fixed
+- The "Vídeos de @x" line in the record said "1 lidos", and said nothing of a daily
+  reading.
+
 ## [1.30.1] — 2026-11-02
 
 ### Fixed

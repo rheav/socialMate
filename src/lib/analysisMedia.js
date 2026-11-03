@@ -18,6 +18,18 @@ export function isInstagramCdn(url) {
   }
 }
 
+const TT_CDN_HOST = /(^|\.)(tiktok|tiktokcdn|tiktokcdn-us|tiktokv|muscdn|ibytedtos)\.com$/i;
+
+/** An https URL on TikTok's CDN (a TikTok video for the Hub's analysis, socialMate 1.31). */
+export function isTiktokCdn(url) {
+  try {
+    const u = new URL(String(url));
+    return u.protocol === "https:" && TT_CDN_HOST.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The rendition to analyse: the smallest that is at least 720p (shorter side
  * 720 px, enough for 768 px frames), else the largest there is. Off-CDN URLs
@@ -48,8 +60,8 @@ export async function sha256Hex(bytes) {
  *   signed link aged), rate_limited (429), not_mp4, media_too_large, timeout,
  *   network, download_failed.
  */
-export async function downloadLimited(url, { maxBytes, fetchImpl = fetch, timeoutMs = 5 * 60_000, signal } = {}) {
-  if (!isInstagramCdn(url)) return { ok: false, code: "bad_host" };
+export async function downloadLimited(url, { maxBytes, fetchImpl = fetch, timeoutMs = 5 * 60_000, signal, allowed = isInstagramCdn } = {}) {
+  if (!allowed(url)) return { ok: false, code: "bad_host" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort("timeout"), timeoutMs);
   const onAbort = () => ctrl.abort("cancelled");

@@ -63,11 +63,11 @@ function chromeStub() {
   return stub;
 }
 
-let scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs;
+let scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, advanceReelsJob, fetchWantedThumbs } = await import("./background.js"));
+  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs } = await import("./background.js"));
 });
 
 beforeEach(() => {
@@ -1440,5 +1440,25 @@ describe("TikTok grid (socialMate 1.29)", () => {
     data.fbw_spy_prefs = { daily: false };
     expect(await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "happymindmentor", records: [rec("7703287306530098455")] }, sender)).toMatchObject({ ignored: true });
     expect(data.fbw_spy_queue).toBeUndefined();
+  });
+
+  it("reads the daily grid in a small unfocused window of ours, closed once the videos arrive (socialMate 1.31)", async () => {
+    const page = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.user-detail": {
+      statusCode: 0, userInfo: { user: { id: "7145819764362101765", uniqueId: "happymindmentor", nickname: "Hanna Hattson" },
+        statsV2: { followerCount: "150858", followingCount: "126", heartCount: "1394474", videoCount: "522" } } } } })}</script>`;
+    const fetchImpl = async () => ({ ok: true, status: 200, url: "https://www.tiktok.com/@happymindmentor", text: async () => page });
+    const opened = [];
+    chrome.windows.create = async (opts) => { opened.push(opts); return { id: 5, tabs: [{ id: 77 }] }; };
+    const removed = [];
+    chrome.windows.remove = async (id) => { removed.push(id); };
+    const profile = data.fbw_spy.profiles["tiktok:happymindmentor"];
+    const work = measureTtProfile(profile, "daily", fetchImpl);
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    expect(opened[0]).toMatchObject({ url: "https://www.tiktok.com/@happymindmentor#socialmate-spy", focused: false });
+    expect(await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "happymindmentor", records: [rec("7703287306530098455")] },
+      { ...sender, tab: { id: 77 } })).toEqual({ ok: true, posts: 1 });
+    expect(await work).toMatchObject({ ok: true, snapshot: { followers: 150858, hearts: 1394474 } });
+    expect(removed).toEqual([5]);
+    expect((data.fbw_spy_activity || []).map((e) => e.text).at(-1)).toBe("Vídeos de @happymindmentor: 1 lido · passada diária");
   });
 });
