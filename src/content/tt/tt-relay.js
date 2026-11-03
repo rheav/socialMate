@@ -1168,6 +1168,8 @@ function recordReachTier(rec) {
       applyCreator(prev);
       if (r.list_id) ingestListVideo(prev); // playlist/collection membership
     }
+    forwardToSpy(e.data.records || [], liveSurface);
+    forwardStoriesToSpy(e.data.records || []);
     // The MAIN world's own cap: a full collection (60 rounds × 16) must not lose its
     // first videos here. 4.2 KB a record, measured, so about 5 MB at worst.
     while (byId.size > 1200) byId.delete(byId.keys().next().value);
@@ -1176,6 +1178,51 @@ function recordReachTier(rec) {
     ttPageSorter?.schedule(); // new numbers can change the page order
   };
   window.addEventListener("message", onRelay);
+
+  // The Spy (socialMate 1.29): a profile page's grid goes to the worker, which keeps
+  // it only for a saved profile (or reads it in its own tab). Only what the hub stores.
+  function forwardToSpy(records, liveSurface) {
+    const byKey = new Map();
+    for (const r of records) {
+      if (!r || !r.id || r.__kind !== "video") continue;
+      const surface = r.__surface || liveSurface || "";
+      if (!surface.startsWith("profile:")) continue;
+      const key = surface.slice("profile:".length);
+      const list = byKey.get(key) || [];
+      list.push({
+        id: r.id, username: r.username || key, create_time: r.create_time, images: !!(r.images && r.images.length),
+        pinned: r.pinned === true, play_count: r.play_count, digg_count: r.digg_count, comment_count: r.comment_count,
+        share_count: r.share_count, collect_count: r.collect_count, repost_count: r.repost_count, duration: r.duration,
+        desc: r.desc, is_aigc: r.is_aigc === true, music: r.music ? { title: r.music.title, original: r.music.original === true } : null,
+        hashtags: r.hashtags || [], subtitle: !!r.subtitle, cover: r.cover || null,
+      });
+      byKey.set(key, list);
+    }
+    for (const [key, list] of byKey) {
+      try { chrome.runtime.sendMessage({ type: "FBW_SPY_TT_POSTS", key, records: list }).catch(() => {}); } catch { /* worker asleep or extension reloaded */ }
+    }
+  }
+
+  // Stories (profile page or the story tray): the worker keeps the tracked accounts' ones.
+  function forwardStoriesToSpy(records) {
+    const byOwner = new Map();
+    for (const r of records) {
+      if (!r || !r.id || r.__kind !== "tt_story") continue;
+      const owner = String(r.reel_owner || r.username || "").toLowerCase();
+      if (!owner) continue;
+      const list = byOwner.get(owner) || [];
+      list.push({
+        id: r.id, create_time: r.create_time, video: r.hd_url || r.download_url || r.video || null,
+        image: r.images && r.images.length ? r.images[0] : null, cover: r.cover || null, duration: r.duration,
+        width: r.width, height: r.height, desc: r.desc, is_aigc: r.is_aigc === true,
+        music: r.music ? { title: r.music.title, author: r.music.author, original: r.music.original === true } : null,
+      });
+      byOwner.set(owner, list);
+    }
+    for (const [key, list] of byOwner) {
+      try { chrome.runtime.sendMessage({ type: "FBW_SPY_TT_STORIES", key, records: list }).catch(() => {}); } catch { /* worker asleep */ }
+    }
+  }
 
   // Mirror fbw_saved ids locally (see savedIds above).
   const refreshSaved = (map) => { savedIds = new Set(Object.keys(map || {})); };

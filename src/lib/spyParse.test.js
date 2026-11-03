@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { fbStatusText, parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "./spyParse.js";
+import { fbStatusText, parseFbProfileHtml, parseFbReelsHtml, parseIgProfile, parseTtProfileHtml, ttSpyPost } from "./spyParse.js";
 
 const fixturesDir = path.join(__dirname, "__fixtures__", "spy");
 const nasaFixture = fs.readFileSync(path.join(fixturesDir, "fb_nasa_without_story.json"), "utf8");
@@ -231,5 +231,42 @@ describe("fbStatusText", () => {
       .toEqual({ bio: "change your mind {braces} \"quoted\"", externalUrl: null });
     expect(fbStatusText("<html></html>")).toEqual({ bio: null, externalUrl: null });
     expect(fbStatusText('<script>{"profile_status_text":null}</script>')).toEqual({ bio: null, externalUrl: null });
+  });
+});
+
+describe("TikTok", () => {
+  // Shapes measured on @happymindmentor (2026-11-02).
+  const page = (detail) => `<html><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.user-detail": detail } })}</script></html>`;
+  const user = { id: "7145819764362101765", uniqueId: "happymindmentor", nickname: "Hanna Hattson", avatarMedium: "https://p16.tiktokcdn.com/a.jpg",
+    signature: "I help people transform their lives\n⬇️ Manifestation Steps", bioLink: { link: "https://payhip.com/HappyMindMentor", risk: 3 },
+    verified: false, privateAccount: false, createTime: 1663765856, UserStoryStatus: 0 };
+  const statsV2 = { followerCount: "150858", followingCount: "126", heart: "1394474", heartCount: "1394474", videoCount: "522", diggCount: "0" };
+
+  it("reads the exact numbers, the bio, the link and the account's age from the profile page", () => {
+    expect(parseTtProfileHtml(page({ statusCode: 0, userInfo: { user, stats: { followerCount: 150900 }, statsV2 } }))).toEqual({
+      ok: true, userId: "7145819764362101765", name: "Hanna Hattson", avatarUrl: "https://p16.tiktokcdn.com/a.jpg", verified: false, private: false,
+      bio: "I help people transform their lives\n⬇️ Manifestation Steps", externalUrl: "https://payhip.com/HappyMindMentor", accountCreatedAt: 1663765856,
+      followers: 150858, followersApprox: false, following: 126, posts: 522, hearts: 1394474, hasStory: false,
+    });
+  });
+
+  it("names a missing account, a login wall and a changed page", () => {
+    expect(parseTtProfileHtml(page({ statusCode: 10221, userInfo: {} }))).toEqual({ ok: false, error: "not_found" });
+    expect(parseTtProfileHtml("<html></html>", "https://www.tiktok.com/login?redirect=x")).toEqual({ ok: false, error: "login_required" });
+    expect(parseTtProfileHtml("<html></html>")).toEqual({ ok: false, error: "parse_failed" });
+  });
+
+  it("turns a grid record into a post with every number, the audio, the AI mark and the transcript flag", () => {
+    const rec = { id: "7703287306530098455", username: "happymindmentor", create_time: 1793641740, images: false, pinned: false,
+      play_count: 6221, digg_count: 395, comment_count: 7, share_count: 29, collect_count: 122, repost_count: 0, duration: 147,
+      desc: "Remember to focus on what you want", is_aigc: false, music: { title: "Dawn Of Life", original: false },
+      hashtags: ["manifestation", "lawofattraction"], subtitle: true, cover: "https://p16.tiktokcdn.com/c.jpg" };
+    expect(ttSpyPost(rec, 5)).toEqual({ id: "7703287306530098455", createdAt: 1793641740, mediaType: "video", pinned: false,
+      views: 6221, likes: 395, comments: 7, shares: 29, saves: 122, reposts: 0, durationS: 147, caption: "Remember to focus on what you want",
+      aiLabel: "NONE", audio: "Dawn Of Life", audioOriginal: false, hashtags: ["manifestation", "lawofattraction"], hasCaptions: true,
+      thumbUrl: "https://p16.tiktokcdn.com/c.jpg", observedAt: 5 });
+    expect(ttSpyPost({ ...rec, images: true, is_aigc: true, music: { title: "original sound", original: true }, pinned: true }, 5))
+      .toMatchObject({ mediaType: "photo", durationS: null, aiLabel: "AIGC", audioOriginal: true, pinned: true });
+    expect(ttSpyPost({ ...rec, create_time: "x" })).toBeNull();
   });
 });

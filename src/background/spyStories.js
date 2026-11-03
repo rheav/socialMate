@@ -8,7 +8,8 @@
 //
 // Design: ~/Code/apps/socialmate-hub/docs/superpowers/specs/2026-10-19-stories-swipe-file-design.md §7, §14
 
-import { emptyStoriesState, parseFbStoriesHtml, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceFbStory, reduceStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { emptyStoriesState, parseFbStoriesHtml, parseReelsMediaJson, parseStoriesHtml, passDayKey, passDue, queueStory, reduceFbStory, reduceStory, reduceTtStory, slotJitterMs, storySlots } from "../lib/spyStories.js";
+import { parseTtProfileHtml } from "../lib/spyParse.js";
 import { SPY_KEY, SPY_PREFS_KEY, SPY_QUEUE_KEY, SPY_STATE_KEY, autoOn, emptySpyQueue, queueReading } from "../lib/spyStore.js";
 // @private
 import { isSyncConfigured, putStoryMedia } from "../lib/syncClient.js";
@@ -111,6 +112,7 @@ export function createStoriesPass(deps) {
   async function readProfile(profile, settings) {
     void settings;
     if (profile.platform === "facebook") return readFbProfile(profile);
+    if (profile.platform === "tiktok") return readTtProfile(profile);
     let reel;
     try {
       const page = await fetchPage(profile.key);
@@ -156,6 +158,31 @@ export function createStoriesPass(deps) {
     return { ok: true, items, reelId: bucket.reelId };
   }
 
+  /**
+   * TikTok (socialMate 1.29): the profile page says whether a story is up; only
+   * then a tab opens, because the stories request is signed by the page itself.
+   */
+  async function readTtProfile(profile) {
+    let records;
+    try {
+      const r = await fetchImpl(`https://www.tiktok.com/@${encodeURIComponent(profile.key)}`, {
+        credentials: "include", headers: { accept: "text/html,application/xhtml+xml" }, signal: AbortSignal.timeout?.(PAGE_TIMEOUT_MS),
+      });
+      const error = outcomeOf(r);
+      if (error) return { ok: false, error };
+      const page = parseTtProfileHtml(await r.text(), r.url || "");
+      if (!page.ok) return { ok: false, error: page.error === "login_required" ? "login_required" : "no_reel" };
+      if (!page.hasStory) return { ok: true, items: [], reelId: null };
+      records = await deps.readTiktokStories?.(profile);
+    } catch {
+      return { ok: false, error: "network" };
+    }
+    if (!records) return { ok: false, error: "no_reel" };
+    const known = new Set(profile.storyPks || []);
+    const items = records.map(reduceTtStory).filter((x) => x && !known.has(x.input.id));
+    return { ok: true, items, reelId: null };
+  }
+
   // ---- the pass: a persisted job, one profile per step ----
 
   const now = () => (deps.now ? deps.now() : Date.now());
@@ -163,7 +190,9 @@ export function createStoriesPass(deps) {
   const log = (tone, text, platform = "instagram") => deps.logSpy(platform, tone, text);
   /** "@key" on Instagram; the page name on Facebook, whose key may be a number. */
   const who = (p) => (p.platform === "facebook" ? p.name || p.key : `@${p.key}`);
-  const SITE = { instagram: "o Instagram", facebook: "o Facebook" };
+  /** Stories already sent in this worker's life: the tray and the pages repeat them. */
+  const sentTt = new Set();
+  const SITE = { instagram: "o Instagram", facebook: "o Facebook", tiktok: "o TikTok" };
   /** Every platform of these profiles paused by an earlier 429/login. */
   const allBlocked = async (profiles, at) => {
     const platforms = [...new Set(profiles.map((p) => p.platform))];
@@ -194,7 +223,7 @@ export function createStoriesPass(deps) {
     await deps.storage.set({ [SPY_STATE_KEY]: { ...state, stories } });
   }
   const trackedProfiles = (spy, ids) => Object.values(spy.profiles || {})
-    .filter((p) => p && (p.platform === "instagram" || p.platform === "facebook") && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
+    .filter((p) => p && ["instagram", "facebook", "tiktok"].includes(p.platform) && p.removedAt == null && p.trackStories && (!ids || ids.includes(p.id)));
 
   function armAlarm(when) {
     deps.alarms?.create?.(STORIES_ALARM, { when });
@@ -381,6 +410,8 @@ export function createStoriesPass(deps) {
   async function uploadMedia(entry, settings) {
     if (!entry.media) return "skipped";
     try {
+      // TikTok's CDN answers only with its own Referer (background.js).
+      await deps.prepareMedia?.(entry.media.url);
       const poster = entry.cover ? await deps.makePoster(entry.cover) : null;
       if (poster) {
         const p = await putStoryMedia(settings, entry.id, "poster", poster, "image/webp", deps.fetchImpl);
@@ -460,5 +491,27 @@ export function createStoriesPass(deps) {
     if (!out.ok) reply.result(false, { error: out.error });
   }
 
-  return { readProfile, runPass, tick, step, sendStory, retryPending, onCommand, status: () => ({ stepArmed: !!stepTimer }) };
+  /**
+   * TikTok stories seen outside a pass (FBW_SPY_TT_STORIES): a visit, the story
+   * tray, the daily reading's tab. Kept for a tracked account, routines on.
+   */
+  async function receiveTiktok(msg) {
+    const key = String(msg?.key || "").toLowerCase();
+    const settings = await deps.readSyncSettings();
+    if (!isSyncConfigured(settings) || !(await routinesOn())) return { ok: true, ignored: true };
+    const { spy } = await readAll();
+    const profile = spy.profiles?.[`tiktok:${key}`];
+    if (!profile || profile.removedAt != null || !profile.trackStories) return { ok: true, ignored: true };
+    const known = new Set([...(profile.storyPks || []), ...sentTt]);
+    const items = (Array.isArray(msg?.records) ? msg.records : []).map(reduceTtStory).filter((x) => x && !known.has(x.input.id));
+    let added = 0;
+    for (const item of items) {
+      sentTt.add(item.input.id);
+      if ((await (deps.sendStory ?? sendStory)(item, profile.id, settings)) === "sent") added += 1;
+    }
+    if (items.length) await log("ok", `Stories de @${key}: +${added}`, "tiktok");
+    return { ok: true, added };
+  }
+
+  return { readProfile, runPass, tick, step, sendStory, retryPending, onCommand, receiveTiktok, status: () => ({ stepArmed: !!stepTimer }) };
 }

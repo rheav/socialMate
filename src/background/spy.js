@@ -16,7 +16,7 @@ import { batchRecords, backoffDelay, getSpyProfiles, isRetryable, isSyncConfigur
 import { batchRecords, backoffDelay, getSpyProfiles, isRetryable, isSyncConfigured, postSpy } from "../hub-local/client.js";
 // @end-public
 import { parseProfileUrl, profileUrl, reelsUrl, spyId } from "../lib/spyProfile.js";
-import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile } from "../lib/spyParse.js";
+import { parseFbProfileHtml, parseFbReelsHtml, parseIgProfile, parseTtProfileHtml, ttSpyPost } from "../lib/spyParse.js";
 import {
   SPY_KEY,
   SPY_PREFS_KEY,
@@ -708,6 +708,196 @@ let igStepTimer = null;
 let igOwnedTab = null;
 let igStopReason = null;
 let igWork = Promise.resolve();
+// ---- TikTok (socialMate 1.29) ----
+// The profile page's own HTML gives the exact numbers; the videos come from
+// /api/post/item_list, which only the page can sign, so a background tab opens
+// the profile and the TikTok capture (tt-capture → tt-relay) hands the grid to
+// receiveTtPosts. A visit to a saved profile feeds the same path, no tab opened.
+
+export const TT_SPY_MARKER = "#socialmate-spy";
+const TT_TAB_WAIT_MS = 45_000;
+const ttMeasurements = new Map();
+/** The worker's own TikTok tabs: tab id → resolve(number of posts read). */
+const ttTabWaiters = new Map();
+
+export function measureTtProfile(profile, source = "daily", fetchImpl = fetch, { force = false, withTab = true } = {}) {
+  if (ttMeasurements.has(profile.id)) return ttMeasurements.get(profile.id);
+  const work = collectTtProfile(profile, source, fetchImpl, force, withTab).finally(() => ttMeasurements.delete(profile.id));
+  ttMeasurements.set(profile.id, work);
+  return work;
+}
+
+async function collectTtProfile(profile, source, fetchImpl, force, withTab) {
+  const readingSource = force ? "manual" : source;
+  const followersReading = { kind: "followers", source: readingSource };
+  const startAt = Date.now();
+  const reserved = await mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = r[SPY_STATE_KEY] || emptySpyState(startAt);
+    if (isBlocked(state, "tiktok", startAt)) return false;
+    const attempt = state.day === measureDayKey(startAt) ? state.attempts?.[profile.id] : null;
+    const count = typeof attempt === "number" ? attempt : attempt?.n || 0;
+    if (!force && (count >= 2 || (count > 0 && startAt - (attempt?.at || 0) < SPY_RETRY_MS))) return false;
+    await chrome.storage.local.set({
+      [SPY_STATE_KEY]: { ...recordAttempt(state, profile.id, false, startAt), measuring: { id: profile.id, platform: "tiktok", key: profile.key, at: startAt } },
+    });
+    return true;
+  });
+  if (!reserved) return { ok: false, error: "Aguarde o intervalo de coleta ou o fim da pausa do TikTok.", code: "cooldown" };
+  try {
+    const res = await fetchImpl(profileUrl("tiktok", profile.key), {
+      credentials: "include",
+      headers: { Accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      const errCode = res.status === 429 ? "rate_limited" : "login_required";
+      await blockPlatform("tiktok", errCode, profile.id, followersReading);
+      return { ok: false, error: errCode };
+    }
+    if (res.status === 404) {
+      await recordProfileError(profile.id, "not_found", followersReading);
+      return { ok: false, error: "not_found" };
+    }
+    const parsed = parseTtProfileHtml(await res.text(), res.url || "");
+    if (!parsed.ok) {
+      if (parsed.error === "login_required") await blockPlatform("tiktok", parsed.error, profile.id, followersReading);
+      else await recordProfileError(profile.id, parsed.error || "parse_failed", followersReading);
+      return parsed;
+    }
+    const now = Date.now();
+    const snapshot = {
+      profileId: profile.id, day: dayKey(now), measuredAt: now, followers: parsed.followers, followersApprox: false,
+      following: parsed.following, posts: parsed.posts, hearts: parsed.hearts, hasStory: parsed.hasStory,
+      source: source === "visit" ? "visit" : "daily",
+    };
+    const avatarThumb = parsed.avatarUrl ? await deps.durableThumb(parsed.avatarUrl) : null;
+    const profilePatch = {
+      id: profile.id, platform: "tiktok", key: profile.key, userId: parsed.userId, name: parsed.name || undefined,
+      avatar: avatarThumb || undefined, verified: parsed.verified ?? undefined, private: parsed.private ?? undefined,
+      bio: parsed.bio || undefined, externalUrl: parsed.externalUrl || undefined,
+      accountCreatedAt: parsed.accountCreatedAt ?? undefined, at: now,
+    };
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get([SPY_QUEUE_KEY, SPY_KEY]);
+      let queue = queueSnapshot(r[SPY_QUEUE_KEY] || emptySpyQueue(), snapshot);
+      queue = queueProfile(queue, profilePatch);
+      queue = queueReading(queue, { profileId: profile.id, at: now, ...followersReading, ok: true, followers: parsed.followers });
+      const spy = r[SPY_KEY] || { profiles: {} };
+      const known = spy.profiles?.[profile.id];
+      const nextSpy = known ? { ...spy, profiles: { ...spy.profiles, [profile.id]: {
+        ...known, name: parsed.name || known.name, userId: parsed.userId, lastMeasuredAt: now, hasAvatar: avatarThumb ? true : known.hasAvatar,
+      } } } : spy;
+      await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queue, [SPY_KEY]: nextSpy });
+    });
+    await logSpy("tiktok", "ok", `${parsed.name || "@" + profile.key}: ${parsed.followers.toLocaleString("pt-BR")} seguidores`
+      + (force ? " · Medir agora" : source === "visit" ? " · lido pela sua visita" : " · passada diária"));
+    scheduleFlushSpy();
+    if (withTab) await readTtGrid(profile, readingSource);
+    return { ok: true, snapshot };
+  } catch {
+    await recordProfileError(profile.id, "network", followersReading);
+    return { ok: false, error: "network" };
+  } finally {
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get(SPY_STATE_KEY);
+      const state = r[SPY_STATE_KEY] || emptySpyState();
+      if (state.measuring?.id === profile.id) await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, measuring: null } });
+    });
+  }
+}
+
+/** The profile in a background tab until its grid arrives (receiveTtPosts) or 45 s pass. */
+async function readTtGrid(profile, source) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: profileUrl("tiktok", profile.key) + TT_SPY_MARKER, active: false });
+  } catch {
+    return;
+  }
+  const read = await new Promise((resolve) => {
+    const timer = setTimeout(() => { ttTabWaiters.delete(tab.id); resolve(null); }, TT_TAB_WAIT_MS);
+    ttTabWaiters.set(tab.id, (n) => { clearTimeout(timer); ttTabWaiters.delete(tab.id); resolve(n); });
+  });
+  try { await chrome.tabs.remove(tab.id); } catch { /* closed already */ }
+  if (read == null) {
+    await mutateSpy(async () => {
+      const r = await chrome.storage.local.get(SPY_QUEUE_KEY);
+      await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queueReading(r[SPY_QUEUE_KEY] || emptySpyQueue(),
+        { profileId: profile.id, at: Date.now(), kind: "reels", source, ok: false, error: "no_reels" }) });
+    });
+    await logSpy("tiktok", "warn", `Vídeos de @${profile.key}: a página não trouxe a lista em 45 s`);
+    scheduleFlushSpy();
+  }
+}
+
+/**
+ * The grid of a TikTok profile page (FBW_SPY_TT_POSTS from tt-relay): the worker's
+ * own tab, or a visit to a saved profile with the routines on.
+ */
+export async function receiveTtPosts(msg, sender) {
+  const key = String(msg?.key || "").toLowerCase();
+  const tabId = sender?.tab?.id;
+  const ours = tabId != null && ttTabWaiters.has(tabId);
+  const done = (n) => { if (ours) ttTabWaiters.get(tabId)?.(n); };
+  const pid = spyId("tiktok", key);
+  const r = await chrome.storage.local.get([SPY_KEY, SPY_PREFS_KEY]);
+  const profile = r[SPY_KEY]?.profiles?.[pid];
+  if (!profile || profile.removedAt != null || (!ours && !autoOn(r[SPY_PREFS_KEY]))) { done(0); return { ok: true, ignored: true }; }
+  const now = Date.now();
+  const posts = (Array.isArray(msg?.records) ? msg.records : [])
+    .filter((rec) => String(rec?.username || "").toLowerCase() === key)
+    .map((rec) => ttSpyPost(rec, now)).filter(Boolean);
+  if (!posts.length) { done(0); return { ok: true, posts: 0 }; }
+  await mutateSpy(async () => {
+    const q = await chrome.storage.local.get(SPY_QUEUE_KEY);
+    let queue = queuePosts(q[SPY_QUEUE_KEY] || emptySpyQueue(), pid, posts.map(({ thumbUrl, ...p }) => p));
+    queue = queueReading(queue, { profileId: pid, at: now, kind: "reels", source: ours ? "daily" : "visit", ok: true, reelsAdded: posts.length, pages: 1 });
+    await chrome.storage.local.set({ [SPY_QUEUE_KEY]: queue });
+  });
+  await rememberThumbs(pid, posts.map((p) => ({ id: p.id, thumbUrl: p.thumbUrl })));
+  await logSpy("tiktok", "ok", `Vídeos de @${key}: ${posts.length} lidos${ours ? "" : " · lido pela sua visita"}`);
+  scheduleFlushSpy();
+  done(posts.length);
+  return { ok: true, posts: posts.length };
+}
+
+/** The worker's TikTok stories tabs: tab id → resolve(records). */
+const ttStoryWaiters = new Map();
+
+/** A stories pass on TikTok: the profile in a background tab until its stories arrive or 30 s pass. */
+export async function readTtStoriesTab(profile) {
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: profileUrl("tiktok", profile.key) + TT_SPY_MARKER, active: false });
+  } catch {
+    return null;
+  }
+  const records = await new Promise((resolve) => {
+    const timer = setTimeout(() => { ttStoryWaiters.delete(tab.id); resolve(null); }, 30_000);
+    ttStoryWaiters.set(tab.id, (list) => { clearTimeout(timer); ttStoryWaiters.delete(tab.id); resolve(list); });
+  });
+  try { await chrome.tabs.remove(tab.id); } catch { /* closed already */ }
+  return records;
+}
+
+/** FBW_SPY_TT_STORIES from a stories pass tab: handed to it (true); anything else is not ours. */
+export function takeTtStories(msg, sender) {
+  const waiter = sender?.tab?.id != null ? ttStoryWaiters.get(sender.tab.id) : null;
+  if (!waiter) return false;
+  waiter(Array.isArray(msg?.records) ? msg.records : []);
+  return true;
+}
+
+async function setTtManual(ids) {
+  return mutateSpy(async () => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY);
+    const state = { ...(r[SPY_STATE_KEY] || emptySpyState()), ttManual: ids.length ? ids : null };
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: state });
+    return state;
+  });
+}
+
 export function serializeIg(work) {
   const next = igWork.then(() => work(), () => work());
   igWork = next.catch(() => {});
@@ -1496,6 +1686,25 @@ export async function spyTick({ manual = false } = {}) {
       }
     }
 
+    // 2b. TikTok: one profile per tick too, its grid read in a background tab.
+    const ttBlocked = isBlocked(state, "tiktok", now);
+    if (manual && !ttBlocked) {
+      const ids = Object.values(spy.profiles || {}).filter((p) => p && p.platform === "tiktok" && p.removedAt == null).map((p) => p.id);
+      state = await setTtManual(ids);
+      if (ids.length) await logSpy("tiktok", "info", `${ids.length} ${ids.length === 1 ? "perfil" : "perfis"} na fila · 1 por minuto`);
+    }
+    if (!ttBlocked) {
+      const manualId = state.ttManual?.[0];
+      if (manualId) {
+        state = await setTtManual(state.ttManual.slice(1));
+        const profile = spy.profiles?.[manualId];
+        if (profile && profile.removedAt == null) await measureTtProfile(profile, "visit", fetch, { force: true });
+      } else if (dailyOn) {
+        const ttDue = dueProfiles(spy.profiles, state, now).find((p) => p.platform === "tiktok");
+        if (ttDue) await measureTtProfile(ttDue, "daily");
+      }
+    }
+
     // 3. Instagram path B (resumes the persisted batch after a worker wake).
     await serializeIg(() => advanceIgBatch({ manual }));
 
@@ -1521,6 +1730,26 @@ export async function spyTick({ manual = false } = {}) {
     spyTicking = false;
   }
 }
+
+// On-visit TikTok measurement: the numbers from the page (its grid arrives through the relay).
+chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo?.status !== "complete") return;
+  const url = tab?.url;
+  if (!url || typeof url !== "string" || !url.includes("tiktok.com/@") || url.includes(TT_SPY_MARKER) || ttTabWaiters.has(tabId)) return;
+  const parsed = parseProfileUrl(url);
+  if (!parsed || parsed.platform !== "tiktok") return;
+  (async () => {
+    try {
+      const r = await chrome.storage.local.get([SPY_KEY, SPY_STATE_KEY, SPY_PREFS_KEY]);
+      const profile = r[SPY_KEY]?.profiles?.[spyId("tiktok", parsed.key)];
+      if (!profile || profile.removedAt != null || !autoOn(r[SPY_PREFS_KEY])) return;
+      const now = Date.now();
+      if (now - (profile.lastMeasuredAt || 0) < 6 * 3600 * 1000) return;
+      if (isBlocked(r[SPY_STATE_KEY] || emptySpyState(now), "tiktok", now)) return;
+      await measureTtProfile(profile, "visit", fetch, { withTab: false });
+    } catch { /* ignore */ }
+  })();
+});
 
 // On-visit Facebook measurement trigger
 chrome.tabs?.onUpdated?.addListener((tabId, changeInfo, tab) => {

@@ -403,6 +403,16 @@ export function queuePosts(queue, profileId, posts) {
       exactDate: p.exactDate !== false,
       ...(observedAt == null ? {} : { observedAt }),
       ...(p.durationS === undefined ? {} : { durationS: p.mediaType === "video" && Number.isFinite(p.durationS) && p.durationS > 0 ? p.durationS : null }),
+      // TikTok (socialMate 1.29): what its grid adds.
+      ...(p.saves === undefined ? {} : {
+        shares: count(p.shares), saves: count(p.saves), reposts: count(p.reposts),
+        caption: typeof p.caption === "string" && p.caption ? p.caption : null,
+        aiLabel: typeof p.aiLabel === "string" && /^[A-Z][A-Z0-9_]{1,59}$/.test(p.aiLabel) ? p.aiLabel : null,
+        audio: typeof p.audio === "string" && p.audio ? p.audio : null,
+        audioOriginal: typeof p.audioOriginal === "boolean" ? p.audioOriginal : null,
+        hashtags: Array.isArray(p.hashtags) ? p.hashtags.filter((t) => typeof t === "string" && t).slice(0, 30) : [],
+        hasCaptions: typeof p.hasCaptions === "boolean" ? p.hasCaptions : null,
+      }),
     };
     if (previous) for (const field of ["views", "likes", "comments", "durationS", "code"]) {
       if (next[observationKey][field] == null && previous[field] != null) next[observationKey][field] = previous[field];

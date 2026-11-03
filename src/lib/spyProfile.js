@@ -1,7 +1,7 @@
 // Spy area profile identities, key resolution, and URLs.
 // Pure module, mirrored between Hub (server/spy.ts) and Extension (src/lib/spyProfile.js).
 
-export const SPY_PLATFORMS = ["instagram", "facebook"];
+export const SPY_PLATFORMS = ["instagram", "facebook", "tiktok"];
 
 export function isSpyPlatform(value) {
   return typeof value === "string" && SPY_PLATFORMS.includes(value);
@@ -24,6 +24,8 @@ const FB_RESERVED = new Set([
 const IG_KEY_RE = /^[a-z0-9._]{1,30}$/;
 const FB_VANITY_RE = /^[a-z0-9.-]{1,80}$/;
 const FB_NUMERIC_RE = /^\d+$/;
+/** TikTok usernames: 2–24 letters, digits, "_" or "." (lowercased here). */
+const TT_KEY_RE = /^[a-z0-9._]{2,24}$/;
 
 export function spyId(platform, key) {
   return `${platform}:${String(key).toLowerCase()}`;
@@ -48,6 +50,7 @@ export function profileUrl(platform, key) {
     }
     return `https://www.facebook.com/${k}`;
   }
+  if (platform === "tiktok") return `https://www.tiktok.com/@${k}`;
   return "";
 }
 
@@ -64,6 +67,8 @@ export function storiesUrl(profile) {
     }
     return null;
   }
+  // TikTok stories open from the profile's avatar.
+  if (profile.platform === "tiktok") return `https://www.tiktok.com/@${k}`;
   return null;
 }
 
@@ -84,6 +89,8 @@ export function parseProfileUrl(input, platformHint) {
         if ((FB_NUMERIC_RE.test(cleanHandle) || FB_VANITY_RE.test(cleanHandle)) && !FB_RESERVED.has(cleanHandle)) {
           return { platform: "facebook", key: cleanHandle };
         }
+      } else if (platformHint === "tiktok" && TT_KEY_RE.test(cleanHandle)) {
+        return { platform: "tiktok", key: cleanHandle };
       }
     }
     if (raw.startsWith("@")) return null;
@@ -101,8 +108,9 @@ export function parseProfileUrl(input, platformHint) {
   const hostname = parsed.hostname.toLowerCase();
   const isIg = hostname === "instagram.com" || hostname.endsWith(".instagram.com");
   const isFb = hostname === "facebook.com" || hostname.endsWith(".facebook.com");
+  const isTt = hostname === "tiktok.com" || hostname.endsWith(".tiktok.com");
 
-  if (!isIg && !isFb) return null;
+  if (!isIg && !isFb && !isTt) return null;
 
   const pathname = parsed.pathname;
   const segments = pathname.split("/").filter(Boolean);
@@ -123,6 +131,16 @@ export function parseProfileUrl(input, platformHint) {
       return { platform: "instagram", key: candidate };
     }
     return null;
+  }
+
+  if (isTt) {
+    // tiktok.com/@user, also /@user/video/<id> and /@user/photo/<id>.
+    const at = segments[0] || "";
+    if (!at.startsWith("@")) return null;
+    let candidate = at.slice(1);
+    try { candidate = decodeURIComponent(candidate); } catch { /* keep it raw */ }
+    candidate = candidate.toLowerCase();
+    return TT_KEY_RE.test(candidate) ? { platform: "tiktok", key: candidate } : null;
   }
 
   if (isFb) {

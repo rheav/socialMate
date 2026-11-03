@@ -299,3 +299,80 @@ export function parseFbReelsHtml(html) {
     ? { reels: start.rows, hasNext: start.hasNext, cursor: start.cursor }
     : { reels: start.rows, hasNext: null, cursor: null };
 }
+
+// ---- TikTok (socialMate 1.29) ----
+//
+// Measured 2026-11-02 on @happymindmentor: GET https://www.tiktok.com/@<key> with
+// the session answers 200 with `__UNIVERSAL_DATA_FOR_REHYDRATION__`, whose
+// `webapp.user-detail.userInfo` carries the exact counts (statsV2, as strings),
+// the bio, the link and when the account was created. Its itemList is empty: the
+// videos come from /api/post/item_list, signed, so only a tab reads them.
+
+const TT_SSR_RE = /<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/;
+const ttCount = (v) => (v == null || v === "" ? null : Number.isFinite(+v) && +v >= 0 ? Math.trunc(+v) : null);
+
+export function parseTtProfileHtml(html, responseUrl = "") {
+  if (typeof html !== "string") return { ok: false, error: "parse_failed" };
+  if (/\/login(\/|\?|$)/.test(responseUrl)) return { ok: false, error: "login_required" };
+  const m = html.match(TT_SSR_RE);
+  if (!m) return { ok: false, error: "parse_failed" };
+  let detail;
+  try { detail = JSON.parse(m[1])?.__DEFAULT_SCOPE__?.["webapp.user-detail"]; } catch { return { ok: false, error: "parse_failed" }; }
+  const info = detail?.userInfo;
+  // statusCode 10221 / 10202: no such account (banned or renamed).
+  if (!info?.user?.id) return { ok: false, error: detail?.statusCode ? "not_found" : "parse_failed" };
+  const u = info.user;
+  const s = info.statsV2 || info.stats || {};
+  const followers = ttCount(s.followerCount);
+  if (followers == null) return { ok: false, error: "parse_failed" };
+  const link = typeof u.bioLink?.link === "string" && /^https?:\/\//.test(u.bioLink.link) ? u.bioLink.link : null;
+  return {
+    ok: true,
+    userId: String(u.id),
+    name: u.nickname || null,
+    avatarUrl: u.avatarMedium || u.avatarThumb || null,
+    verified: u.verified === true ? true : u.verified === false ? false : null,
+    private: u.privateAccount === true ? true : u.privateAccount === false ? false : null,
+    bio: typeof u.signature === "string" && u.signature.trim() ? u.signature.trim() : null,
+    externalUrl: link,
+    accountCreatedAt: Number.isSafeInteger(u.createTime) ? u.createTime : null,
+    followers,
+    followersApprox: false,
+    following: ttCount(s.followingCount),
+    posts: ttCount(s.videoCount),
+    hearts: ttCount(s.heartCount ?? s.heart),
+    // 1 = a story is up now (0 measured on a profile without one).
+    hasStory: u.UserStoryStatus == null ? null : u.UserStoryStatus === 1,
+  };
+}
+
+/**
+ * A grid record (lib/shared/ttItems.js ttLiteItem, as the relay forwards it) → a
+ * post for the hub's spy_posts. TikTok's grid has no other AI flag than the label
+ * it shows, so a video without one is "NONE".
+ */
+export function ttSpyPost(r, observedAt = Date.now()) {
+  if (!r || !/^\d{3,30}$/.test(String(r.id || "")) || !Number.isInteger(r.create_time)) return null;
+  const photo = Array.isArray(r.images) ? r.images.length > 0 : !!r.images;
+  return {
+    id: String(r.id),
+    createdAt: r.create_time,
+    mediaType: photo ? "photo" : "video",
+    pinned: r.pinned === true,
+    views: ttCount(r.play_count),
+    likes: ttCount(r.digg_count),
+    comments: ttCount(r.comment_count),
+    shares: ttCount(r.share_count),
+    saves: ttCount(r.collect_count),
+    reposts: ttCount(r.repost_count),
+    durationS: !photo && Number.isFinite(r.duration) && r.duration > 0 ? r.duration : null,
+    caption: typeof r.desc === "string" && r.desc.trim() ? r.desc.trim() : null,
+    aiLabel: r.is_aigc === true ? "AIGC" : "NONE",
+    audio: typeof r.music?.title === "string" && r.music.title ? r.music.title : null,
+    audioOriginal: r.music ? r.music.original === true : null,
+    hashtags: Array.isArray(r.hashtags) ? r.hashtags.filter((t) => typeof t === "string" && t) : [],
+    hasCaptions: !!r.subtitle,
+    thumbUrl: typeof r.cover === "string" ? r.cover : null,
+    observedAt,
+  };
+}

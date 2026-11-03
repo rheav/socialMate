@@ -303,3 +303,47 @@ export function reduceFbStory(node, bucketId) {
     media: file,
   };
 }
+
+// ---- TikTok (socialMate 1.29) ----
+//
+// A story arrives through the TikTok capture like a grid video (ttLiteItem, kind
+// tt_story), from /api/story/item_list on the profile page or the story tray's
+// /api/story/batch/item_list. TikTok keeps a story 24 h. The media URLs are signed
+// and need TikTok's Referer (background.js ensureTiktokReferer).
+
+/** One forwarded story record → `{ input, cover, media }`, as reduceStory does for Instagram. */
+export function reduceTtStory(r) {
+  if (!r || typeof r !== "object") return null;
+  const id = String(r.id ?? "");
+  const takenAt = Number.isInteger(r.create_time) ? r.create_time : null;
+  if (!/^\d{1,30}$/.test(id) || takenAt == null) return null;
+  const image = typeof r.image === "string" ? r.image : null;
+  const video = typeof r.video === "string" ? r.video : null;
+  const isPhoto = !!image && !video;
+  const cover = typeof r.cover === "string" ? r.cover : image;
+  const media = isPhoto ? { url: image, mime: "image/jpeg" } : video ? { url: video, mime: "video/mp4" } : null;
+  if (!media) return null;
+  const music = typeof r.music?.title === "string" && r.music.title && r.music.original !== true
+    ? { title: r.music.title, ...(typeof r.music.author === "string" && r.music.author ? { artist: r.music.author } : {}) }
+    : null;
+  return {
+    input: {
+      id,
+      reelId: null,
+      mediaType: isPhoto ? 1 : 2,
+      takenAt: takenAt * 1000,
+      expiringAt: (takenAt + 86_400) * 1000,
+      durationMs: !isPhoto && Number.isFinite(r.duration) && r.duration > 0 ? Math.round(r.duration * 1000) : null,
+      width: num(r.width),
+      height: num(r.height),
+      caption: typeof r.desc === "string" && r.desc ? r.desc : null,
+      links: [],
+      music,
+      mentions: [],
+      aiLabel: r.is_aigc === true,
+      mediaMime: media.mime,
+    },
+    cover,
+    media,
+  };
+}

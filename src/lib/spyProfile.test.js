@@ -22,7 +22,11 @@ describe("spy profile utilities (section 3)", () => {
     { input: "https://www.facebook.com/profile.php", hint: undefined, expected: null },
     { input: "https://www.facebook.com/reel/2030018604348103", hint: undefined, expected: null },
     { input: "https://www.facebook.com/search/top?q=manifestation", hint: undefined, expected: null },
-    { input: "https://www.tiktok.com/@nasa", hint: undefined, expected: null },
+    // TikTok (socialMate 1.29): a profile and a video of it; a page that is not a profile is not.
+    { input: "https://www.tiktok.com/@nasa", hint: undefined, expected: { platform: "tiktok", key: "nasa" } },
+    { input: "https://www.tiktok.com/@HappyMindMentor/video/7703287306530098455", hint: undefined, expected: { platform: "tiktok", key: "happymindmentor" } },
+    { input: "@happy.mind_mentor", hint: "tiktok", expected: { platform: "tiktok", key: "happy.mind_mentor" } },
+    { input: "https://www.tiktok.com/foryou", hint: undefined, expected: null },
     { input: "", hint: undefined, expected: null },
     { input: null, hint: undefined, expected: null },
     { input: "   ", hint: undefined, expected: null },

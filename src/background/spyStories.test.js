@@ -404,3 +404,48 @@ describe("Facebook stories", () => {
     expect(history().at(-1)).toBe("Stories: parou, o Facebook pediu login · abra o Facebook no navegador");
   });
 });
+
+// TikTok (socialMate 1.29): the profile page says whether a story is up; the stories come from a tab.
+describe("TikTok stories", () => {
+  const tt = (over = {}) => ({ id: "tiktok:happymindmentor", platform: "tiktok", key: "happymindmentor", removedAt: null, trackStories: true, storyPks: [], ...over });
+  const page = (story) => `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.user-detail": {
+    statusCode: 0, userInfo: { user: { id: "7145819764362101765", UserStoryStatus: story ? 1 : 0 }, statsV2: { followerCount: "150858" } } } } })}</script>`;
+  const rec = (id, over = {}) => ({ id, create_time: 1793660000, video: "https://v16.tiktokcdn.com/v.mp4", image: null, cover: "https://p16.tiktokcdn.com/c.jpg",
+    duration: 12, width: 1080, height: 1920, desc: "today's message", is_aigc: false, music: { title: "Healing Water", author: "Meditation", original: false }, ...over });
+  const ttHtml = (body) => html(body, "https://www.tiktok.com/@happymindmentor");
+
+  it("reduces a video or photo story with its music, and skips a record without media", async () => {
+    const { reduceTtStory } = await import("../lib/spyStories.js");
+    expect(reduceTtStory(rec("7700000000000000001"))).toEqual({
+      input: { id: "7700000000000000001", reelId: null, mediaType: 2, takenAt: 1793660000000, expiringAt: 1793746400000, durationMs: 12000,
+        width: 1080, height: 1920, caption: "today's message", links: [], music: { title: "Healing Water", artist: "Meditation" }, mentions: [],
+        aiLabel: false, mediaMime: "video/mp4" },
+      cover: "https://p16.tiktokcdn.com/c.jpg", media: { url: "https://v16.tiktokcdn.com/v.mp4", mime: "video/mp4" },
+    });
+    expect(reduceTtStory(rec("7700000000000000002", { video: null, image: "https://p16.tiktokcdn.com/i.jpg", music: { title: "original sound", original: true } })).input)
+      .toMatchObject({ mediaType: 1, durationMs: null, music: null, mediaMime: "image/jpeg" });
+    expect(reduceTtStory(rec("7700000000000000003", { video: null }))).toBeNull();
+  });
+
+  it("opens no tab when the page says there is no story, and reads the tab's stories when there is", async () => {
+    const readTiktokStories = vi.fn(async () => [rec("7700000000000000001"), rec("7700000000000000004")]);
+    const none = createStoriesPass({ ...deps, readTiktokStories, fetchImpl: fetchStub([["tiktok.com/@happymindmentor", ttHtml(page(false))]]) });
+    expect(await none.readProfile(tt())).toEqual({ ok: true, items: [], reelId: null });
+    expect(readTiktokStories).not.toHaveBeenCalled();
+    const some = createStoriesPass({ ...deps, readTiktokStories, fetchImpl: fetchStub([["tiktok.com/@happymindmentor", ttHtml(page(true))]]) });
+    const read = await some.readProfile(tt({ storyPks: ["7700000000000000004"] }));
+    expect(read.items.map((i) => i.input.id)).toEqual(["7700000000000000001"]);
+    const login = createStoriesPass({ ...deps, readTiktokStories, fetchImpl: fetchStub([["tiktok.com/", html("<html></html>", "https://www.tiktok.com/login?redirect=x")]]) });
+    expect(await login.readProfile(tt())).toEqual({ ok: false, error: "login_required" });
+  });
+
+  it("keeps the stories a visit or the tray brings for a tracked account, once", async () => {
+    await seed(deps.storage, [tt(), tt({ id: "tiktok:other", key: "other", trackStories: false })]);
+    const pass = createStoriesPass(deps);
+    expect(await pass.receiveTiktok({ key: "happymindmentor", records: [rec("7700000000000000001")] })).toEqual({ ok: true, added: 1 });
+    expect(await pass.receiveTiktok({ key: "happymindmentor", records: [rec("7700000000000000001")] })).toEqual({ ok: true, added: 0 });
+    expect(await pass.receiveTiktok({ key: "other", records: [rec("7700000000000000009")] })).toEqual({ ok: true, ignored: true });
+    expect(deps.sendStory).toHaveBeenCalledTimes(1);
+    expect(deps.sendStory.mock.calls[0][1]).toBe("tiktok:happymindmentor");
+  });
+});

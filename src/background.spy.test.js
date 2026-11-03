@@ -205,7 +205,7 @@ describe("background spy area (phase E2/E3)", () => {
     it("FBW_SPY_SAVE rejects invalid profiles", async () => {
       const res = await sendMessage({
         type: "FBW_SPY_SAVE",
-        url: "https://tiktok.com/@nasa",
+        url: "https://www.youtube.com/@nasa",
       });
 
       expect(res).toEqual({ ok: false, error: "invalid_profile" });
@@ -1405,5 +1405,40 @@ describe("stories in the spy queue", () => {
     expect(body.stories).toEqual([{ profileId: "instagram:nasa", id: "7", mediaType: 1 }]);
     expect(data.fbw_spy_queue.stories).toEqual({});
     expect(data.fbw_spy_state.storiesSettings).toEqual({ passesPerDay: 3, keepDays: 14 });
+  });
+});
+
+describe("TikTok grid (socialMate 1.29)", () => {
+  const now = new Date(2026, 10, 2, 21).getTime();
+  const sender = { tab: { id: 7 }, url: "https://www.tiktok.com/@happymindmentor", frameId: 0 };
+  const rec = (id, over = {}) => ({ id, username: "happymindmentor", create_time: 1793641740, images: false, pinned: false,
+    play_count: 6221, digg_count: 395, comment_count: 7, share_count: 29, collect_count: 122, repost_count: 0, duration: 147,
+    desc: "Remember", is_aigc: false, music: { title: "Dawn Of Life", original: false }, hashtags: ["manifestation"], subtitle: true,
+    cover: "https://p16.tiktokcdn.com/c.jpg", ...over });
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(now);
+    data.fbw_sync = {}; // keep the queue visible
+    data.fbw_spy_prefs = { daily: true };
+    data.fbw_spy = { fetchedAt: now, profiles: { "tiktok:happymindmentor": { id: "tiktok:happymindmentor", platform: "tiktok", key: "happymindmentor", removedAt: null } } };
+  });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it("queues a saved profile's videos with TikTok's numbers, audio, AI mark and hashtags, and skips other accounts", async () => {
+    const res = await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "happymindmentor",
+      records: [rec("7703287306530098455"), rec("7413061437838445856", { images: true, pinned: true }), rec("1111111", { username: "someone" })] }, sender);
+    expect(res).toEqual({ ok: true, posts: 2 });
+    expect(data.fbw_spy_queue.posts["tiktok:happymindmentor|7703287306530098455|" + now]).toMatchObject({
+      profileId: "tiktok:happymindmentor", mediaType: "video", views: 6221, likes: 395, comments: 7, shares: 29, saves: 122,
+      reposts: 0, durationS: 147, caption: "Remember", aiLabel: "NONE", audio: "Dawn Of Life", audioOriginal: false,
+      hashtags: ["manifestation"], hasCaptions: true });
+    expect(data.fbw_spy_queue.posts["tiktok:happymindmentor|7413061437838445856|" + now]).toMatchObject({ mediaType: "photo", pinned: true, durationS: null });
+    expect((data.fbw_spy_activity || []).map((e) => e.text).at(-1)).toBe("Vídeos de @happymindmentor: 2 lidos · lido pela sua visita");
+  });
+
+  it("ignores a profile that is not saved, and a visit with the routines off", async () => {
+    expect(await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "other", records: [rec("1", { username: "other" })] }, sender)).toMatchObject({ ignored: true });
+    data.fbw_spy_prefs = { daily: false };
+    expect(await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "happymindmentor", records: [rec("7703287306530098455")] }, sender)).toMatchObject({ ignored: true });
+    expect(data.fbw_spy_queue).toBeUndefined();
   });
 });

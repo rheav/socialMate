@@ -16,6 +16,24 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.29.0] — 2026-11-02
+
+### Added
+- **TikTok in the Spy.** A saved TikTok profile is measured once a day, one per
+  minute like Facebook: `GET tiktok.com/@<key>` (no tab) gives the exact followers,
+  following, videos and total likes, the bio, the link and when the account was
+  created (`__UNIVERSAL_DATA_FOR_REHYDRATION__` → `webapp.user-detail`). Its videos
+  come from `/api/post/item_list`, which only the page can sign: a background tab
+  opens the profile and the TikTok capture hands the grid to the worker
+  (`FBW_SPY_TT_POSTS`), then the tab closes (45 s at most). Each video carries
+  views, likes, comments, shares, saves, reposts, duration, caption, audio, the AI
+  label, hashtags, pinned, photo post and whether a transcript is ready. A visit to
+  a saved profile feeds the same path without a tab. Needs hub 1.1.0.
+- **TikTok stories in the swipe file.** Stories a tracked account shows on its
+  profile page or in the story tray are kept (`FBW_SPY_TT_STORIES`); the stories
+  passes fetch the profile page first and open a tab only when it says a story is
+  up. Media go through TikTok's Referer rule.
+
 ## [1.28.0] — 2026-11-02
 
 ### Added

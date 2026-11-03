@@ -75,6 +75,9 @@ import {
   observeIgProfile,
   pauseInstagram,
   receiveIgPosts,
+  receiveTtPosts,
+  readTtStoriesTab,
+  takeTtStories,
   recoverSpySync,
   scheduleSpy,
   serializeIg,
@@ -177,6 +180,9 @@ const storiesPass = createStoriesPass({
   serialize: serializeIg,
   flush: () => flushSpy(),
   makePoster: (url) => storyPoster(url),
+  // TikTok (socialMate 1.29): its stories come from a tab, its CDN wants its Referer.
+  readTiktokStories: (profile) => readTtStoriesTab(profile),
+  prepareMedia: async (url) => { if (isTiktokCdn(url)) await ensureTiktokReferer(); },
 });
 useSpyDeps({ durableThumb, readSyncSettings, storiesTick: () => storiesPass.tick() });
 // @public
@@ -2023,6 +2029,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     case "FBW_SPY_POSTS": {
       receiveIgPosts(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
+      return true;
+    }
+    case "FBW_SPY_TT_STORIES": {
+      if (takeTtStories(msg, sender)) { sendResponse({ ok: true, taken: true }); return false; }
+      storiesPass.receiveTiktok(msg).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
+      return true;
+    }
+    case "FBW_SPY_TT_POSTS": {
+      receiveTtPosts(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: "storage" }));
       return true;
     }
     // panel → bg: Spy area operations
