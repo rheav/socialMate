@@ -1460,7 +1460,9 @@ async function runTranscription(videoId, tabId, meta = {}) {
 // The analysis collector's transcript of a post: the Library's own when it has
 // one, else the usual queued Whisper job on the post's MP4 (which files it in the
 // Library and syncs it like any other).
-async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, meta }) {
+// TikTok (socialMate 1.33): `platform` "tiktok" with the video id as `pk`, and TikTok's own
+// caption file first — runTranscription falls back to Whisper on the video when there is none.
+async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, meta, platform = "instagram", sourceUrl, captionUrl, captionLang }) {
   const id = code || pk;
   const done = (rec) =>
     rec?.status === "done"
@@ -1478,12 +1480,13 @@ async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, m
   await runTranscription(id, null, {
     // The post's author, picture, numbers and date (see igTranscriptMeta in the bridge).
     ...(meta || {}),
-    platform: "instagram",
+    platform,
     mediaUrl,
     durationS,
     caption,
     language,
-    sourceUrl: code ? `https://www.instagram.com/p/${code}/` : undefined,
+    sourceUrl: sourceUrl || (code ? `https://www.instagram.com/p/${code}/` : undefined),
+    ...(captionUrl ? { captionUrl, captionLang: captionLang ?? null } : {}),
   });
   return done((await getTranscripts())[id]) || { status: "failed" };
 }

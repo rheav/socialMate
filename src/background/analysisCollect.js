@@ -25,7 +25,6 @@
 // @private
 import { downloadLimited, fetchEmbedVideo, isInstagramCdn, isTiktokCdn, pickVideoVariant } from "../lib/analysisMedia.js";
 import { igCodeFromPk } from "../lib/shared/igCode.js";
-import { parseWebVtt } from "../lib/ttVtt.js";
 // @end-private
 import { IG_COMMENT_EXPAND_LIMITS } from "../lib/shared/igCommentExpand.js";
 
@@ -414,19 +413,25 @@ export function createAnalysisCollect({
         progress(video.state === "available" ? "collect_video_uploaded" : "collect_video_missing", video.state === "available" ? undefined : video.state);
       }
 
+      // Transcript: TikTok's own caption file first, else Whisper on the video; filed in the Library too.
       let transcript;
-      if (p.needs?.transcript && isTiktokCdn(rec?.subtitle?.url) && !job.cancelled) {
-        live({ phase: "transcribing", detail: "legenda do TikTok" });
-        try {
-          await tiktok.prepareMedia(rec.subtitle.url);
-          const res = await fetchImpl(rec.subtitle.url, { signal: AbortSignal.timeout?.(30_000) });
-          const parsed = parseWebVtt(res.ok ? await res.text() : "");
-          transcript = parsed.text
-            ? { status: "done", text: parsed.text, chunks: parsed.chunks, language: rec.subtitle.lang ?? null, source: "tiktok_captions" }
+      const media = [rec?.video, rec?.hd_url, rec?.download_url].find(isTiktokCdn) || null;
+      const captionUrl = isTiktokCdn(rec?.subtitle?.url) ? rec.subtitle.url : null;
+      if (p.needs?.transcript && (media || captionUrl) && !job.cancelled) {
+        live({ phase: "transcribing", detail: captionUrl ? "legenda do TikTok" : rec.duration ? `vídeo de ${Math.round(rec.duration)} s` : null });
+        const t = await transcribe({
+          pk: id, platform: "tiktok", sourceUrl: p.sourceUrl, mediaUrl: media, captionUrl, captionLang: rec.subtitle?.lang ?? null,
+          durationS: rec.duration ?? null, caption: rec.desc ?? null,
+          meta: {
+            author: { name: rec.username || rec.nickname || "unknown", url: rec.username ? `https://www.tiktok.com/@${rec.username}` : null },
+            thumb: rec.cover || rec.dynamic_cover || null, takenAt: rec.create_time ?? null,
+            counts: { like: rec.digg_count ?? null, comment: rec.comment_count ?? null, views: rec.play_count ?? null, share: rec.share_count ?? null },
+          },
+        }).catch(() => null);
+        transcript =
+          t?.status === "done"
+            ? { status: "done", text: t.text ?? "", chunks: t.chunks ?? [], language: t.language ?? null, source: t.source ?? "whisper" }
             : { status: "failed" };
-        } catch {
-          transcript = { status: "failed" };
-        }
         progress(transcript.status === "done" ? "collect_transcribed" : "collect_transcript_failed");
       }
       if (job.cancelled) return { ok: false, code: "cancelled" };

@@ -163,5 +163,19 @@ describe("the analysis' transcription", () => {
     expect(out).toMatchObject({ status: "done", text: "Keep your mouth shut." });
     expect(transcripts().DegENSFMsUy).toMatchObject({ status: "done", author: { name: "claire_mayaus", url: "/claire_mayaus/" }, counts: { like: 42238, views: 1094798 }, takenAt: 1792037451 });
   });
+
+  it("reads a TikTok video's own caption file and files it as a TikTok transcript (socialMate 1.33)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => (String(url).includes("caption.vtt")
+      ? { ok: true, status: 200, text: async () => "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nRepeat these affirmations" }
+      : { ok: false, status: 404, json: async () => ({}), text: async () => "" })));
+    const out = await transcribeForAnalysis({ pk: "7702419881362230550", platform: "tiktok", mediaUrl: "https://v16-webapp-prime.tiktok.com/v.mp4",
+      captionUrl: "https://v16-webapp-prime.tiktok.com/caption.vtt", captionLang: "eng-US", durationS: 169, caption: "Manifest",
+      sourceUrl: "https://www.tiktok.com/@happymindmentor/video/7702419881362230550", meta: { author: { name: "happymindmentor" } } });
+    expect(out).toMatchObject({ status: "done", text: "Repeat these affirmations", source: "caption" });
+    expect(transcripts()["7702419881362230550"]).toMatchObject({ platform: "tiktok", author: { name: "happymindmentor" },
+      sourceUrl: "https://www.tiktok.com/@happymindmentor/video/7702419881362230550" });
+    vi.unstubAllGlobals();
+    vi.stubGlobal("chrome", chromeStub());
+  });
 });
 // @end-private

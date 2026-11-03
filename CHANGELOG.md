@@ -16,6 +16,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.33.0] — 2026-11-02
+
+### Changed
+- **A TikTok video without TikTok's caption file is transcribed by Whisper.** The
+  Hub's analysis job for a TikTok video now goes through the same transcription as
+  the panel's TikTok button (`transcribeForAnalysis` with `platform: "tiktok"`):
+  TikTok's own caption file first, Whisper on the video when there is none or it
+  fails. The transcript is filed in the Library too, with the author, picture and
+  numbers. 1.31.0's own WebVTT reader (`lib/ttVtt.js`) duplicated the background's
+  and is gone.
+
 ## [1.32.0] — 2026-11-02
 
 ### Added
