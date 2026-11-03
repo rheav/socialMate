@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.33.0",
+  version: "1.34.0",
   // @private
   version_name:
-    "1.33.0 — Vídeo do TikTok sem legenda pronta vai para o Whisper nas análises",
+    "1.34.0 — Botões e números no visual novo (Cartão ou Faixa); Fontes vira botão do trilho",
   // @end-private
   icons: ICONS,
   action: {
@@ -79,12 +79,6 @@ const manifest = {
         "*://*.tiktok.com/*",
       ],
       js: ["src/content.js"],
-      run_at: "document_idle",
-    },
-    // "Fontes" pill over photos → ugc-factory's Fontes de look (src/background/fontes.js).
-    {
-      matches: ["*://*.instagram.com/*", "*://*.tiktok.com/*"],
-      js: ["src/content/fontes/fontes-button.js"],
       run_at: "document_idle",
     },
     // @end-private
@@ -185,8 +179,8 @@ if (PUBLIC) {
   manifest.host_permissions = manifest.host_permissions.filter(
     (h) => !/socialmate\.rheav\.dev|localhost|127\.0\.0\.1/.test(h),
   );
-  // src/content.js is the warm engine; fontes-button.js posts to ugc-factory on localhost.
-  manifest.content_scripts = manifest.content_scripts.filter((c) => !c.js.includes("src/content.js") && !c.js.includes("src/content/fontes/fontes-button.js"));
+  // src/content.js is the warm engine.
+  manifest.content_scripts = manifest.content_scripts.filter((c) => !c.js.includes("src/content.js"));
   // @end-private
 }
 

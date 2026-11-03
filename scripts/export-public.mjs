@@ -41,8 +41,8 @@ const PRIVATE_FILES = [
   // The Spy's collection tested against a mocked hub server (the public build answers in process; see src/hub-local/test/).
   "src/background.spy.test.js", "src/background/spyStories.test.js",
   // "Fontes" button → ugc-factory on localhost
-  "src/content/fontes/fontes-button.js", "src/background/fontes.js", "src/background/fontes.test.js",
-  "src/lib/shared/fontesPick.js", "src/lib/shared/fontesPick.test.js",
+  "src/background/fontes.js", "src/background/fontes.test.js",
+  "src/lib/shared/fontesSend.js", "src/lib/shared/fontesSend.test.js",
 ];
 // The repo's own leak check and this script are about the private repo.
 const PRIVATE_PREFIXES = ["scripts/verify-public.mjs", "scripts/export-public.mjs"];

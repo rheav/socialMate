@@ -85,8 +85,8 @@ Thumbnail repair: `FBW_THUMB_RECOVER` (`{brokenIds}`) starts the sweep,
 `FBW_THUMB_STATUS` reads it, and the worker broadcasts `FBW_THUMB_PROGRESS`.
 Hub sync: `FBW_SYNC_PING` (config check), `FBW_SYNC_ALL` (push both stores),
 `FBW_SYNC_NOW` (drain the queue).
-Fontes (private, 1.30.0): `FBW_FONTES_SEND` (`{ url, origin, pageUrl }`, from
-`content/fontes/fontes-button.js`) → `background/fontes.js` fetches the photo and posts
+Fontes (private, 1.30.0; a rail button since 1.34.0): `FBW_FONTES_SEND` (`{ url, origin, pageUrl }`,
+one per photo, from the Instagram and TikTok rails via `lib/shared/fontesSend.js`) → `background/fontes.js` fetches the photo and posts
 it to ugc-factory → `{ ok, duplicate }` or `{ ok: false, error: "url" | "fetch" | "app" | "server" }`.
 Spy area: `FBW_SPY_SAVE` (`{ platform, key }` / `{ url }`; sent by the panel and by the
 Instagram profile header's Hub button, `lib/shared/igHubButton.js`),
@@ -187,6 +187,7 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_ig_overlay` / `sw_pin_overlay` / `sw_fb_overlay` | IgSortTool / pin-api / FbReelsTool | on-page overlay toggles (note the `sw_` vs `fbw_` prefix split) |
 | `sw_ig_query` / `sw_tt_query` / `sw_fb_query` | IgSortTool / TtSortTool / FbReelsTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
 | `fbw_dl` | Opções modal | `{ folder, flat }` — download folder + bucketing; cached synchronously by `lib/downloadPath.js` in BOTH the panel and the worker |
+| `sw_ovl_style` | Opções modal | look of the IG/TikTok rails: `"cartao"` (default) or `"faixa"` (`shared/railTheme.js`); bridge and relay repaint on change |
 | `fbw_fontes_base` | nobody (set by hand) | ugc-factory's address for the Fontes button; unset = `http://127.0.0.1:3210` |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |

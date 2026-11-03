@@ -81,6 +81,11 @@ const TARGETS = {
     "src/lib/shared/fmt.js",
     "src/lib/shared/igFormat.js",
     "src/lib/shared/overlayUi.js",
+    // The rails' look (cartão / faixa) — shared with TikTok.
+    "src/lib/shared/railTheme.js",
+    // @private
+    "src/lib/shared/fontesSend.js",
+    // @end-private
     "src/lib/shared/txLang.js",
     "src/lib/shared/igPlayerHost.js",
     "src/lib/shared/feedQuery.js",
@@ -112,6 +117,10 @@ const TARGETS = {
     "src/lib/shared/counts.js",
     "src/lib/shared/savedEntry.js",
     "src/lib/shared/overlayUi.js",
+    "src/lib/shared/railTheme.js",
+    // @private
+    "src/lib/shared/fontesSend.js",
+    // @end-private
     "src/lib/shared/txLang.js",
     "src/lib/shared/harvest.js",
     "src/lib/shared/surfaceTracker.js",
@@ -127,9 +136,6 @@ const TARGETS = {
     "src/lib/shared/spyProfileUrl.js",
     "src/lib/shared/igHubButton.js",
   ],
-  // @private
-  "src/content/fontes/fontes-button.js": ["src/lib/shared/fontesPick.js"],
-  // @end-private
 };
 
 const BEGIN = (mod) => `// <<< inline:${mod}`;

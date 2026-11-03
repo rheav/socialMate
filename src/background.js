@@ -2398,7 +2398,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true; // async
     }
     // @private
-    // fontes-button.js → bg: a photo for ugc-factory's Fontes de look (background/fontes.js).
+    // The IG/TikTok rails' Fontes button → bg: a photo for ugc-factory's Fontes de look (background/fontes.js).
     case "FBW_FONTES_SEND": {
       chrome.storage.local
         .get(FONTES_BASE_KEY)

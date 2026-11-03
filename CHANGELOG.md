@@ -16,6 +16,27 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.34.0] — 2026-11-02
+
+### Changed
+- **The Instagram and TikTok rails have a new look, in two styles.** The buttons sit
+  in one capsule with each button's name sliding out beside it on hover; the stats
+  lead with views (likes on a photo) and the reach chip, then the rest. Opções →
+  Sobreposições picks the style with a picture of each (`sw_ovl_style`, followed live
+  by open tabs): **Cartão** puts the numbers in a small card in two columns, half the
+  old rail's height; **Faixa** writes them straight on the photo over a dark gradient
+  and shows a grid tile's buttons only while it is hovered (the open player keeps
+  them). Shared by both platforms in `lib/shared/railTheme.js`; still no
+  backdrop-filter. The reach tiers use the app's palette on the page (the panel keeps
+  `REACH_TIERS`' colours). The Instagram stories rail and the player's progress bar
+  follow. Facebook and Pinterest keep their rails for now.
+- **Fontes (private) is the rail's last button**, not a pill over any hovered photo:
+  a reel's or video's cover, the photo, or every photo of a carousel / TikTok photo
+  post, one `FBW_FONTES_SEND` each (`lib/shared/fontesSend.js`). The button says how
+  it went ("Nas Fontes", "2 nas Fontes, 1 já estava", "Abra o UGC Factory"). It
+  exists where the rail does — grids, the open post, reels — so the home feed has
+  none. `content/fontes/fontes-button.js` and `lib/shared/fontesPick.js` are gone.
+
 ## [1.33.0] — 2026-11-02
 
 ### Changed

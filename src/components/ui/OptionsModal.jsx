@@ -19,6 +19,7 @@ import {
   writeTranscriptCap,
 } from "@/lib/transcriptCap";
 import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
+import { RAIL_STYLE_KEY, railStyleOf } from "@/lib/shared/railTheme.js";
 import {
   TRANSCRIPT_LANGUAGE_KEY,
   normalizeTranscriptLanguage,
@@ -140,6 +141,7 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
               checked={pinOverlay}
               onChange={setPinOverlay}
             />
+            <RailStylePicker />
           </Section>
 
           <DownloadsSection />
@@ -232,6 +234,117 @@ export function NumberRow({ id, label, hint, value, min, max, onSave }) {
         />
       </div>
       {hint && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+// How the Instagram and TikTok rails look (railTheme.js). A picture of each
+// instead of a name: "cartão" and "faixa" mean nothing until you have seen them.
+// The pages follow the stored value live, so a pick shows on an open tab at once.
+const RAIL_STYLE_CHOICES = [
+  { value: "cartao", label: "Cartão", hint: "Números num cartão; botões sempre à vista" },
+  { value: "faixa", label: "Faixa", hint: "Números direto na foto; botões ao passar o mouse" },
+];
+function RailStylePicker() {
+  const [style, setStyle] = useState("cartao");
+  useEffect(() => {
+    if (typeof chrome === "undefined" || !chrome?.storage?.local) return;
+    let dead = false;
+    chrome.storage.local
+      .get(RAIL_STYLE_KEY)
+      .then((r) => { if (!dead) setStyle(railStyleOf(r?.[RAIL_STYLE_KEY])); })
+      .catch(() => {});
+    const onCh = (changes, area) => {
+      if (area === "local" && changes[RAIL_STYLE_KEY]) setStyle(railStyleOf(changes[RAIL_STYLE_KEY].newValue));
+    };
+    chrome.storage.onChanged?.addListener(onCh);
+    return () => {
+      dead = true;
+      chrome.storage.onChanged?.removeListener(onCh);
+    };
+  }, []);
+  const pick = (v) => {
+    setStyle(v);
+    chrome?.storage?.local?.set({ [RAIL_STYLE_KEY]: v }).catch(() => {});
+  };
+  return (
+    <div className="pt-2 pb-1">
+      <span className="text-sm text-foreground">Estilo no Instagram e TikTok</span>
+      <div role="radiogroup" aria-label="Estilo no Instagram e TikTok" className="mt-2 grid grid-cols-2 gap-2">
+        {RAIL_STYLE_CHOICES.map(({ value, label, hint }) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={style === value}
+            onClick={() => pick(value)}
+            className={
+              "sw-hoverable rounded-xl border p-1.5 text-left transition-colors " +
+              (style === value ? "border-primary bg-primary/10" : "border-border hover:bg-accent")
+            }
+          >
+            <RailPreview kind={value} />
+            <span className="mt-1.5 block px-0.5 text-xs font-semibold text-foreground">{label}</span>
+            <span className="block px-0.5 text-[10.5px] leading-snug text-muted-foreground">{hint}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// A grid tile in miniature: the button capsule on the left and the numbers in the
+// chosen style. Always dark, like the pages it stands for.
+function RailPreview({ kind }) {
+  const glass = { background: "rgba(34,39,50,.86)", border: "1px solid rgba(217,224,238,.16)" };
+  const bar = (w, color, h = 3) => <span className="block rounded-full" style={{ width: w, height: h, background: color }} />;
+  return (
+    <div
+      aria-hidden="true"
+      className="relative h-[88px] overflow-hidden rounded-lg"
+      style={{
+        background:
+          "radial-gradient(42% 58% at 58% 40%, #c9a28c 0%, #8d6a5a 45%, transparent 75%), linear-gradient(165deg, #5d6b85 0%, #2a2f3c 72%)",
+      }}
+    >
+      <div
+        className="absolute left-1.5 top-1.5 flex flex-col gap-[3px] rounded-[7px] p-[3px]"
+        style={{ ...glass, opacity: kind === "faixa" ? 0.35 : 1 }}
+      >
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} className="block size-[7px] rounded-[2px] bg-white/85" />
+        ))}
+        <span className="block h-px bg-white/25" />
+        <span className="block size-[7px] rounded-[2px]" style={{ background: "#8ecae6" }} />
+      </div>
+      {kind === "cartao" ? (
+        <div className="absolute bottom-1.5 right-1.5 rounded-[6px] px-1.5 py-1" style={glass}>
+          <div className="flex items-center gap-1">
+            {bar(20, "rgba(255,255,255,.92)", 5)}
+            {bar(12, "#f2cf94", 5)}
+          </div>
+          <div className="mt-1 grid grid-cols-2 gap-x-1.5 gap-y-[3px]">
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i}>{bar(13, "rgba(255,255,255,.5)")}</span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div
+          className="absolute inset-x-0 bottom-0 px-1.5 pb-1.5 pt-6"
+          style={{ background: "linear-gradient(to top, rgba(10,12,18,.88), rgba(10,12,18,.5) 55%, transparent)" }}
+        >
+          <div className="flex items-center gap-1">
+            {bar(28, "rgba(255,255,255,.95)", 7)}
+            {bar(12, "#f2cf94", 5)}
+          </div>
+          <div className="mt-1 flex gap-1.5">
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i}>{bar(13, "rgba(255,255,255,.6)")}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
