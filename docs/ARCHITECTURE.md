@@ -188,6 +188,7 @@ still handled in `content.js` despite being listed as removed.)
 | `sw_ig_query` / `sw_tt_query` / `sw_fb_query` | IgSortTool / TtSortTool / FbReelsTool **and** the page's grid sorter (`shared/pageSorter.js` in bridge / relay) | the feed query `{version, join, sorts[], filters[]}` (`shared/feedQuery.js`). Both sides write it; the panel list and the site's own grid are sorted/filtered by the same object |
 | `fbw_dl` | Opções modal | `{ folder, flat }` — download folder + bucketing; cached synchronously by `lib/downloadPath.js` in BOTH the panel and the worker |
 | `sw_ovl_style` | Opções modal | look of every page rail (IG, TikTok, Facebook reels + feed videos, Pinterest): `"cartao"` (default) or `"faixa"` (`shared/railTheme.js`); each script repaints on change |
+| `sw_tt_card_pos` | TikTok relay (drag) | where the TikTok player's stats card was dragged, `{ x, y }` each 0..1 of the room inside the picture (`shared/ttPlayerHost.js`); absent = default spot; double-click removes it; tabs follow on change |
 | `fbw_fontes_base` | nobody (set by hand) | ugc-factory's address for the Fontes button; unset = `http://127.0.0.1:3210` |
 | `fbw_sync` | Opções modal | `{ enabled, url, token }` for the hub; token goes in `X-Sync-Token` |
 | `fbw_sync_queue` | background `queueForSync` | ids waiting to be pushed, per kind — PERSISTED because an MV3 worker dies at 30 s idle |

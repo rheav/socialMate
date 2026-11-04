@@ -104,6 +104,14 @@ describe("page language control", () => {
     expect(a.querySelector(".fbw-lang-badge").textContent).toBe("BR");
   });
 
+  it("leaves an unchanged badge's text node alone, so a repaint dirties no layout", () => {
+    const tx = btnAt({ left: 100, width: 30, top: 100, height: 30 });
+    enableTxBadge(tx);
+    const node = tx.querySelector(".fbw-lang-badge").firstChild;
+    updateTxBadges();
+    expect(tx.querySelector(".fbw-lang-badge").firstChild).toBe(node);
+  });
+
   it("saves the pick and hands it to the caller before the job starts", async () => {
     const tx = btnAt({ left: 200, width: 30, top: 100, height: 30 });
     enableTxBadge(tx);

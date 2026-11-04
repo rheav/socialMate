@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { isTtTileMedia, isTtPlayerSurface, ttPaintedRect, TT_TILE_LINK } from "./ttPlayerHost.js";
+import { isTtTileMedia, isTtPlayerSurface, ttPaintedRect, ttCardSpotOf, ttCardAt, ttCardSpot, TT_TILE_LINK } from "./ttPlayerHost.js";
 
 /** A grid tile: a preview <video> wrapped in the post's own permalink. */
 function tileVideo(id = "7668715391899716886") {
@@ -90,5 +90,26 @@ describe("ttPaintedRect", () => {
   it("leaves the box alone for cover/fill or before metadata", () => {
     expect(ttPaintedRect(stage, 720, 1280, "cover")).toBe(stage);
     expect(ttPaintedRect(stage, 0, 0, "contain")).toBe(stage);
+  });
+});
+
+describe("dragged card spot", () => {
+  const pic = { left: 261, top: 0, width: 614, height: 1091 };
+  it("round-trips a drop inside the picture", () => {
+    const spot = ttCardSpot(pic, 338, 129, 400, 500);
+    const at = ttCardAt(pic, 338, 129, spot);
+    expect(at.left).toBeCloseTo(400);
+    expect(at.top).toBeCloseTo(500);
+  });
+  it("keeps a drop past the edges on the picture", () => {
+    expect(ttCardAt(pic, 338, 129, ttCardSpot(pic, 338, 129, -50, 5000))).toEqual({ left: 261, top: 962 });
+  });
+  it("holds the same spot when the picture shrinks", () => {
+    const spot = { x: 1, y: 1 }; // bottom-right corner
+    expect(ttCardAt({ left: 0, top: 0, width: 400, height: 700 }, 338, 129, spot)).toEqual({ left: 62, top: 571 });
+  });
+  it("rejects what storage may hold that is not a spot", () => {
+    for (const bad of [null, undefined, "x", {}, { x: 0.5 }, { x: NaN, y: 1 }]) expect(ttCardSpotOf(bad)).toBe(null);
+    expect(ttCardSpotOf({ x: 0.2, y: 0.9 })).toEqual({ x: 0.2, y: 0.9 });
   });
 });

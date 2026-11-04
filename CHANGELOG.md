@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.37.0] — 2026-11-04
+
+### Added
+- **The TikTok player's stats card drags.** Drag it anywhere on the picture and the spot is saved (`sw_tt_card_pos`, `{ x, y }` each 0..1 of the room the card has inside the picture), so it holds for every video, at any window size, and never lands off the picture. A double-click puts it back. Dragging does not pause the video (the pointer sequence is swallowed, as on the rail's buttons). A dragged Faixa card drops its centring nudge so it follows the pointer without a jump. Helpers `ttCardSpotOf` / `ttCardAt` / `ttCardSpot` in `src/lib/shared/ttPlayerHost.js`. TikTok only; the Instagram, Facebook and Pinterest players are unchanged.
+
+### Fixed
+- **Every player tick forced a full-page reflow.** `paintTxBadge` (`src/lib/shared/txLang.js`, inlined into all four content scripts) rewrote each BR/EN badge's text every 2 s even when unchanged, dirtying layout, so the next rect read paid for a relayout of the whole page, and the tiles' rewritten badges also woke the tile MutationObserver. It now writes only on change. Measured on TikTok's video modal, same video and scroll, 20 s: the extension went from 93.5 ms to 48.3 ms (`playerHost` 47.3 → 0.4 ms, `renderTileOverlays` 12.5 → 6.2 ms).
+
 ## [1.36.1] — 2026-11-04
 
 ### Fixed

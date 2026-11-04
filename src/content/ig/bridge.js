@@ -146,7 +146,11 @@ function paintTxBadge(btn) {
     badge.className = "fbw-lang-badge";
     btn.appendChild(badge);
   }
-  badge.textContent = txLangInfo(btn.dataset.lang || txLangCache).short;
+  const text = txLangInfo(btn.dataset.lang || txLangCache).short;
+  // Every player tick repaints: an unchanged write still replaced the text node,
+  // dirtying layout, and the rail's next rect read paid a full-page reflow
+  // (~4.7 ms per tick on TikTok's video modal, measured 2026-11-04).
+  if (badge.textContent !== text) badge.textContent = text;
 }
 
 /** Repaint every opted-in badge, dropping buttons whose rail has been torn down.

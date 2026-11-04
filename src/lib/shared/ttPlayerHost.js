@@ -70,3 +70,31 @@ export function ttPaintedRect(r, vw, vh, fit) {
   const left = r.left + (r.width - width) / 2, top = r.top + (r.height - height) / 2;
   return { left, top, width, height, right: left + width, bottom: top + height };
 }
+
+/**
+ * Where the user dragged the player's stats card, for every video:
+ * `{ x, y }`, each 0..1 of the room the card has inside the picture, so the same
+ * spot holds at any window size and the card can never land off the picture.
+ */
+export const TT_CARD_POS_KEY = "sw_tt_card_pos";
+
+/** A stored spot, or null for anything storage hands back that is not one. */
+export function ttCardSpotOf(v) {
+  return v && Number.isFinite(v.x) && Number.isFinite(v.y) ? { x: v.x, y: v.y } : null;
+}
+
+const clamp01 = (n) => Math.min(1, Math.max(0, n));
+
+/** A spot → the top-left of a `cw`×`ch` card inside picture `r`. */
+export function ttCardAt(r, cw, ch, spot) {
+  return {
+    left: r.left + clamp01(spot.x) * Math.max(0, r.width - cw),
+    top: r.top + clamp01(spot.y) * Math.max(0, r.height - ch),
+  };
+}
+
+/** The inverse: the spot for a card whose top-left was dropped at `left`/`top`. */
+export function ttCardSpot(r, cw, ch, left, top) {
+  const rx = r.width - cw, ry = r.height - ch;
+  return { x: rx > 0 ? clamp01((left - r.left) / rx) : 0, y: ry > 0 ? clamp01((top - r.top) / ry) : 0 };
+}
