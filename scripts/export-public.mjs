@@ -33,6 +33,7 @@ const PRIVATE_FILES = [
   "src/lib/syncClient.js", "src/lib/syncClient.test.js", "src/lib/useSyncSettings.js", "src/lib/useSyncSettings.test.js",
   "src/lib/hubStatus.js", "src/lib/hubStatus.test.js", "src/components/ui/HubStatusDot.jsx",
   "src/background/analysisRelay.js", "src/background/analysisRelay.test.js",
+  "src/background/analysisCollect.tiktok.test.js", // only tests preparePost, a @private region
   "src/lib/analysisMedia.js", "src/lib/analysisMedia.test.js",
   // Instagram Scraper export
   "src/background/igExport.js", "src/background/igExport.test.js",

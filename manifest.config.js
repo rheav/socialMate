@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.36.0",
+  version: "1.36.1",
   // @private
   version_name:
-    "1.36.0 — Novo ícone do socialMate",
+    "1.36.1 — Rail e card no lugar certo no vídeo aberto do TikTok",
   // @end-private
   icons: ICONS,
   action: {

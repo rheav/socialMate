@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect } from "vitest";
-import { isTtTileMedia, isTtPlayerSurface, TT_TILE_LINK } from "./ttPlayerHost.js";
+import { isTtTileMedia, isTtPlayerSurface, ttPaintedRect, TT_TILE_LINK } from "./ttPlayerHost.js";
 
 /** A grid tile: a preview <video> wrapped in the post's own permalink. */
 function tileVideo(id = "7668715391899716886") {
@@ -78,5 +78,17 @@ describe("TT_TILE_LINK", () => {
     document.body.innerHTML =
       '<a href="/@a/video/1"></a><a href="/@b/video/2"></a><a href="/@c"></a><a href="/explore"></a>';
     expect(document.querySelectorAll(TT_TILE_LINK).length).toBe(2);
+  });
+});
+
+describe("ttPaintedRect", () => {
+  const stage = { left: 0, top: 0, width: 1600, height: 900, right: 1600, bottom: 900 };
+  it("centres a 9:16 picture letterboxed in a wide contain box", () => {
+    expect(ttPaintedRect(stage, 720, 1280, "contain")).toEqual(
+      { left: 546.875, top: 0, width: 506.25, height: 900, right: 1053.125, bottom: 900 });
+  });
+  it("leaves the box alone for cover/fill or before metadata", () => {
+    expect(ttPaintedRect(stage, 720, 1280, "cover")).toBe(stage);
+    expect(ttPaintedRect(stage, 0, 0, "contain")).toBe(stage);
   });
 });

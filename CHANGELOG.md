@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.36.1] — 2026-11-04
+
+### Fixed
+- **TikTok's video modal (opened from a profile or grid): the rail and the stats card sat on the black stage, off the video.** There the `<video>` spans the whole stage (measured 1136×1091) and letterboxes the picture with `object-fit: contain` (614 px wide), so hanging both on the element's rect put the rail on the stage's left edge, over TikTok's close button, and the card's right edge on the stage's right edge. `ttPaintedRect` (`src/lib/shared/ttPlayerHost.js`) now gives the box the picture actually covers: the rail sits in the black margin 8 px left of the picture, the card inside it, flush right. The feed and the direct `/video/` page (`object-fit: cover`, no margin) are unchanged except that the player card now sits at 60% of the height instead of 55%. Placement measured live: `placeTtRails` costs 6 ms in 20 s including 40 scroll steps.
+- `export:public` failed its test run: `analysisCollect.tiktok.test.js` only tests `preparePost`, a `@private` region; it is now in `PRIVATE_FILES`.
+
 ## [1.36.0] — 2026-11-03
 
 ### Changed

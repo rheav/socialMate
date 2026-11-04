@@ -53,3 +53,20 @@ export function isTtPlayerSurface(pathname, centered) {
   if (TT_PLAYER_ROUTE.test(pathname == null ? "" : String(pathname))) return true;
   return !!centered && !isTtTileMedia(centered);
 }
+
+/**
+ * The part of a <video> box the picture actually covers.
+ *
+ * TikTok's /video/ page stretches the element across the whole black stage and
+ * letterboxes with object-fit:contain, so the element's own rect hung the rail on
+ * the stage's left edge and the stats card on its right edge, both off the picture.
+ * `vw`/`vh` are the intrinsic size (0 until metadata loads → the box as-is).
+ * shortcut: assumes the default centred object-position, read it if a player ever offsets.
+ */
+export function ttPaintedRect(r, vw, vh, fit) {
+  if (fit !== "contain" || !vw || !vh) return r;
+  const s = Math.min(r.width / vw, r.height / vh);
+  const width = vw * s, height = vh * s;
+  const left = r.left + (r.width - width) / 2, top = r.top + (r.height - height) / 2;
+  return { left, top, width, height, right: left + width, bottom: top + height };
+}
