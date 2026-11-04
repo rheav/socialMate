@@ -721,9 +721,9 @@ const HUB_BTN_TIPS = {
 };
 
 // @private
-// The flame of public/icon.svg, on the same 128-unit grid.
+// The flame of public/icon.svg (socialMate hub mark), on the same 128-unit grid.
 const HUB_BTN_MARK =
-  "M64 27C73 48 87 55 87 75C87 87.7 76.7 98 64 98C51.3 98 41 87.7 41 75C41 64.5 48 58 52.5 51.5C54.5 60 60 62 60 56C60 44 60 37 64 27Z";
+  "M62 26c15 14.8 24 27.2 24 41a24 24 0 0 1-48 0c0-8.8 4-16.4 11-23.2 1.2 7.2 4.6 11.2 9.2 12-2.2-10.4.6-20.2 3.8-29.8z";
 // @end-private
 // @public
 // The radar of public/icon-public.svg, on the same 128-unit grid.

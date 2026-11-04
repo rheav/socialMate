@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.36.0] — 2026-11-03
+
+### Changed
+- **New socialMate icon** (the same mark as the hub app): a dark tile with a blue-to-lilac flame and a sparkle. Replaces `public/icon.svg`, the toolbar/store PNGs `public/icons/icon-{16,32,48,128,256}.png` (rendered with resvg, palette PNG8: 481 / 777 / 1189 / 3504 / 8957 bytes), the in-page hub button's flame on Instagram, Facebook and TikTok (`HUB_BTN_MARK`), and the website logo. The public build (socialRadar) keeps its own radar mark, untouched.
+
 ## [1.35.0] — 2026-11-03
 
 ### Changed
