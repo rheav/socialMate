@@ -20,6 +20,8 @@ import {
 } from "@/lib/transcriptCap";
 import { TX_LANG_OPTIONS } from "@/lib/shared/txLang.js";
 import { RAIL_STYLE_KEY, railStyleOf } from "@/lib/shared/railTheme.js";
+import { CARD_POS_KEYS } from "@/lib/shared/cardDrag.js";
+import { Button } from "@/components/ui/button";
 import {
   TRANSCRIPT_LANGUAGE_KEY,
   normalizeTranscriptLanguage,
@@ -142,6 +144,7 @@ export default function OptionsModal({ open, onClose, prefs, setPrefs, theme, se
               onChange={setPinOverlay}
             />
             <RailStylePicker />
+            <CardPositionReset />
           </Section>
 
           <DownloadsSection />
@@ -289,6 +292,33 @@ function RailStylePicker() {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Every platform's player card back to its own default spot. The pages follow the
+// removal live (each listens to its CARD_POS_KEYS entry).
+function CardPositionReset() {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => setDone(false), 1800);
+    return () => clearTimeout(t);
+  }, [done]);
+  const reset = () => {
+    chrome?.storage?.local?.remove(Object.values(CARD_POS_KEYS)).then(() => setDone(true)).catch(() => {});
+  };
+  return (
+    <div className="py-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-foreground">Posição do card</span>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={reset} disabled={done} aria-live="polite">
+          {done ? "Restaurado" : "Voltar ao padrão"}
+        </Button>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        Arraste o card de números no player (TikTok, Instagram, Facebook); cada rede guarda o seu lugar.
+      </p>
     </div>
   );
 }

@@ -16,6 +16,15 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.38.0] — 2026-11-04
+
+### Added
+- **The player stats card drags on Instagram and on Facebook's `/reel/` player too**, each platform with its own saved spot (`CARD_POS_KEYS`: `sw_tt_card_pos`, `sw_ig_card_pos`, `sw_fb_card_pos`), so a drag on one never moves the others. Same rules as TikTok: the spot is 0..1 of the room inside the picture, holds for every video and window size, a double-click puts it back, dragging does not pause the video. Facebook's card sits inside the player (absolute, placed by CSS); it reads layout only while a spot is saved, so the 700 ms tick costs nothing by default.
+- **Opções → Sobreposições → "Posição do card: Voltar ao padrão"** removes all three spots; open pages follow live.
+
+### Changed
+- The drag logic moved from `tt-relay.js` / `ttPlayerHost.js` into one shared module, `src/lib/shared/cardDrag.js` (inlined into the TikTok, Instagram and Facebook reel scripts); the TikTok key is unchanged, so a spot saved by 1.37.0 keeps working.
+
 ## [1.37.0] — 2026-11-04
 
 ### Added

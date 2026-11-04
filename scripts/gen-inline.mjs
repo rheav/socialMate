@@ -49,6 +49,8 @@ const TARGETS = {
     "src/lib/shared/gridSort.js",
     "src/lib/shared/pageSorter.js",
     "src/lib/shared/overlayUi.js",
+    // The player card drags; each platform keeps its own spot.
+    "src/lib/shared/cardDrag.js",
     "src/lib/shared/railTheme.js",
     "src/lib/shared/fbReelsDom.js",
     // The Hub button after the profile's name (socialMate 1.32).
@@ -94,6 +96,7 @@ const TARGETS = {
     // @end-private
     "src/lib/shared/txLang.js",
     "src/lib/shared/igPlayerHost.js",
+    "src/lib/shared/cardDrag.js",
     "src/lib/shared/feedQuery.js",
     "src/lib/shared/igQuery.js",
     "src/lib/shared/gridSort.js",
@@ -134,6 +137,7 @@ const TARGETS = {
     "src/lib/shared/fmt.js",
     "src/lib/shared/ttFormat.js",
     "src/lib/shared/ttPlayerHost.js",
+    "src/lib/shared/cardDrag.js",
     "src/lib/shared/feedQuery.js",
     "src/lib/shared/ttQuery.js",
     "src/lib/shared/gridSort.js",
