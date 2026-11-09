@@ -1461,4 +1461,22 @@ describe("TikTok grid (socialMate 1.29)", () => {
     expect(removed).toEqual([5]);
     expect((data.fbw_spy_activity || []).map((e) => e.text).at(-1)).toBe("Vídeos de @happymindmentor: 1 lido · passada diária");
   });
+
+  it("on TikTok's challenge page, opens the window first and reads the profile again, one window only (socialMate 1.38.1)", async () => {
+    const waf = `<body>Please wait... <p id="wci" class="_wafchallengeid"></p></body>`;
+    const page = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.user-detail": {
+      statusCode: 0, userInfo: { user: { id: "7145819764362101765", uniqueId: "happymindmentor" }, statsV2: { followerCount: "150858" } } } } })}</script>`;
+    const bodies = [waf, page];
+    const fetchImpl = vi.fn(async () => { const body = bodies.shift(); return { ok: true, status: 200, url: "https://www.tiktok.com/@happymindmentor", text: async () => body }; });
+    const opened = [];
+    chrome.windows.create = async (opts) => { opened.push(opts); return { id: 5, tabs: [{ id: 77 }] }; };
+    chrome.windows.remove = async () => {};
+    const work = measureTtProfile(data.fbw_spy.profiles["tiktok:happymindmentor"], "daily", fetchImpl);
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    await sendMessage({ type: "FBW_SPY_TT_POSTS", key: "happymindmentor", records: [rec("7703287306530098455")] }, { ...sender, tab: { id: 77 } });
+    expect(await work).toMatchObject({ ok: true, snapshot: { followers: 150858 } });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(opened).toHaveLength(1);
+  });
 });

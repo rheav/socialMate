@@ -771,11 +771,25 @@ async function collectTtProfile(profile, source, fetchImpl, force, withWindow) {
   });
   if (!reserved) return { ok: false, error: "Aguarde o intervalo de coleta ou o fim da pausa do TikTok.", code: "cooldown" };
   try {
-    const res = await fetchImpl(profileUrl("tiktok", profile.key), {
+    const fetchPage = () => fetchImpl(profileUrl("tiktok", profile.key), {
       credentials: "include",
       headers: { Accept: "text/html,application/xhtml+xml" },
       signal: AbortSignal.timeout(30000),
     });
+    let res = await fetchPage();
+    let page = null;
+    let gridRead = false;
+    // Measured 2026-11-09: without a fresh `_waftokenid` cookie (it lasts 5 min) TikTok answers 200 with a JS
+    // challenge page. Our window passes the challenge (and reads the videos); the page then comes whole.
+    if (withWindow && res.status === 200) {
+      page = await res.text();
+      if (page.includes("_wafchallengeid")) {
+        await readTtGrid(profile, readingSource);
+        gridRead = true;
+        res = await fetchPage();
+        page = null;
+      }
+    }
     if (res.status === 401 || res.status === 403 || res.status === 429) {
       const errCode = res.status === 429 ? "rate_limited" : "login_required";
       await blockPlatform("tiktok", errCode, profile.id, followersReading);
@@ -785,7 +799,7 @@ async function collectTtProfile(profile, source, fetchImpl, force, withWindow) {
       await recordProfileError(profile.id, "not_found", followersReading);
       return { ok: false, error: "not_found" };
     }
-    const parsed = parseTtProfileHtml(await res.text(), res.url || "");
+    const parsed = parseTtProfileHtml(page ?? await res.text(), res.url || "");
     if (!parsed.ok) {
       if (parsed.error === "login_required") await blockPlatform("tiktok", parsed.error, profile.id, followersReading);
       else await recordProfileError(profile.id, parsed.error || "parse_failed", followersReading);
@@ -819,7 +833,7 @@ async function collectTtProfile(profile, source, fetchImpl, force, withWindow) {
     await logSpy("tiktok", "ok", `${parsed.name || "@" + profile.key}: ${parsed.followers.toLocaleString("pt-BR")} seguidores`
       + (force ? " · Medir agora" : source === "visit" ? " · lido pela sua visita" : " · passada diária"));
     scheduleFlushSpy();
-    if (withWindow) await readTtGrid(profile, readingSource);
+    if (withWindow && !gridRead) await readTtGrid(profile, readingSource);
     return { ok: true, snapshot };
   } catch {
     await recordProfileError(profile.id, "network", followersReading);
