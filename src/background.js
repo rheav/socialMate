@@ -72,6 +72,7 @@ import {
   flushSpy,
   measureFbProfile,
   measureIgProfile,
+  measureTtProfile,
   mutateSpy,
   observeIgProfile,
   pauseInstagram,
@@ -2222,7 +2223,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           sendResponse(profile.platform === "facebook"
             ? await measureFbProfile(profile, "visit", fetch, { force: true })
-            : await measureIgProfile(profile));
+            : profile.platform === "tiktok"
+              ? await measureTtProfile(profile, "visit", fetch, { force: true })
+              : await measureIgProfile(profile));
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }

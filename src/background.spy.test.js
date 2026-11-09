@@ -1479,4 +1479,11 @@ describe("TikTok grid (socialMate 1.29)", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(opened).toHaveLength(1);
   });
+
+  it("the ↻ of a TikTok profile in the Spy list measures it on TikTok, not in the Instagram batch (socialMate 1.38.1)", async () => {
+    const fetcher = vi.fn(async () => ({ status: 404, text: async () => "" }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "tiktok:happymindmentor" })).toMatchObject({ ok: false, error: "not_found" });
+    expect(fetcher.mock.calls[0][0]).toBe("https://www.tiktok.com/@happymindmentor");
+  });
 });
