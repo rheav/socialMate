@@ -4,7 +4,7 @@ import { useSpy, useSpyPrefs } from "@/lib/useSpy";
 import { Switch } from "@/components/ui/switch";
 import { dayKey, measureDayKey, measuredAt } from "@/lib/spyStore";
 import { activityNow, profileStatus, reelsLine, syncStatus } from "@/lib/spyStatus";
-import { clockText } from "@/lib/spyActivity";
+import { clockText, errorText } from "@/lib/spyActivity";
 import { parseProfileUrl, profileUrl, spyId } from "@/lib/spyProfile";
 import { PLATFORMS } from "@/lib/platforms";
 
@@ -104,16 +104,16 @@ export default function SpyTool({ activeUrl = "" }) {
   const active = parseProfileUrl(activeUrl);
   const activeId = active ? spyId(active.platform, active.key) : null;
   const saved = profiles.find((p) => p.id === activeId);
-  const run = async (id, action) => {
+  const run = async (id, action, failed = () => "Não consegui salvar a alteração. Tente de novo.") => {
     setBusy(id); setError(null);
     try { await action(); }
     catch (e) {
       setError(e.message === "limit_reached" ? "Limite de 100 perfis. Remova um para salvar outro."
-        : e.message === "not_queued" ? "A leitura não começou. Veja o histórico abaixo." : "Não consegui salvar a alteração. Tente de novo.");
+        : e.message === "not_queued" ? "A leitura não começou. Veja o histórico abaixo." : failed(e.message));
     } finally { setBusy(null); }
   };
   const removeProfile = (id) => run(id, () => remove(id));
-  const measureOne = (id) => run(id, () => measureProfile(id));
+  const measureOne = (id) => run(id, () => measureProfile(id), (code) => `A leitura não deu certo: ${errorText(code)}`);
   const measured = profiles.filter((p) => measuredAt(state, p) != null && measureDayKey(measuredAt(state, p)) === measureDayKey(now)).length;
   const igReads = state.igDaily?.day === dayKey(now) ? state.igDaily.count || 0 : 0;
   const sync = syncStatus(queue, state, hub, now);

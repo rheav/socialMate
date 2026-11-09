@@ -16,6 +16,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.39.0] — 2026-11-09
+
+### Added
+- **The Hub's "Ler agora"** (Hub 1.10.0): a ↻ on each profile card and sheet sends the relay command `spy.measure { profileId }`; `measureCommand` reads that profile now, sends the result to the Hub at once and answers `command_result` with the outcome (`unknown_profile` when the list here does not have it yet). The ↻ of the Spy list and the Hub's button share one function, `measureOne`.
+
+### Fixed
+- **TikTok daily reads failed since 2026-11-04** (`parse_failed` on every profile): without a fresh `_waftokenid` cookie (it lasts 5 min) TikTok answers the profile fetch with a JS challenge page ("Please wait…"). On that page the reading now opens its small window first (it passes the challenge and reads the videos), fetches the profile again, and does not open the window a second time. Measured in Edge on 09/11: @myllamurta read (512.999) right after the window.
+- **The ↻ of a TikTok profile in the Spy list did nothing**: it went to the Instagram batch, which keeps only Instagram profiles. It now reads on TikTok.
+- **One Instagram profile asked for by hand is read even when its views were read in the last 2 h** (the skip stays for "Medir agora" on all profiles).
+- A failed ↻ says why ("A leitura não deu certo: …") instead of "Não consegui salvar a alteração".
+
 ## [1.38.0] — 2026-11-04
 
 ### Added

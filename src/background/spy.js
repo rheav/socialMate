@@ -1128,7 +1128,7 @@ async function advanceIgBatch({ manual = false, only = null } = {}) {
     // A click during a running batch widens it: every profile it has not read yet.
     const widened = { ...batch, manualAt: batch.manualAt || batch.startedAt };
     const extra = Object.values(profiles)
-      .filter((p) => p?.platform === "instagram" && (!only || p.key === only) && !batch.pending.includes(p.key) && igStillPending(p, widened, state) && !igViewsFresh(state, p, now))
+      .filter((p) => p?.platform === "instagram" && (!only || p.key === only) && !batch.pending.includes(p.key) && igStillPending(p, widened, state) && (only || !igViewsFresh(state, p, now)))
       .sort(byMeasured(state)).map((p) => p.key);
     batch = { ...widened, pending: [...batch.pending, ...extra],
       total: Math.max(batch.total || 0, batch.pending.length) + extra.length };
@@ -1148,7 +1148,8 @@ async function advanceIgBatch({ manual = false, only = null } = {}) {
     // `only`: one profile measured by hand, the same batch with a list of one.
     const saved = manual ? Object.values(profiles).filter((p) => p && p.removedAt == null && (!only || p.key === only)) : [];
     const fresh = saved.filter((p) => p.platform === "instagram" && igViewsFresh(state, p, now)).length;
-    const candidates = manual ? saved.filter((p) => !igViewsFresh(state, p, now)) : dueProfiles(profiles, state, now);
+    // One profile asked for by hand is read even when its views are recent.
+    const candidates = manual ? saved.filter((p) => only || !igViewsFresh(state, p, now)) : dueProfiles(profiles, state, now);
     const pending = candidates
       .filter((p) => p.platform === "instagram")
       .sort(byMeasured(state))
@@ -1251,6 +1252,22 @@ async function advanceIgBatch({ manual = false, only = null } = {}) {
   }
 }
 /** "Medir" on one Instagram profile: a manual batch of that profile alone (grid and Reels), routines on or off. */
+/** One saved profile read now, by hand: the ↻ of the Spy list or the Hub's "Ler agora". */
+export function measureOne(profile) {
+  if (profile.platform === "facebook") return measureFbProfile(profile, "visit", fetch, { force: true });
+  if (profile.platform === "tiktok") return measureTtProfile(profile, "visit", fetch, { force: true });
+  return measureIgProfile(profile);
+}
+
+/** The Hub's "Ler agora" (relay command spy.measure): read, then send at once so the card updates. */
+export async function measureCommand(msg, reply) {
+  const profile = (await chrome.storage.local.get(SPY_KEY))[SPY_KEY]?.profiles?.[msg?.profileId];
+  if (!profile || profile.removedAt != null) return reply.result(false, { error: "unknown_profile" });
+  const r = await measureOne(profile);
+  await flushSpy().catch(() => {});
+  return reply.result(r.ok, { error: r.ok ? null : r.code || r.error || "failed" });
+}
+
 export async function measureIgProfile(profile) {
   await serializeIg(() => advanceIgBatch({ manual: true, only: profile.key }));
   const batch = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY]?.igBatch;

@@ -63,11 +63,11 @@ function chromeStub() {
   return stub;
 }
 
-let scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs;
+let scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, measureCommand, advanceReelsJob, fetchWantedThumbs;
 
 beforeAll(async () => {
   vi.stubGlobal("chrome", chromeStub());
-  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs } = await import("./background.js"));
+  ({ scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, measureCommand, advanceReelsJob, fetchWantedThumbs } = await import("./background.js"));
 });
 
 beforeEach(() => {
@@ -1295,6 +1295,12 @@ describe("Medir agora measures every profile on demand", () => {
     expect(alarms["fbw-spy-tick"]).toBeUndefined();
   });
 
+  it("one Instagram profile by hand is read even with its views read minutes ago (socialMate 1.39)", async () => {
+    data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": { ...ig("nasa", now - 60000), viewsReadAt: now - 60000 } } };
+    expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:nasa" })).toMatchObject({ ok: true });
+    expect(data.fbw_spy_state.igBatch).toMatchObject({ pending: ["nasa"], manualAt: expect.any(Number) });
+  });
+
   it("a click on a profile while its batch runs does not queue it twice", async () => {
     data.fbw_spy = { fetchedAt: now, profiles: { "instagram:nasa": ig("nasa", now - 3600000), "instagram:natgeo": ig("natgeo", now - 7200000) } };
     expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "instagram:natgeo" })).toMatchObject({ ok: true });
@@ -1462,7 +1468,7 @@ describe("TikTok grid (socialMate 1.29)", () => {
     expect((data.fbw_spy_activity || []).map((e) => e.text).at(-1)).toBe("Vídeos de @happymindmentor: 1 lido · passada diária");
   });
 
-  it("on TikTok's challenge page, opens the window first and reads the profile again, one window only (socialMate 1.38.1)", async () => {
+  it("on TikTok's challenge page, opens the window first and reads the profile again, one window only (socialMate 1.39)", async () => {
     const waf = `<body>Please wait... <p id="wci" class="_wafchallengeid"></p></body>`;
     const page = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({ __DEFAULT_SCOPE__: { "webapp.user-detail": {
       statusCode: 0, userInfo: { user: { id: "7145819764362101765", uniqueId: "happymindmentor" }, statsV2: { followerCount: "150858" } } } } })}</script>`;
@@ -1480,7 +1486,16 @@ describe("TikTok grid (socialMate 1.29)", () => {
     expect(opened).toHaveLength(1);
   });
 
-  it("the ↻ of a TikTok profile in the Spy list measures it on TikTok, not in the Instagram batch (socialMate 1.38.1)", async () => {
+  it("the Hub's Ler agora (relay spy.measure) reads the profile and answers with the outcome (socialMate 1.39)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ status: 404, text: async () => "" })));
+    const result = vi.fn();
+    await measureCommand({ profileId: "tiktok:happymindmentor" }, { result });
+    expect(result).toHaveBeenCalledWith(false, { error: "not_found" });
+    await measureCommand({ profileId: "tiktok:someone" }, { result });
+    expect(result).toHaveBeenLastCalledWith(false, { error: "unknown_profile" });
+  });
+
+  it("the ↻ of a TikTok profile in the Spy list measures it on TikTok, not in the Instagram batch (socialMate 1.39)", async () => {
     const fetcher = vi.fn(async () => ({ status: 404, text: async () => "" }));
     vi.stubGlobal("fetch", fetcher);
     expect(await sendMessage({ type: "FBW_SPY_MEASURE_ONE", id: "tiktok:happymindmentor" })).toMatchObject({ ok: false, error: "not_found" });

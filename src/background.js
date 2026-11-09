@@ -70,9 +70,8 @@ import { parseProfileUrl, spyId } from "./lib/spyProfile.js";
 import {
   finishIgDeep,
   flushSpy,
-  measureFbProfile,
-  measureIgProfile,
-  measureTtProfile,
+  measureCommand,
+  measureOne,
   mutateSpy,
   observeIgProfile,
   pauseInstagram,
@@ -162,7 +161,11 @@ const analysisRelay = createAnalysisRelay({
   collect: analysisCollect,
   version: chrome.runtime.getManifest?.().version || "",
   // The hub's "Coletar stories": a stories pass now (storiesPass is created below; commands arrive later).
-  commands: { "stories.collect": (msg, reply) => storiesPass.onCommand(msg, reply) },
+  commands: {
+    "stories.collect": (msg, reply) => storiesPass.onCommand(msg, reply),
+    // The Hub's "Ler agora" on one card.
+    "spy.measure": measureCommand,
+  },
 });
 // @end-private
 analysisCollect.recover().catch(() => {});
@@ -2221,11 +2224,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return;
           }
 
-          sendResponse(profile.platform === "facebook"
-            ? await measureFbProfile(profile, "visit", fetch, { force: true })
-            : profile.platform === "tiktok"
-              ? await measureTtProfile(profile, "visit", fetch, { force: true })
-              : await measureIgProfile(profile));
+          sendResponse(await measureOne(profile));
         } catch (err) {
           sendResponse({ ok: false, error: String(err?.message || err) });
         }
@@ -2418,5 +2417,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-export { scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, advanceReelsJob, fetchWantedThumbs } from "./background/spy.js"; // test seam
+export { scheduleSpy, flushSpy, spyTick, measureFbProfile, measureTtProfile, measureCommand, advanceReelsJob, fetchWantedThumbs } from "./background/spy.js"; // test seam
 
