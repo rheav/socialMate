@@ -371,6 +371,35 @@ describe("Instagram path B", () => {
   });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
+  const log = () => (data.fbw_spy_activity || []).map((e) => `${e.platform}|${e.tone}|${e.text}`);
+  it("tries again in 5 min when the automatic batch's tab never answered, the profiles' attempts untouched (1.40)", async () => {
+    chrome.tabs.sendMessage = vi.fn(async () => { throw new Error("no receiver"); });
+    const tick = spyTick();
+    await vi.advanceTimersByTimeAsync(21000);
+    await tick;
+    expect(log().at(-1)).toMatch(/^instagram\|warn\|Lote encerrado · 0 de 1 perfis \(0 lidos\) — a aba do Instagram não respondeu em 20 s; nova tentativa às \d\d:\d\d$/);
+    expect(data.fbw_spy_state.attempts?.["instagram:nasa"]).toBeUndefined();
+    expect(data.fbw_spy_state.igTabRetry).toMatchObject({ day: "2026-10-03", n: 1 });
+    chrome.tabs.create.mockClear();
+    await spyTick();
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    // The network is back five minutes later: the batch opens.
+    vi.setSystemTime(Date.now() + 5 * 60000);
+    chrome.tabs.sendMessage = vi.fn(async () => ({ ok: true, spy: true }));
+    await spyTick();
+    expect(chrome.tabs.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("spends the attempts once the day's three quick retries are used", async () => {
+    data.fbw_spy_state.igTabRetry = { day: "2026-10-03", n: 3, until: now - 1 };
+    chrome.tabs.sendMessage = vi.fn(async () => { throw new Error("no receiver"); });
+    const tick = spyTick();
+    await vi.advanceTimersByTimeAsync(21000);
+    await tick;
+    expect(log().at(-1)).toContain("abra o Instagram neste Chrome e confira se está logado");
+    expect(data.fbw_spy_state.attempts["instagram:nasa"]).toMatchObject({ n: 1 });
+  });
+
   it("starts a private background tab and persists the oldest-first batch capped at 20", async () => {
     data.fbw_spy.profiles = Object.fromEntries(Array.from({ length: 25 }, (_, i) => {
       const p = profile(`p${i}`, now - (i + 1) * 86400000); return [p.id, p];

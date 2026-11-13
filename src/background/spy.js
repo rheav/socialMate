@@ -1051,6 +1051,23 @@ function igStillPending(profile, batch, state) {
 }
 // "Medir agora" skips a profile whose views were read this recently: the daily cap goes to the ones behind.
 const IG_VIEWS_FRESH_MS = 2 * 3600 * 1000;
+// An automatic batch whose tab never answered (13/11: the Mac had just woken, no network yet) is not the
+// profiles' fault: it tries again this soon, this many times per measurement day, before spending their
+// attempts (SPY_RETRY_MS, 6 h).
+const IG_TAB_RETRY_MS = 5 * 60 * 1000;
+const IG_TAB_RETRIES = 3;
+/** Holds the automatic batch IG_TAB_RETRY_MS; returns when it may start again, or null once the day's retries are used. */
+async function deferIgBatch(at = Date.now()) {
+  return mutateSpy(async () => {
+    const state = (await chrome.storage.local.get(SPY_STATE_KEY))[SPY_STATE_KEY] || emptySpyState(at);
+    const day = measureDayKey(at);
+    const n = state.igTabRetry?.day === day ? state.igTabRetry.n : 0;
+    if (n >= IG_TAB_RETRIES) return null;
+    const until = at + IG_TAB_RETRY_MS;
+    await chrome.storage.local.set({ [SPY_STATE_KEY]: { ...state, igTabRetry: { day, n: n + 1, until } } });
+    return until;
+  });
+}
 const igViewsFresh = (state, profile, now) => (measuredAt(state, profile) || 0) > now - IG_VIEWS_FRESH_MS;
 // Never-read views first, then the oldest: a cap cuts the ones read most recently.
 const byMeasured = (state) => (a, b) => (measuredAt(state, a) || 0) - (measuredAt(state, b) || 0) || (a.lastMeasuredAt || 0) - (b.lastMeasuredAt || 0);
@@ -1142,6 +1159,8 @@ async function advanceIgBatch({ manual = false, only = null } = {}) {
     });
   }
   if (!batch) {
+    // The automatic batch waits out a tab that did not answer (deferIgBatch); a click does not.
+    if (!manual && (state.igTabRetry?.until || 0) > now) return;
     const limit = igLimit(r[SPY_PREFS_KEY]);
     const remaining = limit - igDailyCount(state, now);
     // "Medir agora" reads every Instagram profile; the daily pass only the due ones.
@@ -1193,7 +1212,10 @@ async function advanceIgBatch({ manual = false, only = null } = {}) {
       return;
     }
     if (!ready) {
-      await closeIgBatch({ abandoned: true, why: "a aba do Instagram não respondeu em 20 s; abra o Instagram neste Chrome e confira se está logado" });
+      const retryAt = batch.manualAt ? null : await deferIgBatch();
+      await closeIgBatch(retryAt
+        ? { why: `a aba do Instagram não respondeu em 20 s; nova tentativa às ${clockText(retryAt)}` }
+        : { abandoned: true, why: "a aba do Instagram não respondeu em 20 s; abra o Instagram neste Chrome e confira se está logado" });
       return;
     }
   }

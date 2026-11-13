@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.39.1] — 2026-11-13
+
+### Fixed
+- **A morning catch-up batch that gave up on its tab cost the whole day's reading.** On 13/11 the 23:00 batch did not run (Mac off) and the catch-up at 07:18, seconds after the Mac woke with no network yet, ended with "a aba do Instagram não respondeu em 20 s"; every pending profile was charged an attempt, so the next try was 6 h later and the Hub's Top went out on numbers from the day before. An automatic batch whose tab does not answer now tries again in 5 min (`deferIgBatch`, `fbw_spy_state.igTabRetry`), up to 3 times per measurement day, without charging the profiles; after that, as before. A batch started by hand behaves as before.
+
 ## [1.39.0] — 2026-11-09
 
 ### Added
