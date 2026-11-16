@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.39.2] — 2026-11-16
+
+### Fixed
+- **The Instagram reel card sometimes came up with no views, no views/day and no engagement (only likes, comments, reposts, date).** Measured on `/reels/<code>/`: `media/info` filled the views about 1 s after load, before the bridge listened (document_idle), and the same reel arriving again in a views-less payload replaced the MAIN world's replay record (`scan()` in `content/ig/main-world.js`), so every replay the bridge asked for carried `play_count: null`. Whether the card had views depended on which of the two arrived first. `scan()` now merges into the buffered record (`mergeIgRecord`) instead of replacing it; the old duration-only patch there is folded into that.
+
 ## [1.39.1] — 2026-11-13
 
 ### Fixed

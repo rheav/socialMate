@@ -971,14 +971,16 @@ function igCommentGapMs(random = Math.random) {
         // Require a shortcode: skips carousel children (image objects with a pk
         // but no code) that would otherwise flood the list as empty-stat cards.
         if (!m.code) continue;
-        const r = lite(m);
+        const fresh = lite(m);
         // Stamp the surface HERE, where the record is actually seen. The bridge
         // used to decide it at relay time, which mislabels every replayed record
         // (see src/lib/shared/igSurface.js).
-        r.__surface = igSurface.stamp();
-        const key = r.code || r.pk;
-        // A later sparse grid payload must not erase duration from bridge replay.
-        if (r.duration == null) r.duration = all.get(key)?.duration ?? null;
+        fresh.__surface = igSurface.stamp();
+        const key = fresh.code || fresh.pk;
+        // Merge, never replace: the bridge listens only from document_idle and is
+        // fed from this buffer, so a later sparse payload of the same media used to
+        // wipe the views (and duration) media/info had filled in — card without views.
+        const r = mergeIgRecord(all.get(key), fresh);
         if (r.code) all.set(r.code, r);
         if (r.pk) all.set(r.pk, r);
         // The caption is part of the signature: an edited caption is news too.

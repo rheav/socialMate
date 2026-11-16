@@ -108,6 +108,15 @@ describe("Instagram Spy video duration", () => {
     expect(t.replay()[0]).toMatchObject({ duration: 42.5 });
   });
 
+  // Measured on /reels/ 2026-11-16: media/info filled the views before the bridge
+  // listened, then the same reel in a views-less payload wiped them from replay.
+  it("keeps views in replay after a later payload without them", () => {
+    const t = boot();
+    t.parse({});
+    t.parse({ play_count: null, like_count: 13 });
+    expect(t.replay()[0]).toMatchObject({ play_count: 200, like_count: 13 });
+  });
+
   it.each([
     [{ video_duration: 15.25, video_dash_manifest: '<MPD mediaPresentationDuration="PT99S"/>' }, 15.25],
     [{ video_duration: 0, video_dash_manifest: "<MPD mediaPresentationDuration='PT1H2M3.5S'/>" }, 3723.5],
