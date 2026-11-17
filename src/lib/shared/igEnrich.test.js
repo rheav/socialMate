@@ -9,6 +9,7 @@ import {
   igViewCount,
   stripJsonGuard,
   sameIgUserStats,
+  igEnrichThrottled,
 } from "./igEnrich.js";
 
 // VERIFIED live on /explore/search/keyword/?q=%23auralytrend (2026-08-15):
@@ -196,5 +197,24 @@ describe("spy profile metadata", () => {
     expect(sameIgUserStats(a, { ...a, profile_pic_url: "new" })).toBe(true);
     expect(sameIgUserStats(a, { ...a, follower_count: 11 })).toBe(false);
     expect(sameIgUserStats(a, { ...a, full_name: "New" })).toBe(false);
+  });
+});
+
+describe("igEnrichThrottled", () => {
+  it("stops on 429, 401 and 403", () => {
+    for (const status of [429, 401, 403]) expect(igEnrichThrottled({ status, contentType: "application/json" })).toBe(true);
+  });
+  it("stops on a 200 that is HTML (app shell or login wall)", () => {
+    expect(igEnrichThrottled({ status: 200, contentType: "text/html; charset=utf-8" })).toBe(true);
+  });
+  it("stops on a JSON fail that asks to wait", () => {
+    expect(igEnrichThrottled({ status: 400, contentType: "application/json",
+      json: { status: "fail", message: "Please wait a few minutes before you try again." } })).toBe(true);
+  });
+  it("keeps going on a normal answer, a 404 or a deleted post", () => {
+    expect(igEnrichThrottled({ status: 200, contentType: "application/json; charset=utf-8", json: { status: "ok", items: [] } })).toBe(false);
+    expect(igEnrichThrottled({ status: 404, contentType: "text/html" })).toBe(false);
+    expect(igEnrichThrottled({ status: 400, contentType: "application/json",
+      json: { status: "fail", message: "Media not found or unavailable" } })).toBe(false);
   });
 });

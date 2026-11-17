@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.39.2",
+  version: "1.39.3",
   // @private
   version_name:
-    "1.39.2 — card do reel no Instagram não perde mais as views",
+    "1.39.3 — chamadas ao Instagram com os headers do próprio site e pausa ao primeiro bloqueio",
   // @end-private
   icons: ICONS,
   action: {

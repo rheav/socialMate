@@ -16,6 +16,12 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.39.3] — 2026-11-16
+
+### Changed
+- **Our Instagram `/api/v1` calls carry the headers Instagram's own calls carry.** The views enrichment (`media/info`) and "Coletar todos" in Comentários sent only `x-ig-app-id` (and the CSRF token, for comments); they now also copy `x-ig-www-claim` and `x-asbd-id` from the page's own requests (the claim falls back to `sessionStorage['www-claim-v2']`), never inventing a value (`igApiHeaders` in `src/content/ig/main-world.js`, `IG_COPIED_HEADERS` in `src/lib/shared/igEnrich.js`). IShort, another extension, found `media/info` refused with 403 on many sessions without the claim. Measured 2026-11-16 in the shared Chrome: Instagram sends `x-asbd-id: 359341` (the `129477` IShort hard-codes is stale), and the built script's 25 `media/info` calls on `/explore/search/keyword/?q=tarot` all carried both headers and all answered 200.
+- **The views enrichment stops for 5 minutes at the first push-back** (`igEnrichThrottled`): a 429/401/403, a 200 that is not JSON (the app shell or a login wall), or a JSON `fail` asking to wait or log in. Every enrichment fired in parallel used to keep going after Instagram started refusing. A 404 or a deleted post does not stop the rest; a post skipped during the pause is asked about again on its next sighting.
+
 ## [1.39.2] — 2026-11-16
 
 ### Fixed

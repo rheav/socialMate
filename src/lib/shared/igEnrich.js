@@ -154,3 +154,24 @@ export function sameIgUserStats(prev, next) {
   const { profile_pic_url: _nextAvatar, ...b } = next;
   return JSON.stringify(a) === JSON.stringify(b);
 }
+
+// Headers Instagram's web app sets on its own /api/v1 calls. Ours copy whatever
+// the page last sent (never invented values): IShort found media/info refused with
+// 403 on many sessions until it sent the www-claim.
+export const IG_COPIED_HEADERS = ["x-ig-app-id", "x-ig-www-claim", "x-asbd-id"];
+
+/** How long every enrichment waits after an answer that says "stop asking". */
+export const IG_ENRICH_PAUSE_MS = 5 * 60 * 1000;
+
+/**
+ * Whether a media/info answer means Instagram is pushing back: 429/401/403, a 200
+ * that is not JSON (the app shell or a login wall served instead of data), or a
+ * JSON "fail" whose message asks to wait / log in. A 404 or a plain fail on one
+ * deleted post is not a reason to stop the rest.
+ */
+export function igEnrichThrottled({ status, contentType, json }) {
+  if (status === 429 || status === 401 || status === 403) return true;
+  if (status >= 200 && status < 300 && !/json/i.test(String(contentType || ""))) return true;
+  const msg = json && json.status === "fail" ? String(json.message || "") : "";
+  return /wait|limit|checkpoint|login|challenge|feedback/i.test(msg);
+}
