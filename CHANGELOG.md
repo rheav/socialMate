@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.40.0] — 2026-11-16
+
+### Added
+- **"Busca viral" from the Hub (Hub 1.24.0).** The relay command `search.run { platform, q, limit }` opens one keyword search in a small window of ours (the Spy's TikTok window: 440×780, never focused): `instagram.com/explore/search/keyword/?q=` or `tiktok.com/search/video?q=`. It sends no request of its own: the page asks for its results as it scrolls (`FBW_IG_SCROLL` / `FBW_TT_SCROLL`, 8 rounds), the capture scripts keep them as usual, and the worker reads them back with `FBW_IG_LIST` / `FBW_TT_LIST` every 3 s (`src/background/viralSearch.js`). It ends at 60 videos, after 4 polls with nothing new (30 s of grace before the first result), or at 80 s; on Instagram it then waits 6 s for the last page's views. The answer is the videos filed under that search (`search:<words>`), photos left out: link, author, caption, cover, views, likes, comments, shares and the author's followers (TikTok), date, duration. A leading `#` is dropped (Instagram's hashtag page crashes, measured 2026-10-19). Refused while the Spy has the platform paused (`rate_limited`) or while another search runs (`busy`); a search page that turns into the login page answers `login_required`. Measured 2026-11-16 end to end (local Hub, this build in a test Chrome with the shared profile's session): "tarot" on Instagram returned 60 reels with views in about 20 s; each scroll of the search page brings 24 more (`PolarisKeywordSearchExplorePageRelayPaginationQuery`). TikTok's search page was measured separately (12 videos a page with views and followers); a window that other windows cover is "hidden" and stops at the first page.
+
 ## [1.39.3] — 2026-11-16
 
 ### Changed

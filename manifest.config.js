@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.39.3",
+  version: "1.40.0",
   // @private
   version_name:
-    "1.39.3 — chamadas ao Instagram com os headers do próprio site e pausa ao primeiro bloqueio",
+    "1.40.0 — Busca viral do Hub: busca por palavra no Instagram e no TikTok numa janela pequena",
   // @end-private
   icons: ICONS,
   action: {

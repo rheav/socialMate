@@ -97,6 +97,7 @@ import { IG_EXPORT_ALARM, acceptIgCapture, createIgExport } from "./background/i
 import { createAnalysisCollect } from "./background/analysisCollect.js";
 // @private
 import { createAnalysisRelay } from "./background/analysisRelay.js";
+import { createViralSearch } from "./background/viralSearch.js";
 // @end-private
 
 // @private
@@ -165,6 +166,16 @@ const analysisRelay = createAnalysisRelay({
     "stories.collect": (msg, reply) => storiesPass.onCommand(msg, reply),
     // The Hub's "Ler agora" on one card.
     "spy.measure": measureCommand,
+    // The Hub's "Busca viral": one keyword search in a small window of ours.
+    "search.run": (msg, reply) => viralSearch.run(msg, reply),
+  },
+});
+const viralSearch = createViralSearch({
+  windows: chrome.windows,
+  tabs: chrome.tabs,
+  isBlocked: async (platform) => {
+    const r = await chrome.storage.local.get(SPY_STATE_KEY_FOR_STORIES);
+    return spyIsBlocked(r[SPY_STATE_KEY_FOR_STORIES], platform, Date.now());
   },
 });
 // @end-private
