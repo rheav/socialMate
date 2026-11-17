@@ -1429,7 +1429,9 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
     const likes = num(rec.like_count);
     const comments = num(rec.comment_count);
     const durationS = rec.media_type === "video" && Number.isFinite(rec.duration) && rec.duration > 0 ? rec.duration : null;
-    const sig = `${views ?? ""}|${likes ?? ""}|${comments ?? ""}|${createdAt}|${durationS ?? ""}`;
+    const paid = typeof rec.paid === "boolean" ? rec.paid : null;
+    // A post that turns out paid is sent again; the others keep the signature they had.
+    const sig = `${views ?? ""}|${likes ?? ""}|${comments ?? ""}|${createdAt}|${durationS ?? ""}${paid ? "|paid" : ""}`;
     if (sent.get(rec.pk) === sig) continue;
     const pinnedBy = Array.isArray(rec.pinned_by) ? rec.pinned_by : [];
     out.push({
@@ -1438,6 +1440,7 @@ function spyGridPosts(records, key, ownerId, sent, pkSeconds) {
       id: rec.pk, createdAt, exactDate: Number.isInteger(rec.taken_at), mediaType: rec.media_type || null,
       pinned: pinnedBy.length > 0 && (!owner || pinnedBy.includes(owner)),
       code: rec.code || null, views, likes, comments, durationS, observedAt: Date.now(), thumbUrl: rec.thumb || rec.image || null, sig,
+      paid, sponsors: Array.isArray(rec.sponsors) ? rec.sponsors : [],
     });
   }
   return out;

@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.43.0] — 2026-11-16
+
+### Added
+- **Instagram's "Parceria paga" label travels with every Spy post (Hub 1.29.0, "Publis no nicho").** `lite()` (`main-world.js`) keeps `paid` from `is_paid_partnership` and `sponsors` from `sponsor_tags` (`sponsor.username` or `username`, up to 5); `spyGridPosts` (`bridge.js`) and `queuePosts` (`spyStore.js`) carry them to the Hub, which keeps paid posts out of its medians and outliers and lists the brands. A post that turns paid is sent again; unpaid posts keep the signature they had. Measured 2026-11-16: every grid post carries the flag (36 of 36 on three large accounts, all false; this build's capture: 16 of 16 with `paid: false`). No paid post was seen, so the sponsors' shape is not confirmed live.
+
 ## [1.42.0] — 2026-11-16
 
 ### Added

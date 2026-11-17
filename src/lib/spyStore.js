@@ -403,6 +403,11 @@ export function queuePosts(queue, profileId, posts) {
       exactDate: p.exactDate !== false,
       ...(observedAt == null ? {} : { observedAt }),
       ...(p.durationS === undefined ? {} : { durationS: p.mediaType === "video" && Number.isFinite(p.durationS) && p.durationS > 0 ? p.durationS : null }),
+      // Instagram's paid-partnership label (socialMate 1.43) and who sponsored it.
+      ...(p.paid === undefined ? {} : {
+        paid: typeof p.paid === "boolean" ? p.paid : null,
+        sponsors: Array.isArray(p.sponsors) ? p.sponsors.filter((u) => typeof u === "string" && /^[\w.]{1,30}$/.test(u)).slice(0, 5) : [],
+      }),
       // TikTok (socialMate 1.29): what its grid adds.
       ...(p.saves === undefined ? {} : {
         shares: count(p.shares), saves: count(p.saves), reposts: count(p.reposts),

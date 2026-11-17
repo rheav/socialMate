@@ -118,6 +118,12 @@
           username: (c && c.username) || null }))
         : null,
       repost: m.media_repost_count != null ? m.media_repost_count : null,
+      // Instagram's "Parceria paga" label (socialMate 1.43): every grid post carries the flag
+      // (measured 2026-11-16: 36 of 36, all false); the sponsors' shape is a best guess, no paid post was seen.
+      paid: typeof m.is_paid_partnership === "boolean" ? m.is_paid_partnership : null,
+      sponsors: Array.isArray(m.sponsor_tags)
+        ? m.sponsor_tags.map((t) => (t && ((t.sponsor && t.sponsor.username) || t.username)) || null).filter(Boolean).slice(0, 5)
+        : null,
       // Who posted it, so the creator stats collected below can be joined on.
       userid: u.pk != null ? String(u.pk) : (u.id != null ? String(u.id) : null),
       // The sound it rides: audio_id deep-links to every other reel using it.

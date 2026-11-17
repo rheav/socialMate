@@ -460,6 +460,15 @@ describe("igLimit", () => {
 });
 
 describe("queuePosts", () => {
+  it("keeps Instagram's paid-partnership flag and valid sponsor handles (1.43)", () => {
+    const q = queuePosts(undefined, "instagram:nasa", [
+      { id: "3001", createdAt: 1791000000, mediaType: "video", paid: true, sponsors: ["deck.brand", "../x", 7] },
+      { id: "3002", createdAt: 1791000001, mediaType: "video" },
+    ]);
+    const posts = Object.values(q.posts);
+    expect(posts.find((x) => x.id === "3001")).toMatchObject({ paid: true, sponsors: ["deck.brand"] });
+    expect(posts.find((x) => x.id === "3002")).not.toHaveProperty("paid");
+  });
   it("keeps each Instagram post once per profile with its publication time and drops malformed rows", () => {
     let q = queuePosts(undefined, "instagram:nasa", [
       { id: "3001", createdAt: 1791000000, mediaType: "photo", pinned: false },

@@ -76,6 +76,15 @@ describe("posts per day from a saved profile's grid", () => {
     expect(ids(spyGridPosts(records, "barbie.the.aries", OWNER, new Map(), pkSeconds))).toEqual(["4001511883701836730"]);
   });
 
+  it("carries Instagram's paid-partnership flag and sponsors, and re-sends a post that became paid (1.43)", () => {
+    const sent = new Map();
+    const [first] = spyGridPosts([rec("4001511883701836730", { paid: false, sponsors: [] })], "barbie.the.aries", OWNER, sent, pkSeconds);
+    expect(first).toMatchObject({ paid: false, sponsors: [] });
+    sent.set(first.id, first.sig);
+    const [again] = spyGridPosts([rec("4001511883701836730", { paid: true, sponsors: ["deck.brand"] })], "barbie.the.aries", OWNER, sent, pkSeconds);
+    expect(again).toMatchObject({ paid: true, sponsors: ["deck.brand"] });
+  });
+
   it("counts a collab for each co-author and matches by handle while the id is unknown", () => {
     const collab = rec("4000000000000000001", { username: "partner", userid: "555",
       coauthors: [{ id: "555", username: "partner" }, { id: OWNER, username: "barbie.the.aries" }] });
@@ -118,7 +127,7 @@ describe("the week's numbers for the top 3", () => {
     expect(sig).toBe("528|12|13|1791237442|");
     expect([post]).toEqual([{
       id: "4001511883701836730", createdAt: 1791237442, exactDate: true, mediaType: "video", pinned: false, code: "DeIOdt4jVu6",
-      views: 528, likes: 12, comments: 13, durationS: null, observedAt: expect.any(Number), thumbUrl: "https://cdn/t.jpg",
+      views: 528, likes: 12, comments: 13, durationS: null, observedAt: expect.any(Number), thumbUrl: "https://cdn/t.jpg", paid: null, sponsors: [],
     }]);
   });
 
