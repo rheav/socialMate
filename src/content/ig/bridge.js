@@ -1095,6 +1095,14 @@ function startHubButton(platform, placeOf) {
     try { chrome.runtime.sendMessage({ type: "FBW_SPY_IG_DEEP_DONE", key: username, ...result }, () => void chrome.runtime.lastError); } catch {}
   });
 
+  // "Contas semelhantes" (socialMate 1.41): the last suggested-accounts list this page
+  // loaded, read by the worker with FBW_IG_SIMILAR.
+  let igSimilar = null;
+  window.addEventListener("message", (e) => {
+    if (e.source !== window || !e.data || !e.data.__fbwIgSimilar || disabled) return;
+    igSimilar = e.data.__fbwIgSimilar;
+  });
+
   // "Coletar todos": the MAIN world reads a whole thread and reports its progress
   // here; the panel reads it with FBW_IG_COMMENTS.
   let igCollect = null;
@@ -1247,6 +1255,10 @@ function startHubButton(platform, placeOf) {
         surface: surfaceKey(),
         surfaces: tallySurfaces(byId.values()),
       });
+      return;
+    }
+    if (msg?.type === "FBW_IG_SIMILAR") {
+      sendResponse({ similar: igSimilar });
       return;
     }
     if (msg?.type === "FBW_IG_COMMENTS") {

@@ -1537,6 +1537,17 @@ function igCommentGapMs(random = Math.random) {
       }
       if (txt && (txt.indexOf("expiring_at") > -1 || txt.indexOf("reel_type") > -1)) scanReels(out);
       if (txt && txt.indexOf(COMMENT_ROOT) > -1) scanComments(out);
+      // "Contas semelhantes" (socialMate 1.41): a profile page preloads Instagram's own
+      // suggested accounts (PolarisProfileSuggestedUsersWithPreloadableQuery; 70 users,
+      // measured 2026-11-16). The bridge keeps the last list for the worker.
+      if (txt && txt.indexOf("xdt_api__v1__discover__chaining") > -1) {
+        try {
+          const users = (out.data.xdt_api__v1__discover__chaining.users || []).slice(0, 300)
+            .filter((u) => u && u.username)
+            .map((u) => ({ username: u.username, full_name: u.full_name || null, verified: !!u.is_verified, private: !!u.is_private, pic: u.profile_pic_url || null }));
+          window.postMessage({ __fbwIgSimilar: { path: location.pathname, users } }, location.origin);
+        } catch (_) {}
+      }
     }
     return out;
   };

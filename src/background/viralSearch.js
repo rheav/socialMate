@@ -17,6 +17,7 @@ const POLL_MS = 3000;
 const DEADLINE_MS = 80_000; // under the Hub's 120 s of silence, with progress in between
 const STALE_POLLS = 4; // no new result for this many polls: the search is over
 const FIRST_RESULT_POLLS = 10;
+const SIMILAR_WAIT_MS = 30_000;
 const IG_SETTLE_MS = 6000; // the views of the last page arrive after it
 const LOGIN_URL = /instagram\.com\/(accounts\/login|challenge)|tiktok\.com\/login/;
 
@@ -133,5 +134,41 @@ export function createViralSearch({ windows, tabs, isBlocked, sleep = (ms) => ne
       if (win?.id != null) { try { await windows.remove(win.id); } catch { /* closed already */ } }
     }
   }
-  return { run };
+
+  /**
+   * `similar.run { username }` (socialMate 1.41, Hub "Contas semelhantes"): the Instagram
+   * profile in the same small window; its page preloads Instagram's suggested accounts,
+   * which the IG capture hands over (FBW_IG_SIMILAR). One page load, no click, no request of ours.
+   */
+  async function similar(msg, reply) {
+    const username = String(msg?.username || "").toLowerCase();
+    if (!/^[a-z0-9._]{1,30}$/.test(username)) { reply.result(false, { error: "bad_request" }); return; }
+    if (running) { reply.result(false, { error: "busy" }); return; }
+    if (await isBlocked("instagram")) { reply.result(false, { error: "rate_limited" }); return; }
+    running = true;
+    let win = null;
+    try {
+      win = await windows.create({ url: `https://www.instagram.com/${username}/`, ...WINDOW });
+      const tabId = win?.tabs?.[0]?.id;
+      if (tabId == null) { reply.result(false, { error: "no_window" }); return; }
+      const start = now();
+      while (now() - start < SIMILAR_WAIT_MS) {
+        await sleep(POLL_MS);
+        let at = "";
+        try { at = (await tabs.get(tabId))?.url || ""; } catch { /* closed */ }
+        if (LOGIN_URL.test(at)) { reply.result(false, { error: "login_required" }); return; }
+        let got = null;
+        try { got = (await tabs.sendMessage(tabId, { type: "FBW_IG_SIMILAR" }))?.similar || null; } catch { /* not up yet */ }
+        if (got && String(got.path || "").toLowerCase().replace(/\/+$/, "") === `/${username}` && Array.isArray(got.users)) {
+          reply.result(true, { username, users: got.users });
+          return;
+        }
+      }
+      reply.result(false, { error: "no_similar" });
+    } finally {
+      running = false;
+      if (win?.id != null) { try { await windows.remove(win.id); } catch { /* closed already */ } }
+    }
+  }
+  return { run, similar };
 }

@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.41.0] — 2026-11-16
+
+### Added
+- **"Contas semelhantes" from the Hub (Hub 1.25.0).** The relay command `similar.run { username }` opens the Instagram profile in the Busca viral's small window and answers with the accounts Instagram itself suggests as similar: username, name, verified, private, picture (`similar` in `src/background/viralSearch.js`). No click and no request of ours: measured 2026-11-16, every profile load preloads `PolarisProfileSuggestedUsersWithPreloadableQuery` (doc `27929823133325729`, `{ module: "profile", target_id }`), whose `data.xdt_api__v1__discover__chaining.users` held 70 accounts; the IG capture (`main-world.js` → `__fbwIgSimilar` → `bridge.js`) keeps the last list and answers `FBW_IG_SIMILAR`. Shares the search's one-at-a-time lock, its Spy pause check and its login-page check; no list in 30 s answers `no_similar`. Measured end to end the same night: @sophieruffustarot's sheet in a local Hub listed 70 accounts.
+
 ## [1.40.0] — 2026-11-16
 
 ### Added

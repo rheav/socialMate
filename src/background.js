@@ -168,6 +168,8 @@ const analysisRelay = createAnalysisRelay({
     "spy.measure": measureCommand,
     // The Hub's "Busca viral": one keyword search in a small window of ours.
     "search.run": (msg, reply) => viralSearch.run(msg, reply),
+    // The Hub's "Contas semelhantes" on an Instagram profile: Instagram's own suggestions.
+    "similar.run": (msg, reply) => viralSearch.similar(msg, reply),
   },
 });
 const viralSearch = createViralSearch({

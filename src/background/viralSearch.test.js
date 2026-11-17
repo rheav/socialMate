@@ -73,3 +73,29 @@ describe("createViralSearch", () => {
     expect(s.reply.result.mock.calls[0][1].results).toHaveLength(2);
   });
 });
+
+describe("similar", () => {
+  function setup(answers, url = "https://www.instagram.com/maga/") {
+    let t = 0;
+    const tabs = { get: vi.fn(async () => ({ url })), sendMessage: vi.fn(async () => (answers.length ? answers.shift() : { similar: null })) };
+    const windows = { create: vi.fn(async () => ({ id: 9, tabs: [{ id: 90 }] })), remove: vi.fn(async () => {}) };
+    const search = createViralSearch({ windows, tabs, isBlocked: async () => false, sleep: async (ms) => { t += ms; }, now: () => t });
+    return { search, windows, reply: { progress: vi.fn(), result: vi.fn() } };
+  }
+  const users = [{ username: "bruxa", full_name: "Bruxa", verified: false, private: false, pic: "https://cdn/p.jpg" }];
+  it("opens the profile and answers with the list filed under that profile's path", async () => {
+    const s = setup([{ similar: null }, { similar: { path: "/other/", users } }, { similar: { path: "/Maga/", users } }]);
+    await s.search.similar({ username: "Maga" }, s.reply);
+    expect(s.windows.create.mock.calls[0][0].url).toBe("https://www.instagram.com/maga/");
+    expect(s.reply.result).toHaveBeenCalledWith(true, { username: "maga", users });
+    expect(s.windows.remove).toHaveBeenCalledWith(9);
+  });
+  it("refuses a bad handle and gives up after 30 s with no list", async () => {
+    const a = setup([]);
+    await a.search.similar({ username: "../x" }, a.reply);
+    expect(a.reply.result).toHaveBeenCalledWith(false, { error: "bad_request" });
+    const b = setup([]);
+    await b.search.similar({ username: "maga" }, b.reply);
+    expect(b.reply.result).toHaveBeenCalledWith(false, { error: "no_similar" });
+  });
+});
