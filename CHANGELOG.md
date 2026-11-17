@@ -16,6 +16,11 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.42.0] — 2026-11-16
+
+### Added
+- **The first page of comments of every analysed Instagram video goes to the Hub, for "O que o público pergunta" (Hub 1.27.0).** The analysis tab is a hidden background tab, and measured 2026-11-16 a hidden post page never loads its comments (none in its HTML, no request, at `/p/<code>/` and at `/<user>/reel/<code>/`). So `igAnalysisCollect` (`bridge.js`), when the sweep did not ask for the thread, has the MAIN world read one page of `/api/v1/media/<pk>/comments/` (`firstComments` in `main-world.js`, once per post, through the normal comment path) and waits up to 8 s; measured end to end with this build in a test Chrome: 15 comments (of 30) in the analysis-marked tab. `preparePost` files them with the evidence as `comments: [{ text, likes, reply }]` (up to 100, 500 characters each); the Hub keeps them apart from the evidence, so the analysis and its hash are unchanged. One extra request per analysed post. TikTok videos send none yet.
+
 ## [1.41.0] — 2026-11-16
 
 ### Added

@@ -354,6 +354,11 @@ export function createAnalysisCollect({
       if (page) {
         body.caption = { text: page.caption?.text ?? null, full: !!page.caption?.full };
         body.authors = page.authors || [];
+        // The comments the post page loaded by itself (socialMate 1.42): the Hub keeps them
+        // apart from the evidence, for "O que o público pergunta"; the analysis never reads them.
+        const items = Array.isArray(page.comments?.items) ? page.comments.items : [];
+        body.comments = items.filter((c) => c && typeof c.text === "string" && c.text.trim()).slice(0, 100)
+          .map((c) => ({ text: c.text.slice(0, 500), likes: typeof c.digg_count === "number" ? c.digg_count : null, reply: !!(c.is_reply || c.parent) }));
       }
       if (transcript) body.transcript = transcript;
       live({ phase: "filing" });

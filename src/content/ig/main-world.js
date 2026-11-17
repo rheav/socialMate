@@ -1460,6 +1460,20 @@ function igCommentGapMs(random = Math.random) {
     }
     return out;
   }
+  // "O que o público pergunta" (socialMate 1.42): the analysis tab is hidden, and a hidden
+  // post page never loads its comments (measured 2026-11-16: none in its HTML, no request).
+  // One request for the first page (measured the same night: 15 of 30, with likes), through
+  // the normal comment path, once per post.
+  const firstAsked = new Set();
+  async function firstComments(code) {
+    const pk = igPkFromCode(code);
+    if (!pk || firstAsked.has(code)) return;
+    firstAsked.add(code);
+    try {
+      const j = await collectGet(igCommentsPath(pk, null));
+      send(collectRecords(code, j.comments || [], null));
+    } catch (_) { /* a block or a bad answer: the post simply has no comments for the report */ }
+  }
   async function collectThread(code) {
     if (collect.state === "running") return;
     const pk = igPkFromCode(code);
@@ -1660,6 +1674,7 @@ function igCommentGapMs(random = Math.random) {
     if (e.source === window && e.data && e.data.__fbwIgCollectStart) { collectThread(String(e.data.__fbwIgCollectStart)); return; }
     if (e.source === window && e.data && e.data.__fbwIgCollectStop) { collectStop = true; if (collectWake) collectWake(); return; }
     if (e.source === window && e.data && e.data.__fbwIgCollectAsk) { postCollect(); return; }
+    if (e.source === window && e.data && e.data.__fbwIgFirstComments) { firstComments(String(e.data.__fbwIgFirstComments)); return; }
     if (e.source === window && e.data && e.data.__fbwIgReq)
       send([...new Set(all.values()), ...reelAll.values(), ...allIgCom.values(),
         ...Array.from(users.values(), (user) => ({ __kind: "user", ...user }))]);

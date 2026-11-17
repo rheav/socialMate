@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.41.0",
+  version: "1.42.0",
   // @private
   version_name:
-    "1.41.0 — Contas semelhantes do Hub: as sugestões do próprio Instagram para um perfil do Spy",
+    "1.42.0 — comentários dos vídeos analisados vão ao Hub para O que o público pergunta",
   // @end-private
   icons: ICONS,
   action: {

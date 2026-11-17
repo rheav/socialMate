@@ -1386,6 +1386,7 @@ function startHubButton(platform, placeOf) {
       now: () => Date.now(),
       cancelled: () => analysisCancelled || disabled,
       requestReplay,
+      askFirstComments: (code) => window.postMessage({ __fbwIgFirstComments: code }, location.origin),
     };
   }
 
@@ -1530,6 +1531,15 @@ async function igAnalysisCollect(msg, env) {
       sleep: env.sleep, now: env.now, limits: msg.limits, cancelled: env.cancelled });
     comments = { items: env.commentsOf(code), stopReason: run.stopReason, expansions: run.expansions, order: "page",
       reportedTotal: rec.comment_count ?? null };
+  } else {
+    // The Hub's "O que o público pergunta" (socialMate 1.42): the first page of comments, no click.
+    // A hidden tab never loads them itself, so the MAIN world asks for that one page; up to 8 s.
+    if (!env.commentsOf(code).length && env.askFirstComments) {
+      env.askFirstComments(code);
+      const until = env.now() + 8000;
+      while (!env.commentsOf(code).length && env.now() < until && !env.cancelled()) await env.sleep(500);
+    }
+    comments = { items: env.commentsOf(code), stopReason: "page", expansions: 0, order: "page", reportedTotal: rec.comment_count ?? null };
   }
   const authors = [...new Set([rec.username, ...(rec.coauthors || []).map((c) => c && c.username)].filter(Boolean))];
   return { ok: true, code, pk: recPk || pk, url: env.url(), caption, variants: env.variantsOf(id) || [],

@@ -214,6 +214,24 @@ describe("analysis tab collection", () => {
     });
   });
 
+  it("without the sweep, hands over the comments the page loaded, no click (1.42)", async () => {
+    const clicked = [];
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ click: async (el) => clicked.push(el) }));
+    expect(out.comments).toMatchObject({ items: [{ cid: "1" }], stopReason: "page", expansions: 0 });
+    expect(clicked).toEqual([]);
+  });
+
+  it("in a hidden tab with no comments yet, asks the MAIN world for the first page and waits for it", async () => {
+    let loaded = [];
+    const asked = [];
+    const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({
+      commentsOf: () => loaded,
+      askFirstComments: (code) => { asked.push(code); loaded = [{ cid: "7", text: "e escorpião?" }]; },
+    }));
+    expect(asked).toEqual(["CCC"]);
+    expect(out.comments.items).toEqual([{ cid: "7", text: "e escorpião?" }]);
+  });
+
   it("hands over the post's author, picture, numbers and date, as the overlay's Transcrever does", async () => {
     const full = { ...rec, image: "https://cdn/thumb.jpg", like_count: 42, play_count: 1100, repost: 3, taken_at: 1792037451, user_follower_count: 9000 };
     const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => full }));
@@ -237,7 +255,7 @@ describe("analysis tab collection", () => {
     const long = { ...rec, caption: "x".repeat(500) };
     const out = await igAnalysisCollect({ code: "CCC", mediaPk: "3003" }, env({ recordOf: () => long, captionOf: () => null }));
     expect(out.caption).toEqual({ text: "x".repeat(500), full: false });
-    expect(out.comments).toBeNull();
+    expect(out.comments.stopReason).toBe("page"); // the page's own comments, no click (1.42)
   });
 
   it("waits for a reel's video links when the post was first named without them", async () => {

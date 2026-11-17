@@ -189,8 +189,8 @@ describe("preparePost", () => {
       video: { state: "available", assetId: "a1", width: 720, height: 1280 },
       transcript: { status: "done", text: "olá", language: "pt", source: "whisper" },
     });
-    // Comments are a number the Hub has: never collected for the analysis.
-    expect(ev.body).not.toHaveProperty("comments");
+    // The comments the page loaded ride along (1.42), apart from the analysis, for the Hub's audience report.
+    expect(ev.body.comments).toEqual([{ text: "que bom", likes: 2, reply: false }, { text: "obrigada", likes: 0, reply: true }]);
     // The tab it opened is closed; the job is forgotten; the next post waits 20–40 s.
     expect(w.log.removed).toEqual([10]);
     const state = w.data[ANALYSIS_COLLECT_KEY];
