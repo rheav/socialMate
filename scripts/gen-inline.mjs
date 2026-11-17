@@ -108,6 +108,8 @@ const TARGETS = {
     "src/lib/shared/igCommentExpand.js",
     // The Hub button in a profile's header.
     "src/lib/shared/igHubButton.js",
+    // "Baixar capas" / "Baixar posts" right after it (1.44).
+    "src/lib/shared/igDlButtons.js",
   ],
   "src/content/ig/main-world.js": [
     "src/lib/shared/igCode.js",

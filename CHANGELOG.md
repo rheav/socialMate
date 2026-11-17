@@ -16,6 +16,14 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.44.0] — 2026-11-17
+
+### Added
+- **"Baixar capas" and "Baixar posts" in an Instagram profile's header**, right after the Hub button (`src/lib/shared/igDlButtons.js`, inlined into `bridge.js`). Each takes the posts of THIS profile the page has loaded so far (records whose surface is the page's, Posts and Reels tabs alike) and saves them one at a time through `FBW_DL_MEDIA`: a cover per post, or each post's video or photo with every carousel slide numbered. Nothing new is asked of Instagram: a reel's video link is the one the page's own media lookup brought in; a video still without one is counted and reported ("espere uns segundos"), and a second click retries only what did not come. While it runs, a ring fills and a click stops it; a green or red dot says how it ended. Icons approved on the mockup (`docs/superpowers/specs/2026-11-17-ig-baixar-perfil/`, not in git): Lucide's image-down and the extension's layers glyph.
+- **A bulk save keeps its own folder** (`bulkDownloadPath`): `<configured folder>/<handle>/capas` or `/posts`, never bucketed, and kept even when no folder is configured.
+
+Measured 2026-11-17 on the requests: the Reels tab ships covers only (1320 px) and the Posts grid ships video and cover together; a profile grid's carousels carry every slide's own link (@iivymooon: 3 and 5 photos). Not seen live in a browser: the agents' Chrome runs the public socialRadar build, not this one.
+
 ## [1.43.0] — 2026-11-16
 
 ### Added

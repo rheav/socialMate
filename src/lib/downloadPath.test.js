@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   DOWNLOAD_ROOT,
+  bulkDownloadPath,
   downloadPath,
   underDownloadRoot,
   kindFromExt,
@@ -227,6 +228,15 @@ describe("download prefs", () => {
     setDownloadPrefs({ folder: "pesquisa", flat: false });
     expect(downloadPath(kind, name)).toBe(expected);
     expect(underDownloadRoot(expected)).toBe(expected);
+  });
+
+  it("keeps a bulk save in its own folder, with or without a configured folder, and never lets it escape", () => {
+    setDownloadPrefs({ folder: "", flat: false });
+    expect(bulkDownloadPath(["mirelda.amber", "capas"], "mirelda.amber-ig-R1.jpg")).toBe("mirelda.amber/capas/mirelda.amber-ig-R1.jpg");
+    setDownloadPrefs({ folder: "pesquisa", flat: false });
+    expect(bulkDownloadPath(["mirelda.amber", "posts"], "x.mp4")).toBe("pesquisa/mirelda.amber/posts/x.mp4");
+    expect(bulkDownloadPath(["..", "a/b", "C:"], "../../x.jpg")).toBe("pesquisa/a_b/C_/x.jpg");
+    expect(bulkDownloadPath(["a"], "")).toBe("pesquisa/a/arquivo");
   });
 
   it("defaults to root of downloads folder and migrates legacy social-mate", () => {

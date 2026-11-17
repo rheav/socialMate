@@ -5,7 +5,7 @@
 //     Whisper transcription / ffmpeg download for FB feed videos.
 
 import { parseFbcdnTrack, foldTrack, pickByWindow } from "./lib/fbcdn.js";
-import { downloadPath, underDownloadRoot, initDownloadPrefs } from "./lib/downloadPath.js";
+import { bulkDownloadPath, downloadPath, underDownloadRoot, initDownloadPrefs } from "./lib/downloadPath.js";
 
 // The folder/flat settings are read synchronously by every path builder, so the
 // cache behind them has to be primed the moment this worker wakes — an MV3 worker
@@ -1528,6 +1528,8 @@ async function transcribeForAnalysis({ code, pk, mediaUrl, durationS, caption, m
 // Either way it is impossible for a caller to land a file in the Downloads root.
 function resolveDownloadPath(msg, fallbackName) {
   const name = msg.filename || fallbackName;
+  // A bulk save names its own folder (IG profile "Baixar capas/posts"): segments, scrubbed there.
+  if (Array.isArray(msg.dir)) return bulkDownloadPath(msg.dir, name);
   // The two shapes are told apart by whether the name carries a SEPARATOR, not by
   // the root segment. It used to compare against the literal "social-mate", which
   // stopped working the moment the folder became a setting (a path under a custom

@@ -204,6 +204,19 @@ export function downloadPath(kind, filename) {
 }
 
 /**
+ * A bulk save's own folder (Instagram's "Baixar capas" / "Baixar posts", 1.44):
+ * <configured folder>/<dir…>/<name>, never bucketed, and kept even when no folder is
+ * configured — a hundred covers loose in Downloads is not a layout anyone wants.
+ * Each `dir` entry is ONE segment (a slash inside it is data), so a handle cannot
+ * leave the tree.
+ */
+export function bulkDownloadPath(dir, filename) {
+  const segs = (Array.isArray(dir) ? dir : [dir]).map(safeSegment).filter(Boolean);
+  const name = safeSegment(String(filename == null ? "" : filename).split(/[\\/]+/).pop()) || FALLBACK_NAME;
+  return [...folderSegments(PREFS.folder), ...segs, name].join("/");
+}
+
+/**
  * Reapply the current destination in background.js to filenames received from
  * panels and content scripts. An empty folder strips any previous directories;
  * a configured folder rebuilds the path with the current bucketing preference.
