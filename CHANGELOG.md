@@ -16,6 +16,17 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.45.0] — 2026-11-21
+
+### Added
+- **"Baixar capas" and "Baixar reels" in a Facebook profile's header**, right after the Hub button: Instagram's two buttons (1.44.0), same icons, ring, dots and states, for the reels this profile's grid has loaded so far (`collect()` in `reels-capture.js`, which now inlines `igDlButtons.js`). One file at a time through `FBW_DL_MEDIA` into `<profile>/capas` and `<profile>/reels`, named like the rails' downloads (`<author>-fb-<id>.jpg|.mp4`); no scrolling, no ZIP, nothing new asked of Facebook. A reel whose MP4 link has not come in is counted and reported, never swapped for its cover; a second click retries only the reels that did not come, by id, even after a tab round-trip unmounted their tiles. Off the Reels tab the buttons stay, greyed out: "Abra a aba Reels do perfil para baixar capas e reels". Moving to another profile mid-run ends it; the takeover removes all three buttons. `startHubButton` gains an `afterSync(btn, place)` hook the buttons follow, and the Facebook header (inline text, z-index:0 sibling rows) gets its own alignment, dot ring colour and tip stacking.
+
+### Fixed
+- **A Facebook reel's cover is the one its creator chose**, not the video's first frame: `collectFbVideos` lists `preferred_thumbnail` / `thumbnailImage` / `image` before `first_frame_thumbnail` (all kept for matching), so the captured record no longer overwrites the grid's cover. Every Facebook reel cover follows: the rails' "Miniatura", the bar's "Miniaturas" ZIP, the panel's reel list and its thumbnail download, and saved-library entries.
+- **The tip of a greyed-out download button is solid** (Instagram too): only the glyph is dimmed, so the tip no longer renders at 35 % over the text beneath it.
+
+Checked live 2026-11-21 on *Sandy Spirit Guide* (`profile.php?id=61590925281317&sk=reels_tab`), real Chrome headless with a copy of the agents' profile cookies and this build: the three buttons share one row (top 122.28 px, 4 px apart), tips "Baixar 20 capas" / "Baixar 20 reels"; covers 9 at 1080×1920 and 1 at 720×1280 (its signed cap), reel 1173845761963868's cover byte-identical to the grid's custom cover (not frame 0); 20 MP4s, each with video and audio; the All tab shows the greyed-out state. The agents' shared Chrome runs socialRadar, so this was not seen there.
+
 ## [1.44.0] — 2026-11-17
 
 ### Added

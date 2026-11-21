@@ -17,10 +17,10 @@ const manifest = {
   description:
     "Pesquisa e aquecimento semiautomáticos de Facebook / Instagram / TikTok a partir de um painel lateral — ritmo humano, iniciado por você, com log ao vivo.",
   // @end-private
-  version: "1.44.0",
+  version: "1.45.0",
   // @private
   version_name:
-    "1.44.0 — Baixar capas e Baixar posts no cabeçalho do perfil do Instagram",
+    "1.45.0 — Baixar capas e Baixar reels no cabeçalho do perfil do Facebook",
   // @end-private
   icons: ICONS,
   action: {
