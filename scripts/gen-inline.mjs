@@ -56,6 +56,8 @@ const TARGETS = {
     // The Hub button after the profile's name (socialMate 1.32).
     "src/lib/shared/spyProfileUrl.js",
     "src/lib/shared/igHubButton.js",
+    // "Baixar capas" / "Baixar reels" right after it (1.45).
+    "src/lib/shared/igDlButtons.js",
   ],
   "src/content/fb/feed-filter.js": [
     "src/lib/shared/counts.js",
