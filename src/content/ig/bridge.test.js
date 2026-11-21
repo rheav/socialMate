@@ -302,3 +302,36 @@ describe("thread buttons the analysis tab presses", () => {
     expect(igExpandButton(document.body, clicks)).toBeNull();
   });
 });
+
+// The header's "Baixar capas" click (1.44), run verbatim against stand-ins for the bridge's state.
+const dlClickSource = bridge.match(/  async function onDlClick\(kind\) \{[\s\S]*?\n  \}/)[0];
+function dlClickHarness(files) {
+  const pending = [];
+  const sent = [];
+  const dlJobs = { covers: null, posts: null };
+  const onDlClick = new Function("dlJobs", "igSurfaceKey", "location", "hubKey", "dlRecords", "igDlFilesOf", "baseNameFor",
+    "extFromUrl", "syncHub", "dlMedia", "disabled", "IG_DL_FOLDERS", `${dlClickSource}; return onDlClick;`)(
+    dlJobs, () => "grid:creator", { pathname: "/creator/", search: "" }, () => "creator", () => [{}],
+    () => files, null, null, () => {}, (msg) => { sent.push(msg); return new Promise((r) => pending.push(r)); },
+    false, { covers: "capas", posts: "posts" });
+  return { onDlClick, dlJobs, sent, pending };
+}
+describe("header download click", () => {
+  it("continues the same set after a stop, so the tips count all of it", async () => {
+    const files = ["a", "b"].map((n) => ({ url: `https://cdn.test/${n}.jpg`, kind: "image", filename: `creator-${n}.jpg` }));
+    const h = dlClickHarness(files);
+    const run1 = h.onDlClick("covers");
+    await Promise.resolve();
+    h.onDlClick("covers"); // stop
+    h.pending.shift()();
+    await run1;
+    expect(h.dlJobs.covers).toMatchObject({ state: "partial", stopped: true, total: 2, done: 1 });
+    const run2 = h.onDlClick("covers");
+    await Promise.resolve();
+    expect(h.dlJobs.covers).toMatchObject({ state: "busy", total: 2, done: 1 });
+    h.pending.shift()();
+    await run2;
+    expect(h.dlJobs.covers).toMatchObject({ state: "done", total: 2, done: 2 });
+    expect(h.sent.map((m) => m.filename)).toEqual(["creator-a.jpg", "creator-b.jpg"]);
+  });
+});

@@ -1199,9 +1199,13 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     if (job?.state === "busy") { job.stop = true; return; }
     // A retry takes only what did not come, read again: a video link may have arrived since.
     const all = dlRecords(surface).flatMap((r) => igDlFilesOf(r, kind, baseNameFor, extFromUrl));
-    const files = job?.state === "partial" ? all.filter((f) => job.left.has(f.filename)) : all;
+    const retry = job?.state === "partial";
+    const files = retry ? all.filter((f) => job.left.has(f.filename)) : all;
     if (!files.length) return;
-    const run = { surface, state: "busy", total: files.length, done: 0, noLink: 0, stop: false, stopped: false, left: new Set() };
+    // A retry continues the same set, so its tips count all of it ("20 capas baixadas"), not this run alone.
+    const run = { surface, state: "busy", total: retry ? job.total : files.length, done: retry ? job.done : 0,
+      noLink: 0, stop: false, stopped: false, left: new Set() };
+    if (retry) for (const name of job.left) if (!files.some((f) => f.filename === name)) run.left.add(name); // no longer loaded: still missing
     dlJobs[kind] = run;
     syncHub();
     for (const f of files) {
