@@ -107,6 +107,14 @@ describe("syncIgDlButtons", () => {
     expect(css).toContain('[role="main"] div:has(.fbw-dl[data-site="facebook"]:is(:hover,:focus-visible)){z-index:5}');
   });
 
+  it("dims only the glyph of an empty button, so its tip stays solid and readable", () => {
+    document.body.innerHTML = HEADER;
+    syncIgDlButtons(document, { anchor: document.getElementById("fbw-hub-btn"), states, onClick() {} });
+    const css = document.getElementById("fbw-dl-btn-style").textContent;
+    expect(css).toContain('.fbw-dl[data-state="empty"]>svg.fbw-dl-glyph{opacity:.35}');
+    expect(css).not.toContain('.fbw-dl[data-state="empty"]{opacity');
+  });
+
   it("goes away with the Hub button", () => {
     document.body.innerHTML = HEADER;
     syncIgDlButtons(document, { anchor: document.getElementById("fbw-hub-btn"), states, onClick() {} });

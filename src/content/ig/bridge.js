@@ -977,7 +977,9 @@ const IG_DL_CSS = `
 .fbw-dl:hover{background:rgba(128,128,128,.16)}
 .fbw-dl:focus-visible{outline:2px solid #2e6ead;outline-offset:2px}
 .fbw-dl>svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.fbw-dl[data-state="empty"]{opacity:.35;cursor:default}
+/* The glyph, not the box: the box's opacity would fade its own tip too. */
+.fbw-dl[data-state="empty"]{cursor:default}
+.fbw-dl[data-state="empty"]>svg.fbw-dl-glyph{opacity:.35}
 .fbw-dl[data-state="empty"]:hover{background:none}
 .fbw-dl[data-state="busy"]>svg.fbw-dl-glyph{opacity:.55}
 .fbw-dl>svg.fbw-dl-ring{position:absolute;inset:0;width:32px;height:32px;transform:rotate(-90deg);display:none;stroke-width:2.5}
