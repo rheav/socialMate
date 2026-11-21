@@ -3132,7 +3132,8 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     if (job?.state === "busy") { job.stop = true; return; }
     // A retry takes only the reels that did not come, by id and read again (tiles + captured):
     // an MP4 link may have arrived since, and a tab round-trip may have unmounted their tiles.
-    const records = job?.state === "partial" ? [...job.left].map(recordOf).filter((r) => r.id) : collect();
+    const retry = job?.state === "partial";
+    const records = retry ? [...job.left].map(recordOf).filter((r) => r.id) : collect();
     // The heading the buttons sit beside is there whenever they are: no "<id>/" folder before a name link loads.
     const heading = (fbNameAnchor()?.textContent || "").replace(/\s+/g, " ").trim()
       .replace(/\s*(conta verificada|verified account)$/i, "").slice(0, 60);
@@ -3140,7 +3141,10 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     const files = records.flatMap((r) => fbDlFilesOf(r, kind, owner).map((f) => ({ ...f, id: r.id })));
     if (!files.length) return;
     const dir = [fbAuthorSlug(owner), FB_DL_FOLDERS[kind]];
-    const run = { surface: surf, state: "busy", total: files.length, done: 0, noLink: 0, stop: false, stopped: false, left: new Set() };
+    // A retry continues the same set, so its tips count all of it ("20 capas baixadas"), not this run alone.
+    const run = { surface: surf, state: "busy", total: retry ? job.total : files.length, done: retry ? job.done : 0,
+      noLink: 0, stop: false, stopped: false, left: new Set() };
+    if (retry) for (const id of job.left) if (!files.some((f) => f.id === id)) run.left.add(id); // gone from both maps: still missing
     dlJobs[kind] = run;
     syncFbDl();
     for (const f of files) {

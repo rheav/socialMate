@@ -180,3 +180,22 @@ it('leaves the buttons a newer world already put up when it hands over (no flick
   fb.post({ __fbwReelsTakeover: 'new-gen' });
   for (const id of ids) expect(fb.document.getElementById(id)).not.toBeNull();
 });
+
+it('counts the whole set after a stop and a second click: "2 capas baixadas", not just the last run', async () => {
+  const pending = [];
+  const fb = bootHeader(`${PROFILE}&sk=reels_tab`, { send: () => new Promise(r => pending.push(r)) });
+  fb.records([REC('11111111', 'https://scontent.fbcdn.net/v1.mp4'), REC('22222222', 'https://scontent.fbcdn.net/v2.mp4')]);
+  fb.btn('covers').click();
+  await flush();
+  fb.btn('covers').click();
+  pending.shift()({ ok: true });
+  await flush();
+  expect(fb.btn('covers').getAttribute('aria-label')).toBe('Parado: 1 de 2 baixados. Falta 1: clique para continuar');
+  fb.btn('covers').click();
+  await flush();
+  expect(fb.btn('covers').getAttribute('aria-label')).toBe('Baixando 1 de 2… clique para parar');
+  pending.shift()({ ok: true });
+  await flush();
+  expect(fb.downloads()).toHaveLength(2);
+  expect(fb.btn('covers').getAttribute('aria-label')).toBe('2 capas baixadas. Clique para baixar de novo');
+});
