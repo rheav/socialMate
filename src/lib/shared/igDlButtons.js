@@ -14,6 +14,8 @@ export const IG_DL_KINDS = ["covers", "posts"];
 export const IG_DL_IDS = { covers: "fbw-dl-covers", posts: "fbw-dl-posts" };
 /** The folder under the profile's: <handle>/capas, <handle>/posts. */
 export const IG_DL_FOLDERS = { covers: "capas", posts: "posts" };
+/** Facebook's (1.45): <profile>/capas, <profile>/reels — a profile's grid there is reels only. */
+export const FB_DL_FOLDERS = { covers: "capas", posts: "reels" };
 export const IG_DL_STYLE_ID = "fbw-dl-btn-style";
 
 // Lucide's image-down, and the extension's own layers glyph (the story's "Baixar tudo").
@@ -25,6 +27,8 @@ const IG_DL_ICONS = {
 const IG_DL_RING = 91.1;
 
 // Same box, tip and dot as the Hub button beside it (HUB_BTN_CSS), so the three read as one row.
+// Facebook (measured 2026-11-21): the row is inline text in a 32 px span, the dot's ring is
+// the surface colour (--fbw-dl-ring), and the header's z-index:0 rows would cover the tip.
 export const IG_DL_CSS = `
 .fbw-dl{position:relative;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;
   flex:none;border-radius:8px;cursor:pointer;color:inherit}
@@ -39,14 +43,17 @@ export const IG_DL_CSS = `
 .fbw-dl-ring .fbw-dl-track{stroke:rgba(128,128,128,.3)}
 .fbw-dl-ring .fbw-dl-prog{stroke:#8ecae6;transition:stroke-dasharray .2s}
 .fbw-dl .fbw-dl-dot{position:absolute;right:2px;top:3px;width:9px;height:9px;border-radius:50%;display:none;
-  box-shadow:0 0 0 2px rgb(var(--ig-primary-background, 255, 255, 255))}
+  box-shadow:0 0 0 2px var(--fbw-dl-ring, rgb(var(--ig-primary-background, 255, 255, 255)))}
 .fbw-dl[data-state="done"] .fbw-dl-dot{display:block;background:#22c55e}
 .fbw-dl[data-state="partial"] .fbw-dl-dot{display:block;background:#ef4444}
 .fbw-dl::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
   z-index:10;width:max-content;max-width:260px;white-space:normal;text-align:center;pointer-events:none;padding:6px 10px;
+  letter-spacing:normal;text-transform:none;
   border-radius:6px;background:#262626;color:#f5f5f5;font:500 12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   opacity:0;transition:opacity .12s}
-.fbw-dl:hover::after,.fbw-dl:focus-visible::after{opacity:1}`;
+.fbw-dl:hover::after,.fbw-dl:focus-visible::after{opacity:1}
+.fbw-dl[data-site="facebook"]{vertical-align:middle;margin-left:4px}
+[role="main"] div:has(.fbw-dl[data-site="facebook"]:is(:hover,:focus-visible)){z-index:5}`;
 
 /**
  * The files one post makes: [{ url, kind: "image" | "video", filename }].
@@ -75,11 +82,16 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 /**
  * What a button says. `s`: { state: "idle" | "empty" | "busy" | "done" | "partial",
  * posts, total, done, noLink, stopped }. `posts` is how many posts are loaded; `total`
- * and `done` count files (a carousel is several).
+ * and `done` count files (a carousel is several). `site` "facebook" speaks of reels,
+ * and `offTab` is a Facebook profile away from its Reels tab.
  */
-export function igDlTip(kind, s) {
+export function igDlTip(kind, s, site = "instagram") {
   const covers = kind === "covers";
-  if (s.state === "empty") return "Role a grade: nenhum post carregado ainda";
+  const fb = site === "facebook";
+  if (s.state === "empty") {
+    if (s.offTab) return "Abra a aba Reels do perfil para baixar capas e reels";
+    return `Role a grade: nenhum ${fb ? "reel" : "post"} carregado ainda`;
+  }
   if (s.state === "busy") return `Baixando ${s.done} de ${s.total}… clique para parar`;
   if (s.state === "done") {
     return `${plural(s.total, covers ? "capa baixada" : "arquivo baixado", covers ? "capas baixadas" : "arquivos baixados")}. Clique para baixar de novo`;
@@ -90,7 +102,9 @@ export function igDlTip(kind, s) {
     const wait = s.noLink ? ` ${plural(s.noLink, "vídeo ainda sem link", "vídeos ainda sem link")}: espere uns segundos.` : "";
     return `${s.done} de ${s.total} baixados. ${miss === 1 ? "1 não veio: clique para tentar só ele." : `${miss} não vieram: clique para tentar só eles.`}${wait}`;
   }
-  return covers ? `Baixar ${plural(s.posts, "capa", "capas")}` : `Baixar ${s.posts === 1 ? "1 post" : `${s.posts} posts e reels`}`;
+  if (covers) return `Baixar ${plural(s.posts, "capa", "capas")}`;
+  if (fb) return `Baixar ${plural(s.posts, "reel", "reels")}`;
+  return `Baixar ${s.posts === 1 ? "1 post" : `${s.posts} posts e reels`}`;
 }
 
 /** Take the two buttons away (not a profile, the Hub button gone, a takeover). */
@@ -101,10 +115,11 @@ export function removeIgDlButtons(doc) {
 /**
  * Put the two buttons right after `anchor` (the Hub button), or take them away when
  * there is none. `states`: { covers, posts } as igDlTip reads them. `onClick(kind)`
- * runs on a click or Enter/Space. Idempotent, and it only writes what changed: the
- * page watches its own subtree for mutations.
+ * runs on a click or Enter/Space. `site` and `ring` (Facebook): the look and the dot
+ * ring's colour, as the Hub button's place gives them. Idempotent, and it only writes
+ * what changed: the page watches its own subtree for mutations.
  */
-export function syncIgDlButtons(doc, { anchor, states, onClick }) {
+export function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = null }) {
   if (!anchor || !anchor.parentElement) {
     removeIgDlButtons(doc);
     return;
@@ -144,8 +159,10 @@ export function syncIgDlButtons(doc, { anchor, states, onClick }) {
     }
     btn.__fbwDlClick = () => onClick(kind);
     if (btn.previousElementSibling !== prev) prev.insertAdjacentElement("afterend", btn);
+    if (site && btn.dataset.site !== site) btn.dataset.site = site;
+    if (ring && btn.style.getPropertyValue("--fbw-dl-ring") !== ring) btn.style.setProperty("--fbw-dl-ring", ring);
     const s = states[kind];
-    const tip = igDlTip(kind, s);
+    const tip = igDlTip(kind, s, site || "instagram");
     if (btn.dataset.state !== s.state) btn.dataset.state = s.state;
     if (btn.dataset.tip !== tip) {
       btn.dataset.tip = tip;

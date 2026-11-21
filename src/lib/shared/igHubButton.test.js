@@ -134,4 +134,27 @@ describe("the Hub button on TikTok and Facebook", () => {
     vi.advanceTimersByTime(2000);
     expect(document.getElementById(HUB_BTN_ID)).toBeNull();
   });
+
+  it("notifies afterSync with the live Hub button on profile ticks and clears it off-profile or on stop", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = TT;
+    const chrome = chromeStub({ profiles: {} });
+    vi.stubGlobal("chrome", chrome);
+    const seen = [];
+    let current = { key: "61590925281317", anchor: document.querySelector(".circle"), site: "facebook", ring: "var(--surface-background, #fff)" };
+    const stop = startHubButton("facebook", () => current, (btn, place) => seen.push([btn?.id || null, place?.key || null]));
+    expect(seen.at(-1)).toEqual([HUB_BTN_ID, "61590925281317"]);
+    current = { key: "61590925281317", anchor: null, site: "facebook" };
+    vi.advanceTimersByTime(1000);
+    expect(seen.at(-1)).toEqual([null, "61590925281317"]);
+    current = null;
+    vi.advanceTimersByTime(1000);
+    expect(seen.at(-1)).toEqual([null, null]);
+    stop();
+    expect(seen.at(-1)).toEqual([null, null]);
+    // Facebook's sibling rows sit at z-index 0: the header lifts while the tip shows.
+    expect(document.getElementById("fbw-hub-btn-style").textContent).toContain(
+      `[role="main"] div:has(#${HUB_BTN_ID}[data-site="facebook"]:is(:hover,:focus-visible,.fbw-hub-tip)){z-index:5}`,
+    );
+  });
 });

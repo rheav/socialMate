@@ -2706,6 +2706,7 @@ const HUB_BTN_CSS = `
 #${HUB_BTN_ID}[data-site="tiktok"]:hover{background:var(--fbw-hub-bg);filter:brightness(1.3)}
 #${HUB_BTN_ID}[data-site="tiktok"] .fbw-hub-dot,#${HUB_BTN_ID}[data-site="tiktok"] .fbw-hub-ping{right:6px;top:7px}
 #${HUB_BTN_ID}[data-site="facebook"]{vertical-align:middle;margin-left:8px}
+[role="main"] div:has(#${HUB_BTN_ID}[data-site="facebook"]:is(:hover,:focus-visible,.fbw-hub-tip)){z-index:5}
 #${HUB_BTN_ID}::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
   z-index:10;white-space:nowrap;pointer-events:none;padding:6px 10px;border-radius:6px;background:#262626;color:#f5f5f5;
   font:500 12px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0;transition:opacity .12s}
@@ -2821,8 +2822,10 @@ function flashHubButtonTip(btn, text) {
  * while the page re-renders. `placeOf()` → { key, anchor, site, bg?, ring? } when
  * the page is a profile someone else owns (anchor null while the header is not
  * drawn yet), else null. Returns stop(), for the content script's takeover.
+ * `afterSync(btn, place)` runs after each sync: (null, place) while the header is
+ * not drawn, (null, null) off a profile and on stop() — the download buttons follow it.
  */
-function startHubButton(platform, placeOf) {
+function startHubButton(platform, placeOf, afterSync = null) {
   let keys = new Set();
   let saving = null; // the key whose save is in flight
   let failed = null; // the key whose last save failed
@@ -2833,11 +2836,12 @@ function startHubButton(platform, placeOf) {
   };
   const sync = () => {
     const place = placeOf();
-    if (!place?.key) { syncHubButton(document, { key: null }); return; }
-    if (!place.anchor) return;
+    if (!place?.key) { syncHubButton(document, { key: null }); afterSync?.(null, null); return; }
+    if (!place.anchor) { afterSync?.(null, place); return; }
     const key = place.key;
     const state = keys.has(key) ? "tracked" : key === saving ? "saving" : key === failed ? "error" : "idle";
-    syncHubButton(document, { key, state, onClick, place });
+    const btn = syncHubButton(document, { key, state, onClick, place });
+    afterSync?.(btn, place);
   };
   // A click on a tracked profile only says so: stopping a track stays in the panel
   // and the Hub, so a stray click cannot drop a profile's history.
@@ -2871,6 +2875,7 @@ function startHubButton(platform, placeOf) {
     clearInterval(timer);
     try { chrome.storage.onChanged.removeListener(onStorage); } catch { /* a dead world */ }
     document.getElementById(HUB_BTN_ID)?.remove();
+    afterSync?.(null, null);
   };
 }
 // >>> inline:end

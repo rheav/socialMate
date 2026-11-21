@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { IG_DL_IDS, igDlFilesOf, igDlTip, removeIgDlButtons, syncIgDlButtons } from "./igDlButtons.js";
+import { FB_DL_FOLDERS, IG_DL_IDS, igDlFilesOf, igDlTip, removeIgDlButtons, syncIgDlButtons } from "./igDlButtons.js";
 
 const name = (rec, ext, idx) => `${rec.username}-ig-${rec.code}${idx != null ? `_${idx}` : ""}.${ext}`;
 const ext = (url, kind) => (url && /\.mp4/.test(url) ? "mp4" : kind === "video" ? "mp4" : "jpg");
@@ -48,6 +48,17 @@ describe("igDlTip", () => {
     );
     expect(igDlTip("posts", { state: "partial", total: 16, done: 7, stopped: true })).toBe("Parado: 7 de 16 baixados. Faltam 9: clique para continuar");
   });
+
+  it("adapts idle and empty tooltips for Facebook reels and off-tab profile views", () => {
+    expect(FB_DL_FOLDERS).toEqual({ covers: "capas", posts: "reels" });
+    expect(igDlTip("covers", { state: "idle", posts: 10 }, "facebook")).toBe("Baixar 10 capas");
+    expect(igDlTip("posts", { state: "idle", posts: 10 }, "facebook")).toBe("Baixar 10 reels");
+    expect(igDlTip("posts", { state: "idle", posts: 1 }, "facebook")).toBe("Baixar 1 reel");
+    expect(igDlTip("covers", { state: "empty", posts: 0 }, "facebook")).toBe("Role a grade: nenhum reel carregado ainda");
+    expect(igDlTip("posts", { state: "empty", posts: 0, offTab: true }, "facebook")).toBe(
+      "Abra a aba Reels do perfil para baixar capas e reels",
+    );
+  });
 });
 
 describe("syncIgDlButtons", () => {
@@ -74,6 +85,26 @@ describe("syncIgDlButtons", () => {
     document.getElementById(IG_DL_IDS.covers).click();
     document.getElementById(IG_DL_IDS.posts).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     expect(onClick.mock.calls).toEqual([["covers"], ["posts"]]);
+  });
+
+  it("applies Facebook inline alignment, surface ring variable, and stacking CSS when site='facebook'", () => {
+    document.body.innerHTML = HEADER;
+    const hub = document.getElementById("fbw-hub-btn");
+    syncIgDlButtons(document, {
+      anchor: hub,
+      site: "facebook",
+      ring: "var(--surface-background, #fff)",
+      states: { covers: { state: "idle", posts: 10 }, posts: { state: "idle", posts: 10 } },
+      onClick() {},
+    });
+    const postsBtn = document.getElementById(IG_DL_IDS.posts);
+    expect(postsBtn.dataset.site).toBe("facebook");
+    expect(postsBtn.style.getPropertyValue("--fbw-dl-ring")).toBe("var(--surface-background, #fff)");
+    expect(postsBtn.getAttribute("aria-label")).toBe("Baixar 10 reels");
+    const css = document.getElementById("fbw-dl-btn-style").textContent;
+    expect(css).toContain('.fbw-dl[data-site="facebook"]{vertical-align:middle;margin-left:4px}');
+    expect(css).toContain("var(--fbw-dl-ring");
+    expect(css).toContain('[role="main"] div:has(.fbw-dl[data-site="facebook"]:is(:hover,:focus-visible)){z-index:5}');
   });
 
   it("goes away with the Hub button", () => {
