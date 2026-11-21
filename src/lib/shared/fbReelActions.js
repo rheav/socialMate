@@ -15,6 +15,13 @@ export function fbAuthorSlug(name) {
   return (name || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
 }
 
+/** The file one reel makes for the profile header's "Baixar capas" / "Baixar reels"; `url: null` until its link came in. */
+export function fbDlFilesOf(rec, kind, fallbackOwner = null) {
+  const base = `${fbAuthorSlug(rec?.authorName || fallbackOwner)}-fb-${rec?.id}`;
+  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
+  return [{ url: fbMediaUrl(rec?.progressive), kind: 'video', filename: `${base}.mp4` }];
+}
+
 export function fbReelJob(rec, action, language = 'en') {
   if (!/^\d{6,}$/.test(rec?.id || '')) throw new Error('Reel indisponível. Recarregue a página.');
   const base = `${fbAuthorSlug(rec.authorName)}-fb-${rec.id}`;

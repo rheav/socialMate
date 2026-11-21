@@ -216,9 +216,10 @@ function collectFbVideos(root) {
     if (o.__typename === "Video" && /^\d{6,}$/.test(o.id || "")) {
       const result = o.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
       const legacy = o.videoDeliveryLegacyFields;
-      const thumbs = [o.first_frame_thumbnail, o.preferred_thumbnail?.image?.uri,
-        o.thumbnailImage?.uri, o.image?.uri, o.imageLargeAspect?.uri,
-        o.imageFlexible?.uri, o.imageServerSelected?.uri].map(fbMediaUrl).filter(Boolean);
+      // The creator's chosen cover first (what the grid shows); the raw frame 0 last, kept for matching.
+      const thumbs = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
+        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri,
+        o.first_frame_thumbnail].map(fbMediaUrl).filter(Boolean);
       let audio = null;
       let progressive = null;
       for (const row of result?.progressive_urls || []) {
@@ -787,6 +788,13 @@ function fbReelEntry(rec) {
 
 function fbAuthorSlug(name) {
   return (name || 'facebook').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0,60) || 'facebook';
+}
+
+/** The file one reel makes for the profile header's "Baixar capas" / "Baixar reels"; `url: null` until its link came in. */
+function fbDlFilesOf(rec, kind, fallbackOwner = null) {
+  const base = `${fbAuthorSlug(rec?.authorName || fallbackOwner)}-fb-${rec?.id}`;
+  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
+  return [{ url: fbMediaUrl(rec?.progressive), kind: 'video', filename: `${base}.mp4` }];
 }
 
 function fbReelJob(rec, action, language = 'en') {

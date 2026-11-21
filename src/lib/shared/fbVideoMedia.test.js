@@ -84,4 +84,14 @@ describe("Facebook search media", () => {
     for (const path of ["/search/top", "/search/posts/", "/search/videos"]) expect(fbSearchVideosSurface(path)).toBe(true);
     for (const path of ["/", "/search/people", "/search/groups", "/search/topical"]) expect(fbSearchVideosSurface(path)).toBe(false);
   });
+  it("puts the creator's chosen cover ahead of first_frame_thumbnail while keeping both for matching", () => {
+    const [rec] = collectFbVideos(video("1173845761963868", {
+      first_frame_thumbnail: cdn("frame0.jpg?stp=dst-jpg"),
+      preferred_thumbnail: { image: { uri: cdn("custom-cover.jpg?stp=dst-jpg&ctp=s960x960") } },
+      thumbnailImage: { uri: cdn("custom-cover.jpg?stp=dst-jpg&ctp=s960x960") },
+    }));
+    expect(rec.thumbs[0]).toBe(cdn("custom-cover.jpg?stp=dst-jpg&ctp=s960x960"));
+    expect(rec.thumbs).toContain(cdn("frame0.jpg?stp=dst-jpg"));
+    expect(matchFbVideo([rec], { thumbs: [cdn("frame0.jpg?other=1")], durationS: 141.867 })?.id).toBe("1173845761963868");
+  });
 });

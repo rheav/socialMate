@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { fbAuthorSlug, fbReelEntry, fbReelJob } from './fbReelActions.js';
+import { fbAuthorSlug, fbDlFilesOf, fbReelEntry, fbReelJob } from './fbReelActions.js';
 import { FB_QUERY_FIELDS, fbEngagement } from './fbQuery.js';
 import { applyQuery } from './feedQuery.js';
 const rec = {id:'2030018604348103',views:4400,likes:125,comments:32,shares:16,taken_at:1790877335,duration:87.167,
@@ -24,4 +24,26 @@ it('names a ZIP and its reels from the same safe author', () => {
   expect(fbAuthorSlug('A/B: Café!')).toBe('AB Café');
   expect(fbAuthorSlug('')).toBe('facebook');
   expect(fbReelJob({...rec,authorName:'A/B'},'download').filename).toBe(`AB-fb-${rec.id}.mp4`);
+});
+it('builds header bulk-download file descriptors for full-res covers and progressive reels', () => {
+  const withCrop = {
+    ...rec,
+    authorName: 'Sandy Spirit Guide',
+    thumb: 'https://scontent.fbcdn.net/v/t15.5256-10/cover.jpg?stp=dst-jpg_tt6&cstp=mx1080x1920&ctp=s960x960&oh=abc',
+  };
+  expect(fbDlFilesOf(withCrop, 'covers')).toEqual([{
+    url: 'https://scontent.fbcdn.net/v/t15.5256-10/cover.jpg?stp=dst-jpg_tt6&cstp=mx1080x1920&oh=abc',
+    kind: 'image',
+    filename: `Sandy Spirit Guide-fb-${rec.id}.jpg`,
+  }]);
+  expect(fbDlFilesOf(withCrop, 'posts')).toEqual([{
+    url: rec.progressive,
+    kind: 'video',
+    filename: `Sandy Spirit Guide-fb-${rec.id}.mp4`,
+  }]);
+  expect(fbDlFilesOf({ id: rec.id, authorName: null, thumb: null, progressive: null }, 'posts', '61590925281317')).toEqual([{
+    url: null,
+    kind: 'video',
+    filename: `61590925281317-fb-${rec.id}.mp4`,
+  }]);
 });

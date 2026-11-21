@@ -40,9 +40,10 @@ export function collectFbVideos(root) {
     if (o.__typename === "Video" && /^\d{6,}$/.test(o.id || "")) {
       const result = o.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
       const legacy = o.videoDeliveryLegacyFields;
-      const thumbs = [o.first_frame_thumbnail, o.preferred_thumbnail?.image?.uri,
-        o.thumbnailImage?.uri, o.image?.uri, o.imageLargeAspect?.uri,
-        o.imageFlexible?.uri, o.imageServerSelected?.uri].map(fbMediaUrl).filter(Boolean);
+      // The creator's chosen cover first (what the grid shows); the raw frame 0 last, kept for matching.
+      const thumbs = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
+        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri,
+        o.first_frame_thumbnail].map(fbMediaUrl).filter(Boolean);
       let audio = null;
       let progressive = null;
       for (const row of result?.progressive_urls || []) {
