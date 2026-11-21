@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baixar do perfil — mockup</title>
+<style>
+  :root {
+    --ig-bg: #0c1014; --ig-text: #f5f5f5; --ig-soft: #a8a8a8; --ig-hover: rgba(128,128,128,.16);
+    --page: #161a20; --card: #1d222a; --line: rgba(255,255,255,.08); --soft: #9aa3b2; --title: #eceff4;
+    --sky: #8ecae6; --green: #22c55e; --red: #ef4444; --pick: #ebcb8b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--title); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { margin: 0 0 4px; font-size: 22px; font-weight: 650; }
+  .lede { margin: 0 0 28px; color: var(--soft); }
+  h2 { margin: 36px 0 12px; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--soft); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+  .note { color: var(--soft); font-size: 13px; }
+  .pick { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: color-mix(in oklab, var(--pick) 18%, transparent); color: var(--pick); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+
+  /* ---- the Instagram header, as it looks today plus the two buttons ---- */
+  .ig { background: var(--ig-bg); color: var(--ig-text); border-radius: 14px; padding: 36px 40px 30px; display: flex; gap: 56px; align-items: flex-start; }
+  .ig-avatar { flex: none; width: 150px; height: 150px; border-radius: 50%; padding: 4px; background: conic-gradient(#f9ce34, #ee2a7b, #6228d7, #f9ce34); }
+  .ig-avatar i { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; border: 4px solid var(--ig-bg); background: #3a2f2a; font: 600 52px/1 Georgia, serif; font-style: normal; color: #f3d9b1; }
+  .ig-row { display: flex; align-items: center; gap: 6px; }
+  .ig-user { font-size: 20px; font-weight: 700; margin-right: 4px; }
+  .ig-verified { width: 18px; height: 18px; margin-right: 8px; }
+  .ig-name { margin: 6px 0 12px; font-size: 14px; font-weight: 600; font-style: italic; }
+  .ig-stats { display: flex; gap: 22px; font-size: 15px; }
+  .ig-stats b { font-weight: 700; }
+
+  .btn { position: relative; width: 32px; height: 32px; display: inline-grid; place-items: center; flex: none; border: 0; padding: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; }
+  .btn:hover, .btn.hover { background: var(--ig-hover); }
+  .btn svg { width: 20px; height: 20px; display: block; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn .dot { position: absolute; right: 2px; top: 3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 2px var(--ig-bg); }
+  .btn.new { outline: 1.5px dashed color-mix(in oklab, var(--pick) 70%, transparent); outline-offset: 2px; }
+  .hub svg { stroke: none; }
+  .tip { position: absolute; top: calc(100% + 8px); left: 50%; translate: -50% 0; white-space: nowrap; padding: 6px 10px; border-radius: 8px; background: #262a31; color: #f5f5f5; font-size: 12.5px; font-weight: 500; box-shadow: 0 6px 18px rgba(0,0,0,.5); pointer-events: none; z-index: 2; }
+  .tip::before { content: ""; position: absolute; top: -4px; left: 50%; width: 8px; height: 8px; translate: -50% 0; rotate: 45deg; background: inherit; }
+
+  /* states */
+  .ring { position: absolute; inset: 0; width: 32px !important; height: 32px !important; rotate: -90deg; }
+  .ring circle { fill: none; stroke-width: 2.5; }
+  .busy > svg:not(.ring) { opacity: .55; }
+  .off { opacity: .35; cursor: default; }
+  .off:hover { background: none; }
+
+  /* ---- option grid ---- */
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .opt-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .opt { background: var(--ig-bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px 12px 12px; text-align: center; color: var(--ig-text); }
+  .opt.rec { border-color: color-mix(in oklab, var(--pick) 60%, transparent); }
+  .opt .big { width: 44px; height: 44px; margin: 4px auto 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .opt .in-row { display: inline-flex; gap: 2px; align-items: center; padding: 4px 6px; border-radius: 10px; background: rgba(255,255,255,.04); margin-bottom: 8px; }
+  .opt .in-row .btn { color: var(--ig-text); }
+  .opt b { display: block; font-size: 13px; }
+  .opt span { display: block; color: var(--ig-soft); font-size: 12px; line-height: 1.4; margin-top: 2px; }
+  .opt-head { display: flex; align-items: baseline; gap: 8px; }
+  .opt-head b { font-size: 15px; }
+
+  /* ---- states row ---- */
+  .states { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .state { background: var(--ig-bg); border-radius: 12px; padding: 16px 10px 72px; text-align: center; color: var(--ig-text); position: relative; }
+  .state .label { display: block; margin-bottom: 12px; color: var(--ig-soft); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .state .tip { white-space: normal; width: 170px; text-align: center; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-top: 1px solid var(--line); }
+  th { color: var(--soft); font-weight: 600; width: 150px; }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: #c7d0dd; background: rgba(255,255,255,.05); padding: 1px 5px; border-radius: 5px; }
+  ul { margin: 6px 0 0; padding-left: 18px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<!-- Icons: the extension's own (OVERLAY_ICONS in bridge.js) and Lucide's, same 24×24 stroked grid. -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-img" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></symbol>
+  <symbol id="i-imgdown" viewBox="0 0 24 24"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21"/><path d="m14 19 3 3v-5.5"/><path d="m17 22 3-3"/><circle cx="9" cy="9" r="2"/></symbol>
+  <symbol id="i-images" viewBox="0 0 24 24"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
+  <symbol id="i-folderdown" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="m15 13-3 3-3-3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-hub" viewBox="0 0 128 128"><rect x="6" y="6" width="116" height="116" rx="28" fill="#8ecae6"/><path fill="#232833" d="M62 26c15 14.8 24 27.2 24 41a24 24 0 0 1-48 0c0-8.8 4-16.4 11-23.2 1.2 7.2 4.6 11.2 9.2 12-2.2-10.4.6-20.2 3.8-29.8z"/></symbol>
+</svg>
+
+<main>
+  <h1>Baixar do perfil: dois botões novos</h1>
+  <p class="lede">Ao lado do botão de trackear, no cabeçalho do perfil do Instagram. Os dois baixam só o que a página já carregou deste perfil (aba Posts ou Reels). Contorno tracejado = botão novo.</p>
+
+  <h2>Como fica (ícones recomendados)</h2>
+  <div class="ig">
+    <div class="ig-avatar"><i>M</i></div>
+    <div>
+      <div class="ig-row">
+        <span class="ig-user">mirelda.amber</span>
+        <svg class="ig-verified" viewBox="0 0 40 40"><path fill="#0095f6" d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v5.905h5.975L14.638 40l5.36-3.094L25.358 40l3.232-5.6h6.162v-6.01L40 25.359 36.905 20 40 14.641l-5.248-3.03v-6.46h-6.419L25.358 0l-5.36 3.094Zm7.415 11.225 2.254 2.287-11.43 11.5-6.835-6.93 2.244-2.258 4.587 4.581 9.18-9.18Z"/></svg>
+        <button class="btn" title="Opções"><svg><use href="#i-more"/></svg></button>
+        <button class="btn hub" title="Trackeado no Hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg><i class="dot" style="background:var(--green)"></i></button>
+        <button class="btn new hover"><svg><use href="#i-imgdown"/></svg><span class="tip">Baixar 16 capas</span></button>
+        <button class="btn new"><svg><use href="#i-layers"/></svg></button>
+      </div>
+      <div class="ig-name">❦ Mirelda ❦</div>
+      <div class="ig-stats"><span><b>818</b> posts</span><span><b>19,1 mil</b> seguidores</span><span><b>8</b> seguindo</span></div>
+    </div>
+  </div>
+  <p class="note">Ao passar o mouse: <b>Baixar 16 capas</b> e <b>Baixar 16 posts e reels</b>. O número é o que a página já carregou deste perfil e cresce conforme você rola.</p>
+
+  <h2>Opções de ícone</h2>
+  <div class="opts">
+    <div class="card">
+      <div class="opt-head"><b>Botão 1: capas</b><span class="note">uma imagem por post ou reel</span></div>
+      <div class="opt-list">
+        <div class="opt">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-img"/></svg></span></div>
+          <svg class="big"><use href="#i-img"/></svg>
+          <b>A · Imagem</b><span>O mesmo do botão de capa de cada miniatura.</span>
+        </div>
+        <div class="opt rec">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-imgdown"/></svg></span></div>
+          <svg class="big"><use href="#i-imgdown"/></svg>
+          <b>B · Imagem com seta <span class="pick">recomendado</span></b><span>Diz "baixar imagens" sem precisar ler.</span>
+        </div>
+        <div class="opt">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-images"/></svg></span></div>
+          <svg class="big"><use href="#i-images"/></svg>
+          <b>C · Várias imagens</b><span>Diz "várias", mas não diz "baixar".</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="opt-head"><b>Botão 2: posts e reels</b><span class="note">vídeo, foto e carrossel inteiro</span></div>
+      <div class="opt-list">
+        <div class="opt">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-dl"/></svg></span></div>
+          <svg class="big"><use href="#i-dl"/></svg>
+          <b>A · Seta para baixo</b><span>O mesmo do baixar de cada miniatura. Não diz "todos".</span>
+        </div>
+        <div class="opt rec">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-layers"/></svg></span></div>
+          <svg class="big"><use href="#i-layers"/></svg>
+          <b>B · Camadas <span class="pick">recomendado</span></b><span>Já é o "Baixar tudo deste story" da extensão.</span>
+        </div>
+        <div class="opt">
+          <div class="in-row"><span class="btn"><svg><use href="#i-more"/></svg></span><span class="btn hub"><svg viewBox="0 0 128 128"><use href="#i-hub"/></svg></span><span class="btn"><svg><use href="#i-folderdown"/></svg></span></div>
+          <svg class="big"><use href="#i-folderdown"/></svg>
+          <b>C · Pasta com seta</b><span>Diz "vai para uma pasta".</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>O que o botão mostra enquanto trabalha</h2>
+  <div class="states">
+    <div class="state"><span class="label">Pronto</span><span class="btn hover"><svg><use href="#i-imgdown"/></svg><span class="tip">Baixar 16 capas</span></span></div>
+    <div class="state"><span class="label">Baixando</span><span class="btn busy hover"><svg><use href="#i-imgdown"/></svg><svg class="ring" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14.5" stroke="rgba(255,255,255,.15)"/><circle cx="16" cy="16" r="14.5" stroke="var(--sky)" stroke-dasharray="39.9 91.1"/></svg><span class="tip">Baixando 7 de 16… clique para parar</span></span></div>
+    <div class="state"><span class="label">Terminou</span><span class="btn hover"><svg><use href="#i-imgdown"/></svg><i class="dot" style="background:var(--green)"></i><span class="tip">16 capas baixadas</span></span></div>
+    <div class="state"><span class="label">Faltou algum</span><span class="btn hover"><svg><use href="#i-imgdown"/></svg><i class="dot" style="background:var(--red)"></i><span class="tip">14 de 16 baixadas. 2 não vieram: clique para tentar só essas</span></span></div>
+    <div class="state"><span class="label">Nada carregado</span><span class="btn off hover"><svg><use href="#i-imgdown"/></svg><span class="tip">Role a grade: nenhum post carregado ainda</span></span></div>
+  </div>
+  <p class="note">Bolinha verde e vermelha iguais às do botão de trackear. O anel enche conforme baixa.</p>
+
+  <h2>O que cada um baixa</h2>
+  <div class="card">
+    <table>
+      <tr><th>Capas</th><td>Uma imagem por post ou reel carregado, na resolução que o Instagram manda para a grade (1143 a 1440 px de largura medidos). Funciona nas abas Posts e Reels. Não faz nenhuma consulta a mais ao Instagram.</td></tr>
+      <tr><th>Posts e reels</th><td>Vídeo em <code>.mp4</code>, foto em <code>.jpg</code>, carrossel com um arquivo por foto ou vídeo (<code>_1</code>, <code>_2</code>…). Na aba Posts o link do vídeo já vem junto. Na aba Reels o Instagram manda só a capa: o link vem da consulta por vídeo que a extensão já faz ao abrir o perfil. Os que ainda não tiverem link são consultados antes de baixar, um por vez.</td></tr>
+      <tr><th>Pasta</th><td><code>social-mate/mirelda.amber/capas/</code> e <code>social-mate/mirelda.amber/posts/</code>, com nomes como hoje: <code>mirelda.amber-ig-DYfwUu3R-Nf.jpg</code>. Hoje a extensão não deixa a página criar subpasta: é uma mudança pequena no caminho dos downloads.</td></tr>
+      <tr><th>Limites</th><td>Só o que a página carregou: para os 818, você rola até onde quiser. A extensão não rola sozinha (leituras demais na conta). Ela guarda até 500 posts por aba aberta; dá para subir se precisar.</td></tr>
+    </table>
+  </div>
+
+  <h2>O que foi medido nas requests (17/11)</h2>
+  <div class="card">
+    <ul>
+      <li><b>@mirelda.amber, aba Reels:</b> 12 reels na primeira resposta do Instagram, mais 4 ao rolar uma vez. Só capa (1320 px), sem link do vídeo.</li>
+      <li><b>@mirelda.amber, aba Posts:</b> 12 posts, todos vídeo, com link do vídeo e capa na mesma resposta.</li>
+      <li><b>@iivymooon, aba Posts:</b> 2 carrosséis (3 fotos em 1440 px e 5 fotos em 1143 px), cada foto com o próprio link.</li>
+      <li><b>Na extensão, já existe:</b> cada post chega marcado com o perfil (também os da aba Reels), e cada miniatura já baixa o post inteiro e a capa. Falta o botão no cabeçalho e repetir isso para todos os posts do perfil.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
