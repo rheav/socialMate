@@ -141,3 +141,22 @@ it('ends a running download when the page moves to another profile, without send
   fb.hubTick();
   expect(fb.btn('posts').dataset.state).not.toBe('busy');
 });
+
+it('retries only the missing reel after a tab round-trip unmounted its tile', async () => {
+  const fb = bootHeader(`${PROFILE}&sk=reels_tab`);
+  fb.records([REC('11111111', 'https://scontent.fbcdn.net/v1.mp4'), REC('22222222', null)]);
+  fb.btn('posts').click();
+  await flush();
+  expect(fb.btn('posts').dataset.state).toBe('partial');
+  fb.location.href = PROFILE; // All tab
+  fb.hubTick();
+  fb.document.querySelector('a[href="/reel/22222222"]').remove();
+  fb.location.href = `${PROFILE}&sk=reels_tab`;
+  fb.hubTick();
+  fb.records([REC('22222222', 'https://scontent.fbcdn.net/v2.mp4')]);
+  fb.sent.length = 0;
+  fb.btn('posts').click();
+  await flush();
+  expect(fb.downloads().map(m => m.url)).toEqual(['https://scontent.fbcdn.net/v2.mp4']);
+  expect(fb.btn('posts').dataset.state).toBe('done');
+});

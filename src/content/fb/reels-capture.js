@@ -3120,11 +3120,11 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     if (!surf?.startsWith("profile:") || !key) return;
     const job = dlJobs[kind]?.surface === surf ? dlJobs[kind] : null;
     if (job?.state === "busy") { job.stop = true; return; }
-    // A retry takes only what did not come, read again: a reel's MP4 link may have arrived since.
-    const records = collect();
+    // A retry takes only the reels that did not come, by id and read again (tiles + captured):
+    // an MP4 link may have arrived since, and a tab round-trip may have unmounted their tiles.
+    const records = job?.state === "partial" ? [...job.left].map(recordOf).filter((r) => r.id) : collect();
     const owner = ownerName() || records.find((r) => r.authorName)?.authorName || key;
-    const all = records.flatMap((r) => fbDlFilesOf(r, kind, owner));
-    const files = job?.state === "partial" ? all.filter((f) => job.left.has(f.filename)) : all;
+    const files = records.flatMap((r) => fbDlFilesOf(r, kind, owner).map((f) => ({ ...f, id: r.id })));
     if (!files.length) return;
     const dir = [fbAuthorSlug(owner), FB_DL_FOLDERS[kind]];
     const run = { surface: surf, state: "busy", total: files.length, done: 0, noLink: 0, stop: false, stopped: false, left: new Set() };
@@ -3132,13 +3132,13 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     syncFbDl();
     for (const f of files) {
       // Another profile (or tab) since the click: its files must not land in this one's folder.
-      if (run.stop || disabled || currentSurface() !== surf) { run.left.add(f.filename); continue; }
-      if (!f.url) { run.noLink += 1; run.left.add(f.filename); continue; }
+      if (run.stop || disabled || currentSurface() !== surf) { run.left.add(f.id); continue; }
+      if (!f.url) { run.noLink += 1; run.left.add(f.id); continue; }
       try {
         await dlMedia({ type: "FBW_DL_MEDIA", platform: "facebook", kind: f.kind, url: f.url, filename: f.filename, dir });
         run.done += 1;
       } catch {
-        run.left.add(f.filename);
+        run.left.add(f.id);
       }
       syncFbDl();
     }
