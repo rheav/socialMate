@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.45.3] — 2026-11-21
+
+### Fixed
+- **Instagram's header download buttons count the whole set after a stop or a partial run**, as Facebook's do since 1.45.2: a second click continues the same run, so the tips read "12 capas baixadas" instead of the last run's count. A file no longer loaded stays counted as missing.
+
+Checked live 2026-11-21 on *@iivymooon* with the exported socialRadar build (Chrome headless, copied cookies): covers stopped at "Parado: 3 de 12 baixados", the next click finished with "12 capas baixadas" and 12 files, no duplicates. First time these buttons were seen live in a browser.
+
 ## [1.45.2] — 2026-11-21
 
 ### Fixed
