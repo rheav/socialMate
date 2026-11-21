@@ -16,6 +16,18 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.45.1] — 2026-11-21
+
+### Fixed
+- **A reel's chosen cover survives later data**: `collectFbVideos` keeps the creator's cover in its own `cover` field, so a later fragment of the same video carrying only `first_frame_thumbnail` no longer turns "Baixar capas" back to frame 0 (`fbDlFilesOf` reads `cover` first).
+- **The download folder no longer depends on when you click**: with no name link loaded yet, the folder comes from the profile heading the buttons sit beside, not the numeric id (`<id>/` vs `<name>/`).
+- **No blink after an extension update or reload**: the old content-script world removes only the Hub and download buttons it made, so the new world's stay up (Facebook and TikTok Hub buttons; Facebook download buttons).
+
+### Docs
+- Site guide (pt-br and en): the header download buttons on Instagram and Facebook.
+
+Checked live 2026-11-21 on *Sandy Spirit Guide* with the exported socialRadar build, real Chrome headless and a copy of the agents' profile cookies: covers stopped at 3 of 20 with the "Parado" tip, a second click fetched the other 17 (20 files, no duplicates, folder "Sandy Spirit Guide"); reels left for the All tab after 2 files (no more files 3 s and 9 s later), back on Reels the tip read "2 de 20 baixados. 18 não vieram", and the retry fetched exactly the 18 (20 MP4s, no duplicates); FB dark theme: the dot ring is the page colour (#252728); a reload via `Extensions.loadUnpacked` handed over at 927 ms with the three buttons present in all 341 samples (20 ms apart), and the new world downloaded.
+
 ## [1.45.0] — 2026-11-21
 
 ### Added
