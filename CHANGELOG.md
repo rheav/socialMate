@@ -16,6 +16,13 @@ then `npm run build` so `dist/manifest.json` reflects it.
 > History before `0.5.1` is reconstructed from `README.md` / `HANDOFF.md`; dates are
 > approximate. Entries from `0.5.1` on are taken from the handoff log.
 
+## [1.45.2] — 2026-11-21
+
+### Fixed
+- **After a stop or a partial run, the Facebook header buttons count the whole set**: a second click continues the same run (its total and what already came), so the tips read "Baixando 4 de 20…" and "20 capas baixadas" instead of "0 de 17…" and "17 capas baixadas". A missing reel no longer in either record map stays counted as missing.
+
+Checked live 2026-11-21 on *Sandy Spirit Guide* with the exported socialRadar build (Chrome headless, copied cookies): covers stopped at "Parado: 3 de 10 baixados", the next click finished with "10 capas baixadas" and 10 files, no duplicates.
+
 ## [1.45.1] — 2026-11-21
 
 ### Fixed
