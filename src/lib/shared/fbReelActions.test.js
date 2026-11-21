@@ -47,3 +47,8 @@ it('builds header bulk-download file descriptors for full-res covers and progres
     filename: `61590925281317-fb-${rec.id}.mp4`,
   }]);
 });
+
+it("downloads the creator's chosen cover over whatever thumb a later fragment left", () => {
+  const r = { ...rec, thumb: 'https://scontent.fbcdn.net/frame0.jpg', cover: 'https://scontent.fbcdn.net/custom.jpg' };
+  expect(fbDlFilesOf(r, 'covers')[0].url).toBe('https://scontent.fbcdn.net/custom.jpg');
+});

@@ -13,6 +13,12 @@ const feedback = (id, index, likes = 0) => ({ path: ['node', 'aggregated_fb_shor
   data: { url: `https://www.facebook.com/reel/${id}/`, feedback: { total_comment_count: 32, share_count_reduced: '2.2K' },
     fb_reel_react_button: { story: { feedback: { likers: { count: likes } } } } } });
 describe('Facebook reel normalization', () => {
+  it("keeps the creator's cover when a later fragment of the same video carries only its first frame", () => {
+    const id = '2030018604348103';
+    const frameOnly = { data: { __typename: 'Video', id, first_frame_thumbnail: 'https://scontent.fbcdn.net/frame0.jpg' } };
+    expect(parseFbReels([base, frameOnly]).find(r => r.id === id).cover).toBe('https://scontent.fbcdn.net/cover.jpg');
+    expect(parseFbReels([frameOnly, base]).find(r => r.id === id).cover).toBe('https://scontent.fbcdn.net/cover.jpg');
+  });
   it('joins out-of-order deferred stats by reel identity, preserves zero and publication date', () => {
     const rows = parseFbReels([base, feedback('2900245527021430', 1, 9), feedback('2030018604348103', 0)]);
     expect(rows.find(r => r.id === '2030018604348103')).toMatchObject({ views: 4400, likes: 0, comments: 32, shares: 2200,

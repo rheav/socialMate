@@ -290,6 +290,8 @@ Todas ficam na aba **Pesquisa**, dentro da rede correspondente.
 | Facebook | **Fotos** | Baixa as fotos de um perfil num ZIP. |
 | Pinterest | **Pasta** | Baixa uma pasta inteira, não só os pins que passaram na tela. |
 
+**No cabeçalho do perfil**, ao lado do botão do Spy, há dois botões de baixar. No Instagram, **Baixar capas** e **Baixar posts**. No Facebook, na aba **Reels** do perfil, **Baixar capas** e **Baixar reels**. Eles baixam, um arquivo por vez, o que a grade já carregou: role a grade para incluir mais. Os arquivos vão para a pasta de downloads, em `<perfil>/capas`, `<perfil>/posts` ou `<perfil>/reels`. Um clique durante o download para depois do arquivo atual; um clique depois baixa só o que faltou.
+
 ## Opções
 
 <figure class="shot shot-panel">

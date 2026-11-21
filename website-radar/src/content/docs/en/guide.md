@@ -290,6 +290,8 @@ They all live in the **Pesquisa** tab, under their network.
 | Facebook | **Fotos** (Photos) | Downloads a profile's photos as a ZIP. |
 | Pinterest | **Pasta** (Board) | Downloads a whole board, not just the pins you scrolled past. |
 
+**In the profile header**, next to the Spy button, there are two download buttons. On Instagram, **Baixar capas** (covers) and **Baixar posts** (posts). On Facebook, on the profile's **Reels** tab, **Baixar capas** (covers) and **Baixar reels** (reels). They download, one file at a time, what the grid has loaded so far: scroll the grid to include more. Files go to your downloads folder, under `<profile>/capas`, `<profile>/posts` or `<profile>/reels`. A click during a download stops after the current file; a click afterwards downloads only what was missing.
+
 ## Options
 
 <figure class="shot shot-panel">

@@ -73,7 +73,7 @@ export function parseFbReels(input, activeId = null) {
       videos.set(o.id, mergeFbReel(videos.get(o.id), {
         id: o.id, views: parseCount(o.play_count_reduced ?? o.play_count),
         created_at: Number.isFinite(o.created_time) ? o.created_time : null,
-        duration: delivery?.durationS || null, thumb: delivery?.thumbs?.[0] || null,
+        duration: delivery?.durationS || null, thumb: delivery?.thumbs?.[0] || null, cover: delivery?.cover || null,
         progressive: delivery?.progressive || null, audio: delivery?.audio || null, captions: delivery?.captions || [],
         audioTitle: typeof o.track_title === 'string' ? o.track_title : null,
         audioOriginal: typeof o.is_original_audio_on_facebook === 'boolean' ? o.is_original_audio_on_facebook : null,

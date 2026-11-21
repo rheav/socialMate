@@ -205,6 +205,7 @@ function mergeFbVideo(prev, next) {
     permalink: next.permalink || prev?.permalink || null,
     audio: next.audio || prev?.audio || null,
     progressive: next.progressive || prev?.progressive || null,
+    cover: next.cover || prev?.cover || null,
     thumbs: [...new Set([...(prev?.thumbs || []), ...(next.thumbs || [])])].slice(-12),
     captions: [...new Map([...(prev?.captions || []), ...(next.captions || [])].map(c => [c.lang, c])).values()].slice(-30),
   };
@@ -221,9 +222,9 @@ function collectFbVideos(root) {
       const result = o.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
       const legacy = o.videoDeliveryLegacyFields;
       // The creator's chosen cover first (what the grid shows); the raw frame 0 last, kept for matching.
-      const thumbs = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
-        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri,
-        o.first_frame_thumbnail].map(fbMediaUrl).filter(Boolean);
+      const chosen = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
+        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri].map(fbMediaUrl).filter(Boolean);
+      const thumbs = [...chosen, fbMediaUrl(o.first_frame_thumbnail)].filter(Boolean);
       let audio = null;
       let progressive = null;
       for (const row of result?.progressive_urls || []) {
@@ -258,7 +259,8 @@ function collectFbVideos(root) {
       const durationS = Number.isFinite(o.playable_duration_in_ms) && o.playable_duration_in_ms > 0
         ? o.playable_duration_in_ms / 1000 : null;
       if (audio || progressive || thumbs.length || durationS || captions.length) {
-        const row = { id: o.id, durationS, permalink, audio, progressive, thumbs, captions };
+        // cover: its own field, so a later fragment carrying only frame 0 cannot replace it.
+        const row = { id: o.id, durationS, permalink, audio, progressive, thumbs, cover: chosen[0] || null, captions };
         records.set(o.id, mergeFbVideo(records.get(o.id), row));
       }
     }
@@ -377,7 +379,7 @@ function parseFbReels(input, activeId = null) {
       videos.set(o.id, mergeFbReel(videos.get(o.id), {
         id: o.id, views: parseCount(o.play_count_reduced ?? o.play_count),
         created_at: Number.isFinite(o.created_time) ? o.created_time : null,
-        duration: delivery?.durationS || null, thumb: delivery?.thumbs?.[0] || null,
+        duration: delivery?.durationS || null, thumb: delivery?.thumbs?.[0] || null, cover: delivery?.cover || null,
         progressive: delivery?.progressive || null, audio: delivery?.audio || null, captions: delivery?.captions || [],
         audioTitle: typeof o.track_title === 'string' ? o.track_title : null,
         audioOriginal: typeof o.is_original_audio_on_facebook === 'boolean' ? o.is_original_audio_on_facebook : null,
@@ -797,7 +799,7 @@ function fbAuthorSlug(name) {
 /** The file one reel makes for the profile header's "Baixar capas" / "Baixar reels"; `url: null` until its link came in. */
 function fbDlFilesOf(rec, kind, fallbackOwner = null) {
   const base = `${fbAuthorSlug(rec?.authorName || fallbackOwner)}-fb-${rec?.id}`;
-  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
+  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.cover || rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
   return [{ url: fbMediaUrl(rec?.progressive), kind: 'video', filename: `${base}.mp4` }];
 }
 
@@ -2879,7 +2881,9 @@ function startHubButton(platform, placeOf, afterSync = null) {
   return () => {
     clearInterval(timer);
     try { chrome.storage.onChanged.removeListener(onStorage); } catch { /* a dead world */ }
-    document.getElementById(HUB_BTN_ID)?.remove();
+    // Only this world's button: after a reload the new world's (no expando here) stays up.
+    const btn = document.getElementById(HUB_BTN_ID);
+    if (btn?.__fbwHubFire) btn.remove();
     afterSync?.(null, null);
   };
 }
@@ -2890,8 +2894,9 @@ function startHubButton(platform, placeOf, afterSync = null) {
 // The profile's download buttons (socialMate 1.44): right after the Hub button in an
 // Instagram profile's header, "Baixar capas" (one cover per post) and "Baixar posts"
 // (each post's video or photo, every slide of a carousel), for the posts of THIS
-// profile the page has loaded so far. INLINED into the Instagram bridge — see
-// src/lib/shared/README.md before editing (no imports allowed in this file).
+// profile the page has loaded so far; since 1.45 also "Baixar capas" / "Baixar reels" in a
+// Facebook profile's header. INLINED into the Instagram bridge and the Facebook reels
+// script — see src/lib/shared/README.md before editing (no imports allowed in this file).
 //
 // The bridge owns the records and the downloads; this file owns the two buttons,
 // what they say, and which files a post makes. Nothing here asks Instagram for
@@ -2999,8 +3004,13 @@ function igDlTip(kind, s, site = "instagram") {
 }
 
 /** Take the two buttons away (not a profile, the Hub button gone, a takeover). */
-function removeIgDlButtons(doc) {
-  for (const id of Object.values(IG_DL_IDS)) doc.getElementById(id)?.remove();
+/** `ownOnly`: a world handing over after a reload leaves the new world's buttons (whose
+ *  expandos it cannot see) in place, so they do not blink out until its next sync. */
+function removeIgDlButtons(doc, ownOnly = false) {
+  for (const id of Object.values(IG_DL_IDS)) {
+    const el = doc.getElementById(id);
+    if (el && (!ownOnly || el.__fbwDlFire)) el.remove();
+  }
 }
 
 /**
@@ -3110,7 +3120,7 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     return states;
   }
   function syncFbDl(list = null) {
-    if (disabled || !lastHubBtn?.isConnected) { removeIgDlButtons(document); return; }
+    if (disabled || !lastHubBtn?.isConnected) { removeIgDlButtons(document, disabled); return; }
     syncIgDlButtons(document, { anchor: lastHubBtn, site: "facebook", ring: lastHubPlace?.ring || "var(--surface-background, #fff)",
       states: fbDlStates(list), onClick: (kind) => void onFbDlClick(kind) });
   }
@@ -3123,7 +3133,10 @@ function syncIgDlButtons(doc, { anchor, states, onClick, site = null, ring = nul
     // A retry takes only the reels that did not come, by id and read again (tiles + captured):
     // an MP4 link may have arrived since, and a tab round-trip may have unmounted their tiles.
     const records = job?.state === "partial" ? [...job.left].map(recordOf).filter((r) => r.id) : collect();
-    const owner = ownerName() || records.find((r) => r.authorName)?.authorName || key;
+    // The heading the buttons sit beside is there whenever they are: no "<id>/" folder before a name link loads.
+    const heading = (fbNameAnchor()?.textContent || "").replace(/\s+/g, " ").trim()
+      .replace(/\s*(conta verificada|verified account)$/i, "").slice(0, 60);
+    const owner = ownerName() || heading || records.find((r) => r.authorName)?.authorName || key;
     const files = records.flatMap((r) => fbDlFilesOf(r, kind, owner).map((f) => ({ ...f, id: r.id })));
     if (!files.length) return;
     const dir = [fbAuthorSlug(owner), FB_DL_FOLDERS[kind]];

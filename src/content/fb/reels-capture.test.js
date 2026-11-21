@@ -160,3 +160,23 @@ it('retries only the missing reel after a tab round-trip unmounted its tile', as
   expect(fb.downloads().map(m => m.url)).toEqual(['https://scontent.fbcdn.net/v2.mp4']);
   expect(fb.btn('posts').dataset.state).toBe('done');
 });
+
+it("names the folder after the profile heading when no record or link carries the name yet", async () => {
+  const fb = bootHeader(`${PROFILE}&sk=reels_tab`);
+  fb.records([{ id: '11111111', progressive: 'https://scontent.fbcdn.net/v1.mp4' }]);
+  fb.btn('covers').click();
+  await flush();
+  expect(fb.downloads().map(m => [m.dir, m.filename])).toEqual([
+    [['Sandy Spirit Guide', 'capas'], 'Sandy Spirit Guide-fb-11111111.jpg'],
+    [['Sandy Spirit Guide', 'capas'], 'Sandy Spirit Guide-fb-22222222.jpg'],
+  ]);
+});
+
+it('leaves the buttons a newer world already put up when it hands over (no flicker on reload)', () => {
+  const fb = bootHeader(`${PROFILE}&sk=reels_tab`);
+  const ids = ['fbw-hub-btn', 'fbw-dl-covers', 'fbw-dl-posts'];
+  // What this world sees after a reload: the new world's nodes, which carry none of its expandos.
+  for (const id of ids) { const n = fb.document.createElement('div'); n.id = id; fb.document.getElementById(id).replaceWith(n); }
+  fb.post({ __fbwReelsTakeover: 'new-gen' });
+  for (const id of ids) expect(fb.document.getElementById(id)).not.toBeNull();
+});

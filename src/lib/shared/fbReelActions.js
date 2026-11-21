@@ -18,7 +18,7 @@ export function fbAuthorSlug(name) {
 /** The file one reel makes for the profile header's "Baixar capas" / "Baixar reels"; `url: null` until its link came in. */
 export function fbDlFilesOf(rec, kind, fallbackOwner = null) {
   const base = `${fbAuthorSlug(rec?.authorName || fallbackOwner)}-fb-${rec?.id}`;
-  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
+  if (kind === 'covers') return [{ url: fbMediaUrl(fullResThumb(rec?.cover || rec?.thumb)), kind: 'image', filename: `${base}.jpg` }];
   return [{ url: fbMediaUrl(rec?.progressive), kind: 'video', filename: `${base}.mp4` }];
 }
 

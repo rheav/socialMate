@@ -25,6 +25,7 @@ export function mergeFbVideo(prev, next) {
     permalink: next.permalink || prev?.permalink || null,
     audio: next.audio || prev?.audio || null,
     progressive: next.progressive || prev?.progressive || null,
+    cover: next.cover || prev?.cover || null,
     thumbs: [...new Set([...(prev?.thumbs || []), ...(next.thumbs || [])])].slice(-12),
     captions: [...new Map([...(prev?.captions || []), ...(next.captions || [])].map(c => [c.lang, c])).values()].slice(-30),
   };
@@ -41,9 +42,9 @@ export function collectFbVideos(root) {
       const result = o.videoDeliveryResponseFragment?.videoDeliveryResponseResult;
       const legacy = o.videoDeliveryLegacyFields;
       // The creator's chosen cover first (what the grid shows); the raw frame 0 last, kept for matching.
-      const thumbs = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
-        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri,
-        o.first_frame_thumbnail].map(fbMediaUrl).filter(Boolean);
+      const chosen = [o.preferred_thumbnail?.image?.uri, o.thumbnailImage?.uri, o.image?.uri,
+        o.imageLargeAspect?.uri, o.imageFlexible?.uri, o.imageServerSelected?.uri].map(fbMediaUrl).filter(Boolean);
+      const thumbs = [...chosen, fbMediaUrl(o.first_frame_thumbnail)].filter(Boolean);
       let audio = null;
       let progressive = null;
       for (const row of result?.progressive_urls || []) {
@@ -78,7 +79,8 @@ export function collectFbVideos(root) {
       const durationS = Number.isFinite(o.playable_duration_in_ms) && o.playable_duration_in_ms > 0
         ? o.playable_duration_in_ms / 1000 : null;
       if (audio || progressive || thumbs.length || durationS || captions.length) {
-        const row = { id: o.id, durationS, permalink, audio, progressive, thumbs, captions };
+        // cover: its own field, so a later fragment carrying only frame 0 cannot replace it.
+        const row = { id: o.id, durationS, permalink, audio, progressive, thumbs, cover: chosen[0] || null, captions };
         records.set(o.id, mergeFbVideo(records.get(o.id), row));
       }
     }

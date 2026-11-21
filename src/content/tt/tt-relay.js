@@ -3712,7 +3712,9 @@ function startHubButton(platform, placeOf, afterSync = null) {
   return () => {
     clearInterval(timer);
     try { chrome.storage.onChanged.removeListener(onStorage); } catch { /* a dead world */ }
-    document.getElementById(HUB_BTN_ID)?.remove();
+    // Only this world's button: after a reload the new world's (no expando here) stays up.
+    const btn = document.getElementById(HUB_BTN_ID);
+    if (btn?.__fbwHubFire) btn.remove();
     afterSync?.(null, null);
   };
 }

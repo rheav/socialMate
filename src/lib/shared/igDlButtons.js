@@ -1,8 +1,9 @@
 // The profile's download buttons (socialMate 1.44): right after the Hub button in an
 // Instagram profile's header, "Baixar capas" (one cover per post) and "Baixar posts"
 // (each post's video or photo, every slide of a carousel), for the posts of THIS
-// profile the page has loaded so far. INLINED into the Instagram bridge — see
-// src/lib/shared/README.md before editing (no imports allowed in this file).
+// profile the page has loaded so far; since 1.45 also "Baixar capas" / "Baixar reels" in a
+// Facebook profile's header. INLINED into the Instagram bridge and the Facebook reels
+// script — see src/lib/shared/README.md before editing (no imports allowed in this file).
 //
 // The bridge owns the records and the downloads; this file owns the two buttons,
 // what they say, and which files a post makes. Nothing here asks Instagram for
@@ -110,8 +111,13 @@ export function igDlTip(kind, s, site = "instagram") {
 }
 
 /** Take the two buttons away (not a profile, the Hub button gone, a takeover). */
-export function removeIgDlButtons(doc) {
-  for (const id of Object.values(IG_DL_IDS)) doc.getElementById(id)?.remove();
+/** `ownOnly`: a world handing over after a reload leaves the new world's buttons (whose
+ *  expandos it cannot see) in place, so they do not blink out until its next sync. */
+export function removeIgDlButtons(doc, ownOnly = false) {
+  for (const id of Object.values(IG_DL_IDS)) {
+    const el = doc.getElementById(id);
+    if (el && (!ownOnly || el.__fbwDlFire)) el.remove();
+  }
 }
 
 /**
